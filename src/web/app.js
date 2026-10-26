@@ -209,6 +209,7 @@ async function refresh() {
     return;
   }
   const [, kind = "chain", ...rest] = location.hash.split("/");
+  const stepID = kind === "chain" && rest.length > 1 ? rest.pop() : "";
   const name = decodeURIComponent(rest.join("/"));
   current = { kind, name };
   editor = null;
@@ -220,7 +221,7 @@ async function refresh() {
   else if (kind === "prompt") showPrompt(name);
   else {
     current = { kind: "chain", name: name || lib.chains[0]?.name };
-    showChain(current.name);
+    showChain(current.name, stepID);
   }
   renderSide();
 }
@@ -268,7 +269,7 @@ function usedBy(match) {
   const uses = [];
   for (const chain of lib.chains) {
     for (const step of chain.steps || []) {
-      if (match(step)) uses.push(h("a", { href: `#/chain/${chain.name}` }, `${chain.title} → ${step.title}`));
+      if (match(step)) uses.push(h("a", { href: `#/chain/${chain.name}/${step.id}` }, `${chain.title} → ${step.title}`));
     }
   }
   return uses.length ? uses : [h("span", { class: "hint" }, "Not used by any chain yet")];
@@ -276,7 +277,7 @@ function usedBy(match) {
 
 /* chain editor */
 
-function showChain(name) {
+function showChain(name, stepID = "") {
   const chain = lib.chains.find((c) => c.name === name);
   if (!chain) {
     main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" },
@@ -289,7 +290,8 @@ function showChain(name) {
   draft.steps = draft.steps || [];
   delete draft.source;
   const prompts = Object.fromEntries(Object.entries(lib.prompts).map(([k, v]) => [k, v.text]));
-  editor = { name, source: chain.source, draft, selected: "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(), dirty: false, problems: chain.problems || [], message: "" };
+  const at = draft.steps.findIndex((s) => s.id === stepID);
+  editor = { name, source: chain.source, draft, selected: at >= 0 ? at : "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(), dirty: false, problems: chain.problems || [], message: "" };
   renderChainPage();
 }
 
@@ -822,7 +824,7 @@ function renderRun(run) {
   page.querySelector("#run-tree").replaceChildren(
     treeRow({ kind: "root", title: run.title, state: run.status, time: duration(run.started_at, run.ended_at), onclick: () => window.scrollTo({ top: 0, behavior: "smooth" }) }),
     runTreeRows(run.steps));
-  syncCards(page.querySelector("#steps"), run.steps, run);
+  syncCards(page.querySelector("#steps"), run.steps, run, run.chain);
 
   if (runView.status !== run.status) {
     runView.status = run.status;
@@ -851,11 +853,11 @@ function focusCard(path) {
   setTimeout(() => card.classList.remove("flash"), 1200);
 }
 
-function syncCards(container, steps, run) {
+function syncCards(container, steps, run, chain) {
   steps.forEach((step, i) => {
     let entry = runView.entries.get(keyOf(step));
     if (!entry) {
-      entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "timeline" }) };
+      entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "timeline" }), chain };
       runView.entries.set(keyOf(step), entry);
       container.append(entry.el);
     }
@@ -869,7 +871,7 @@ function syncCards(container, steps, run) {
       entry.earlierCount = step.earlier?.length || 0;
       entry.earlier = entry.earlierCount ? earlierPanel(run, step.earlier) : null;
     }
-    if (step.children?.length) syncCards(entry.kids, step.children, run);
+    if (step.children?.length) syncCards(entry.kids, step.children, run, step.uses);
     const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: step.kind === "chain" ? undefined : step.cost });
     if (entry.sig !== sig) {
       const fresh = stepCard(run, step, i, entry);
@@ -1018,8 +1020,17 @@ function stepCard(run, step, i, entry) {
       h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind]),
       step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
       step.always ? h("span", { class: "chip flag" }, "always runs") : null,
-      h("span", { class: "card-stats" }, stats.join(" · "))),
+      h("span", { class: "card-stats" }, stats.join(" · ")),
+      h("span", { class: "card-edit" }, editLinks(step, entry.chain))),
     ...body);
+}
+
+function editLinks(step, chain) {
+  const target = { tool: ["tool", "Edit tool"], agent: ["prompt", "Edit prompt"], chain: ["chain", "Edit chain"] }[step.kind];
+  return [
+    target && step.uses ? h("a", { href: `#/${target[0]}/${encodeURIComponent(step.uses)}`, title: `Open ${step.uses}` }, target[1]) : null,
+    chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}`, title: `Open this step in the ${chain} chain` }, "Edit step") : null,
+  ];
 }
 
 function decideForm(runID, step) {

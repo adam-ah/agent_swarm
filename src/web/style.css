@@ -239,6 +239,9 @@ input[type=checkbox] { width: auto; }
 .card.chain { background: #fffcf8; }
 .card-head { display: flex; align-items: center; gap: 9px; min-height: 22px; }
 .card-title { font-weight: 650; font-size: 15px; }
+.card-edit { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
+.card-edit a { color: var(--muted); }
+.card-edit a:hover { color: var(--accent); }
 .card-stats { margin-left: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chip { font: 650 10.5px var(--mono); letter-spacing: .4px; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
 .chip.agent { color: var(--agent); background: var(--agent-soft); }
