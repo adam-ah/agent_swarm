@@ -1,0 +1,11 @@
+{
+  "name": "swarm-web-lint",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@eslint/css": "2.0.1",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
+    "globals": "17.13.0"
+  }
+}

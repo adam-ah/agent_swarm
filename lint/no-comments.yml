@@ -1,0 +1,29 @@
+id: no-go-comments
+language: go
+severity: error
+message: comments are not allowed
+rule:
+  kind: comment
+  not:
+    regex: "^//go:"
+---
+id: no-js-comments
+language: javascript
+severity: error
+message: comments are not allowed
+rule:
+  kind: comment
+---
+id: no-css-comments
+language: css
+severity: error
+message: comments are not allowed
+rule:
+  kind: comment
+---
+id: no-html-comments
+language: html
+severity: error
+message: comments are not allowed
+rule:
+  kind: comment

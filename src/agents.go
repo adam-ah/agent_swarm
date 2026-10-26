@@ -37,14 +37,17 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 	if err != nil {
 		return nil, err
 	}
-	defer transcript.Close()
+	defer func() { _ = transcript.Close() }()
 
 	call := agentCall{
 		run: run, sr: sr, step: step, transcript: transcript, cli: lib.Settings.Agents[runner],
 		prompt: stepScope(step, sc, nil).fill(lib.Prompts[step.Agent].Text, false),
 	}
 	if len(step.Returns) > 0 {
-		call.schema, _ = json.Marshal(returnsSchema(step.Returns))
+		call.schema, err = json.Marshal(returnsSchema(step.Returns))
+		if err != nil {
+			return nil, err
+		}
 	}
 	var result agentResult
 	switch {
@@ -79,7 +82,10 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 		}
 		if step.Save != "" {
 			path := stepScope(step, sc, nil).fill(step.Save, false)
-			saved, _ := json.MarshalIndent(result.structured, "", "  ")
+			saved, marshalErr := json.MarshalIndent(result.structured, "", "  ")
+			if marshalErr != nil {
+				return out, marshalErr
+			}
 			if err := os.WriteFile(path, saved, 0o644); err != nil {
 				return out, fmt.Errorf("could not save %s: %w", path, err)
 			}
@@ -116,7 +122,7 @@ func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, stdi
 	scanner.Buffer(make([]byte, 1024*1024), 64*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		call.transcript.Write(append(append([]byte{}, line...), '\n'))
+		_, _ = call.transcript.Write(append(append([]byte{}, line...), '\n'))
 		onLine(line, log)
 	}
 	err = <-done

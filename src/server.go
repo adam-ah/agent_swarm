@@ -1,19 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
-	"time"
-
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
 )
 
 type server struct {
@@ -53,15 +45,25 @@ func (s *server) routes() http.Handler {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	raw, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeBody(w, status, "application/json", raw)
+}
+
+func writeBody(w http.ResponseWriter, status int, kind string, raw []byte) {
+	w.Header().Set("Content-Type", kind)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(raw)
 }
 
 func fail(w http.ResponseWriter, err error) {
-	var invalid *Invalid
-	if errors.As(err, &invalid) {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "problems": invalid.Problems})
+	var refused *RefusedError
+	if errors.As(err, &refused) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error(), "problems": refused.Problems})
 		return
 	}
 	writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -88,26 +90,12 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func (s *server) shutdown(w http.ResponseWriter, r *http.Request) {
-	active := s.core.store.active()
-	var cancelled []string
-	for _, run := range active {
-		run.cancel()
-		cancelled = append(cancelled, fmt.Sprintf("%s (%s)", run.ID, run.Chain))
-	}
-	go func() {
-		deadline := time.Now().Add(30 * time.Second)
-		for len(s.core.store.active()) > 0 && time.Now().Before(deadline) {
-			time.Sleep(200 * time.Millisecond)
-		}
-		close(s.quit)
-	}()
-	writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled})
+func (s *server) shutdown(w http.ResponseWriter, _ *http.Request) {
+	ok(w)
+	go close(s.quit)
 }
 
-/* projects and library */
-
-func (s *server) listProjects(w http.ResponseWriter, r *http.Request) {
+func (s *server) listProjects(w http.ResponseWriter, _ *http.Request) {
 	projects, fallback := s.core.Projects()
 	writeJSON(w, http.StatusOK, map[string]any{"projects": projects, "default": fallback, "home": s.core.home})
 }
@@ -164,26 +152,12 @@ func (s *server) settings(w http.ResponseWriter, r *http.Request) {
 	if !good {
 		return
 	}
-	lib, err := s.core.Library(project)
+	view, err := s.core.Settings(project)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	layer := func(dir string) any {
-		var layer Settings
-		if readJSON(settingsPath(dir), &layer) != nil {
-			return nil
-		}
-		return layer
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"effective": lib.Settings,
-		"default":   lib.Settings.defaultRunner(),
-		"runners":   lib.Settings.runners(),
-		"installed": installedRunners(),
-		"shared":    layer(s.core.home),
-		"project":   layer(filepath.Join(project, ".swarm")),
-	})
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (s *server) check(w http.ResponseWriter, r *http.Request) {
@@ -248,8 +222,6 @@ func (s *server) deleteItem(w http.ResponseWriter, r *http.Request) {
 	ok(w)
 }
 
-/* memory */
-
 func (s *server) getMemory(w http.ResponseWriter, r *http.Request) {
 	project, good := s.project(w, r)
 	if !good {
@@ -294,152 +266,4 @@ func (s *server) addNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"added": added})
-}
-
-/* runs */
-
-func (s *server) runs(w http.ResponseWriter, r *http.Request) {
-	project, good := s.project(w, r)
-	if !good {
-		return
-	}
-	writeJSON(w, http.StatusOK, s.core.store.list(project))
-}
-
-func (s *server) startRun(w http.ResponseWriter, r *http.Request) {
-	project, good := s.project(w, r)
-	if !good {
-		return
-	}
-	var req struct {
-		Chain  string            `json:"chain"`
-		Inputs map[string]string `json:"inputs"`
-	}
-	if !readBody(w, r, &req) {
-		return
-	}
-	run, err := s.core.StartRun(project, req.Chain, req.Inputs)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]string{"id": run.ID})
-}
-
-func (s *server) run(w http.ResponseWriter, r *http.Request) {
-	raw, _ := s.core.store.snapshot(r.PathValue("id"))
-	if raw == nil {
-		fail(w, errors.New("no such run"))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(raw)
-}
-
-func (s *server) events(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	flusher, good := w.(http.Flusher)
-	if !good {
-		fail(w, errors.New("streaming unsupported"))
-		return
-	}
-	ch := s.core.store.subscribe(id)
-	defer s.core.store.unsubscribe(id, ch)
-	raw, _ := s.core.store.snapshot(id)
-	if raw == nil {
-		fail(w, errors.New("no such run"))
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	send := func(data []byte) {
-		_, _ = w.Write([]byte("data: "))
-		_, _ = w.Write(data)
-		_, _ = w.Write([]byte("\n\n"))
-		flusher.Flush()
-	}
-	send(raw)
-	for {
-		select {
-		case data := <-ch:
-			send(data)
-		case <-r.Context().Done():
-			return
-		}
-	}
-}
-
-func (s *server) decide(w http.ResponseWriter, r *http.Request) {
-	var d decision
-	if !readBody(w, r, &d) {
-		return
-	}
-	if err := s.core.Decide(r.PathValue("id"), d); err != nil {
-		fail(w, err)
-		return
-	}
-	ok(w)
-}
-
-func (s *server) stop(w http.ResponseWriter, r *http.Request) {
-	if err := s.core.Stop(r.PathValue("id")); err != nil {
-		fail(w, err)
-		return
-	}
-	ok(w)
-}
-
-func (s *server) artifactPath(r *http.Request) (string, bool) {
-	path := r.URL.Query().Get("path")
-	return path, s.core.store.hasArtifact(r.PathValue("id"), path)
-}
-
-func (s *server) file(w http.ResponseWriter, r *http.Request) {
-	path, good := s.artifactPath(r)
-	if !good {
-		fail(w, errors.New("not an artifact of this run"))
-		return
-	}
-	http.ServeFile(w, r, path)
-}
-
-func (s *server) call(w http.ResponseWriter, r *http.Request) {
-	id, log := r.PathValue("id"), r.URL.Query().Get("log")
-	if !s.core.store.hasLog(id, log) {
-		fail(w, errors.New("no such step in this run"))
-		return
-	}
-	ext, kind := ".call.json", "application/json"
-	if r.URL.Query().Get("part") == "stream" {
-		ext, kind = ".jsonl", "text/plain; charset=utf-8"
-	}
-	raw, err := os.ReadFile(filepath.Join(s.core.store.dir, id, log+ext))
-	if err != nil {
-		fail(w, errors.New("nothing recorded for this step yet"))
-		return
-	}
-	w.Header().Set("Content-Type", kind)
-	_, _ = w.Write(raw)
-}
-
-var markdown = goldmark.New(goldmark.WithExtensions(extension.GFM))
-
-func (s *server) doc(w http.ResponseWriter, r *http.Request) {
-	path, good := s.artifactPath(r)
-	if !good {
-		fail(w, errors.New("not an artifact of this run"))
-		return
-	}
-	source, err := os.ReadFile(path)
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	var html bytes.Buffer
-	if err := markdown.Convert(source, &html); err != nil {
-		fail(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(html.Bytes())
 }

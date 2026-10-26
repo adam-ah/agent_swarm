@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -104,7 +105,10 @@ func (c *callLog) finish(cmd *exec.Cmd, err error, stdout, stderr string) {
 }
 
 func (c *callLog) save() {
-	raw, _ := json.Marshal(c.call)
+	raw, err := json.Marshal(c.call)
+	if err != nil {
+		return
+	}
 	_ = writeFile(c.path, raw)
 }
 
@@ -118,14 +122,14 @@ func rawText(raw json.RawMessage) string {
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &parts) == nil {
-		text := ""
+		var joined strings.Builder
 		for _, p := range parts {
 			if p.Type == "text" {
-				text += p.Text
+				joined.WriteString(p.Text)
 			}
 		}
-		if text != "" {
-			return text
+		if joined.Len() > 0 {
+			return joined.String()
 		}
 	}
 	return prettyRaw(raw)
@@ -136,6 +140,9 @@ func prettyRaw(raw json.RawMessage) string {
 	if len(raw) == 0 || json.Unmarshal(raw, &v) != nil {
 		return string(raw)
 	}
-	pretty, _ := json.MarshalIndent(v, "", "  ")
+	pretty, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return string(raw)
+	}
 	return string(pretty)
 }

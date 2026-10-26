@@ -44,8 +44,6 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* sidebar */
-
 .sidebar {
   display: flex; flex-direction: column; gap: 18px;
   height: 100vh; position: sticky; top: 0;
@@ -81,8 +79,6 @@ a:hover { text-decoration: underline; }
 .dot.done { background: var(--ok); }
 .dot.failed, .dot.rejected { background: var(--bad); }
 .dot.stopped { background: var(--warn); }
-
-/* page */
 
 main { min-width: 0; padding: 32px 40px 120px; }
 .page { max-width: 1240px; margin: 0 auto; }
@@ -135,8 +131,6 @@ input[type=checkbox] { width: auto; }
 .error-text { color: var(--bad); font-size: 13px; }
 .ok-text { color: var(--ok); font-size: 13px; }
 
-/* split layouts */
-
 .split { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 22px; align-items: start; }
 .split > * { min-width: 0; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -144,8 +138,6 @@ input[type=checkbox] { width: auto; }
 .panel-head .grow { flex: 1; }
 .panel-body { padding: 14px; }
 .sticky { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
-
-/* tree */
 
 .tree { padding: 8px; }
 .tree-row {
@@ -200,8 +192,6 @@ input[type=checkbox] { width: auto; }
 
 .tree-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line-soft); }
 
-/* inspector */
-
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > span { font-size: 12px; font-weight: 650; color: var(--muted); }
@@ -222,8 +212,6 @@ input[type=checkbox] { width: auto; }
 .savebar { display: flex; align-items: center; gap: 10px; }
 .savebar .status { font-size: 12.5px; color: var(--muted); }
 .used-by { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-
-/* timeline */
 
 .timeline { display: flex; flex-direction: column; gap: 12px; }
 .timeline .timeline { margin-top: 12px; padding-left: 14px; border-left: 2px solid var(--chain-soft); }

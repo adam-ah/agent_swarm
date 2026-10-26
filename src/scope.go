@@ -100,7 +100,10 @@ func text(v any) string {
 	case float64, bool:
 		return fmt.Sprint(v)
 	default:
-		raw, _ := json.Marshal(v)
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
 		return string(raw)
 	}
 }

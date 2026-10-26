@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -76,10 +79,15 @@ type Run struct {
 	StartedAt time.Time         `json:"started_at"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Cost      float64           `json:"cost"`
+	PID       int               `json:"pid,omitempty"`
 	Steps     []*StepRun        `json:"steps"`
 
 	decisions chan decision
 	cancel    context.CancelFunc
+}
+
+func (run *Run) going() bool {
+	return run.Status == "running" || run.Status == "waiting"
 }
 
 type decision struct {
@@ -87,119 +95,160 @@ type decision struct {
 	Note   string `json:"note"`
 }
 
+const (
+	decisionFile = "decision.json"
+	cancelFile   = "cancel"
+	startGrace   = 30 * time.Second
+)
+
+var runID = regexp.MustCompile(`^[0-9]{4}-[0-9]{6}(-[0-9]+)?$`)
+
+type cachedRun struct {
+	modified time.Time
+	size     int64
+	run      *Run
+}
+
 type Store struct {
-	dir  string
-	mu   sync.Mutex
-	runs map[string]*Run
-	subs map[string]map[chan []byte]struct{}
+	dir   string
+	mu    sync.Mutex
+	cache map[string]cachedRun
 }
 
-func openStore(dir string) (*Store, error) {
-	s := &Store{dir: dir, runs: map[string]*Run{}, subs: map[string]map[chan []byte]struct{}{}}
-	files, _ := filepath.Glob(filepath.Join(dir, "*", "run.json"))
-	for _, file := range files {
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			continue
-		}
-		run := &Run{}
-		if json.Unmarshal(raw, run) != nil {
-			continue
-		}
-		if run.Status == "running" || run.Status == "waiting" {
-			run.Status = "interrupted"
-			run.Reason = "swarm was restarted while this run was in progress"
-		}
-		s.runs[run.ID] = run
+func openStore(dir string) *Store {
+	return &Store{dir: dir, cache: map[string]cachedRun{}}
+}
+
+func (s *Store) runDir(id string) string {
+	return filepath.Join(s.dir, id)
+}
+
+func (s *Store) logDir(run *Run) string {
+	return s.runDir(run.ID)
+}
+
+func (s *Store) claim() (string, error) {
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return "", err
 	}
-	return s, nil
-}
-
-func (s *Store) newID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	base := time.Now().Format("0102-150405")
-	id := base
-	for n := 2; s.runs[id] != nil; n++ {
-		id = fmt.Sprintf("%s-%d", base, n)
+	for n := 1; n < 1000; n++ {
+		id := base
+		if n > 1 {
+			id = fmt.Sprintf("%s-%d", base, n)
+		}
+		err := os.Mkdir(s.runDir(id), 0o755)
+		if err == nil {
+			return id, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
 	}
-	s.runs[id] = &Run{ID: id}
-	return id
-}
-
-func (s *Store) put(run *Run) {
-	s.mu.Lock()
-	s.runs[run.ID] = run
-	s.mu.Unlock()
-	s.update(run, func() {})
+	return "", errors.New("could not find a free run id")
 }
 
 func (s *Store) update(run *Run, change func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	change()
-	raw, _ := json.Marshal(run)
-	dir := filepath.Join(s.dir, run.ID)
-	_ = os.MkdirAll(dir, 0o755)
-	_ = os.WriteFile(filepath.Join(dir, "run.json"), raw, 0o644)
-	for ch := range s.subs[run.ID] {
-		select {
-		case ch <- raw:
-		default:
-			select {
-			case <-ch:
-			default:
-			}
-			select {
-			case ch <- raw:
-			default:
-			}
-		}
+	raw, err := json.Marshal(run)
+	if err != nil {
+		return
 	}
+	_ = writeFile(filepath.Join(s.runDir(run.ID), "run.json"), raw)
 }
 
-func (s *Store) snapshot(id string) ([]byte, *Run) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := s.runs[id]
-	if run == nil || run.Chain == "" {
-		return nil, nil
+func (s *Store) read(id string) (*Run, error) {
+	if !runID.MatchString(id) {
+		return nil, fmt.Errorf("%q is not a run id", id)
 	}
-	raw, _ := json.Marshal(run)
-	return raw, run
+	path := filepath.Join(s.runDir(id), "run.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("no run %s", id)
+	}
+	s.mu.Lock()
+	hit, found := s.cache[id]
+	s.mu.Unlock()
+	if found && hit.modified.Equal(info.ModTime()) && hit.size == info.Size() {
+		return hit.run, nil
+	}
+	run := &Run{}
+	if err := readJSON(path, run); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.cache[id] = cachedRun{modified: info.ModTime(), size: info.Size(), run: run}
+	s.mu.Unlock()
+	return run, nil
 }
 
-func (s *Store) list(project string) []map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := []map[string]any{}
-	for _, run := range s.runs {
-		if run.Chain == "" || (run.Project != "" && run.Project != project) {
+func (s *Store) load(id string) *Run {
+	run, err := s.read(id)
+	if err != nil || run.Chain == "" {
+		return nil
+	}
+	return settle(run)
+}
+
+func settle(run *Run) *Run {
+	if !run.going() || processAlive(run.PID) || (run.PID == 0 && time.Since(run.StartedAt) < startGrace) {
+		return run
+	}
+	ended := *run
+	ended.Status = "interrupted"
+	ended.Reason = "its process ended before the run finished"
+	return &ended
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func (s *Store) snapshot(id string) []byte {
+	run := s.load(id)
+	if run == nil {
+		return nil
+	}
+	raw, err := json.Marshal(run)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+type RunSummary struct {
+	ID        string            `json:"id"`
+	Chain     string            `json:"chain"`
+	Title     string            `json:"title"`
+	Subject   string            `json:"subject"`
+	Status    string            `json:"status"`
+	StartedAt time.Time         `json:"started_at"`
+	Inputs    map[string]string `json:"inputs"`
+}
+
+func (s *Store) list(project string) []RunSummary {
+	out := []RunSummary{}
+	files, _ := filepath.Glob(filepath.Join(s.dir, "*", "run.json"))
+	for _, file := range files {
+		run := s.load(filepath.Base(filepath.Dir(file)))
+		if run == nil || (run.Project != "" && run.Project != project) {
 			continue
 		}
-		out = append(out, map[string]any{
-			"id": run.ID, "chain": run.Chain, "title": run.Title, "subject": run.Subject,
-			"status": run.Status, "started_at": run.StartedAt, "inputs": run.Inputs,
-		})
+		out = append(out, RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, Inputs: run.Inputs})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i]["started_at"].(time.Time).After(out[j]["started_at"].(time.Time))
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
 	return out
 }
 
 func (s *Store) hasArtifact(id, path string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := s.runs[id]
-	if run == nil {
-		return false
-	}
-	return stepsHave(run.Steps, path)
-}
-
-func stepsHave(steps []*StepRun, path string) bool {
-	return findStep(steps, func(step *StepRun) bool {
+	run := s.load(id)
+	return run != nil && findStep(run.Steps, func(step *StepRun) bool {
 		for _, a := range step.Artifacts {
 			if a.Path == path {
 				return true
@@ -207,6 +256,11 @@ func stepsHave(steps []*StepRun, path string) bool {
 		}
 		return false
 	}) != nil
+}
+
+func (s *Store) hasLog(id, log string) bool {
+	run := s.load(id)
+	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log }) != nil
 }
 
 func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {
@@ -224,64 +278,11 @@ func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {
 	return nil
 }
 
-func (s *Store) hasLog(id, log string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := s.runs[id]
-	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log }) != nil
+func (s *Store) signal(id, name string, raw []byte) error {
+	return writeFile(filepath.Join(s.runDir(id), name), raw)
 }
 
-func (s *Store) waiting(id string) *StepRun {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if run := s.runs[id]; run != nil {
-		if step := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); step != nil {
-			copied := *step
-			return &copied
-		}
-	}
-	return nil
-}
-
-func (s *Store) live(id string) (*Run, string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := s.runs[id]
-	if run == nil || run.cancel == nil {
-		return nil, ""
-	}
-	return run, run.Status
-}
-
-func (s *Store) active() []*Run {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []*Run
-	for _, run := range s.runs {
-		if run.cancel != nil && (run.Status == "running" || run.Status == "waiting") {
-			out = append(out, run)
-		}
-	}
-	return out
-}
-
-func (s *Store) subscribe(id string) chan []byte {
-	ch := make(chan []byte, 16)
-	s.mu.Lock()
-	if s.subs[id] == nil {
-		s.subs[id] = map[chan []byte]struct{}{}
-	}
-	s.subs[id][ch] = struct{}{}
-	s.mu.Unlock()
-	return ch
-}
-
-func (s *Store) unsubscribe(id string, ch chan []byte) {
-	s.mu.Lock()
-	delete(s.subs[id], ch)
-	s.mu.Unlock()
-}
-
-func (s *Store) logDir(run *Run) string {
-	return filepath.Join(s.dir, run.ID)
+func (s *Store) hasSignal(id, name string) bool {
+	_, err := os.Stat(filepath.Join(s.runDir(id), name))
+	return err == nil
 }

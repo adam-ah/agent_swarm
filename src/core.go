@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +14,11 @@ import (
 
 var itemExt = map[string]string{"chains": ".json", "tools": ".json", "prompts": ".md"}
 
-type Invalid struct {
+type RefusedError struct {
 	Problems []string
 }
 
-func (e *Invalid) Error() string {
+func (e *RefusedError) Error() string {
 	return "refused: " + strings.Join(e.Problems, "; ")
 }
 
@@ -28,8 +27,13 @@ type Core struct {
 	store    *Store
 	runner   *Runner
 	mu       sync.Mutex
-	projects []string
+	session  []string
 	fallback string
+}
+
+func openCore(home string) *Core {
+	store := openStore(filepath.Join(home, "runs"))
+	return &Core{home: home, store: store, runner: newRunner(home, store)}
 }
 
 func splitItem(path string) (kind, name string, err error) {
@@ -45,76 +49,9 @@ func splitItem(path string) (kind, name string, err error) {
 	return kind, name, nil
 }
 
-/* projects */
-
-func (c *Core) loadProjects(first string) error {
-	_ = readJSON(filepath.Join(c.home, "projects.json"), &c.projects)
-	if first != "" {
-		abs, err := c.openProject(first, false)
-		c.fallback = abs
-		return err
-	}
-	if len(c.projects) > 0 {
-		c.fallback = c.projects[0]
-	}
-	return nil
-}
-
-func (c *Core) AddProject(folder string) (string, error) {
-	return c.openProject(folder, true)
-}
-
-func (c *Core) openProject(folder string, remember bool) (string, error) {
-	abs, err := filepath.Abs(folder)
-	if err != nil {
-		return "", err
-	}
-	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("%s is not a folder", abs)
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !slices.Contains(c.projects, abs) {
-		c.projects = append(c.projects, abs)
-	}
-	if remember {
-		var saved []string
-		_ = readJSON(filepath.Join(c.home, "projects.json"), &saved)
-		if !slices.Contains(saved, abs) {
-			if err := saveJSON(filepath.Join(c.home, "projects.json"), append(saved, abs)); err != nil {
-				return "", err
-			}
-		}
-	}
-	if c.fallback == "" {
-		c.fallback = abs
-	}
-	return abs, nil
-}
-
-func (c *Core) Projects() ([]string, string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return slices.Clone(c.projects), c.fallback
-}
-
-func (c *Core) Project(requested string) (string, error) {
-	if requested == "" {
-		requested = c.fallback
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !slices.Contains(c.projects, requested) {
-		return "", fmt.Errorf("%s is not a swarm project yet; run swarm init in it or add it on the page", requested)
-	}
-	return requested, nil
-}
-
 func (c *Core) Library(project string) (*Library, error) {
 	return loadLibrary(c.home, project)
 }
-
-/* items */
 
 func (c *Core) GetItem(project, path string, below bool) ([]byte, string, error) {
 	kind, name, err := splitItem(path)
@@ -139,28 +76,6 @@ func strictJSON(raw []byte, v any) error {
 	return dec.Decode(v)
 }
 
-func (c *Core) target(lib *Library, kind, name, scope string) (string, error) {
-	if scope == "" {
-		switch kind {
-		case "chains":
-			if chain := lib.Chains[name]; chain != nil {
-				scope = chain.Source
-			}
-		case "tools":
-			scope = lib.Tools[name].Source
-		case "prompts":
-			scope = lib.Prompts[name].Source
-		}
-	}
-	switch scope {
-	case "", "project":
-		return sourceDir(c.home, lib.Project, "project"), nil
-	case "shared":
-		return sourceDir(c.home, lib.Project, "shared"), nil
-	}
-	return "", fmt.Errorf("scope is project or shared, not %q", scope)
-}
-
 func (c *Core) PutItem(project, path, scope string, content []byte) error {
 	kind, name, err := splitItem(path)
 	if err != nil {
@@ -181,18 +96,18 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 	case "chains":
 		chain := &Chain{}
 		if err := strictJSON(content, chain); err != nil {
-			return &Invalid{[]string{"not a valid chain: " + err.Error()}}
+			return &RefusedError{[]string{"not a valid chain: " + err.Error()}}
 		}
 		chain.Name = name
 		lib.Chains[name] = chain
 		if problems := lib.check(chain); len(problems) > 0 {
-			return &Invalid{problems}
+			return &RefusedError{problems}
 		}
 		return saveChain(dir, name, chain)
 	case "tools":
 		var tool Tool
 		if err := strictJSON(content, &tool); err != nil {
-			return &Invalid{[]string{"not a valid tool: " + err.Error()}}
+			return &RefusedError{[]string{"not a valid tool: " + err.Error()}}
 		}
 		var problems []string
 		if strings.TrimSpace(tool.Title) == "" {
@@ -202,58 +117,15 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 			problems = append(problems, "a tool needs a run command")
 		}
 		if len(problems) > 0 {
-			return &Invalid{problems}
+			return &RefusedError{problems}
 		}
 		return saveTool(dir, name, tool)
 	default:
 		if strings.TrimSpace(string(content)) == "" {
-			return &Invalid{[]string{"a prompt cannot be empty"}}
+			return &RefusedError{[]string{"a prompt cannot be empty"}}
 		}
 		return savePrompt(dir, name, string(content))
 	}
-}
-
-func (c *Core) putSettings(lib *Library, scope string, content []byte) error {
-	var layer Settings
-	if err := strictJSON(content, &layer); err != nil {
-		return &Invalid{[]string{"not valid settings: " + err.Error()}}
-	}
-	projectDir := filepath.Join(lib.Project, ".swarm")
-	if scope == "" {
-		scope = "shared"
-		if _, err := os.Stat(settingsPath(projectDir)); err == nil {
-			scope = "project"
-		}
-	}
-	dir := map[string]string{"shared": c.home, "project": projectDir}[scope]
-	if dir == "" {
-		return fmt.Errorf("scope is project or shared, not %q", scope)
-	}
-	merged := Settings{Agents: map[string]AgentCLI{}}
-	for _, layerDir := range []string{c.home, projectDir} {
-		current := layer
-		if layerDir != dir {
-			current = Settings{}
-			_ = readJSON(settingsPath(layerDir), &current)
-		}
-		if current.Agent != "" {
-			merged.Agent = current.Agent
-		}
-		for name, cli := range current.Agents {
-			merged.Agents[name] = cli
-		}
-	}
-	problems := merged.problems()
-	lib.Settings = merged
-	for _, chain := range lib.sortedChains() {
-		for _, p := range lib.check(chain) {
-			problems = append(problems, fmt.Sprintf("chain %s would break: %s", chain.Name, p))
-		}
-	}
-	if len(problems) > 0 {
-		return &Invalid{problems}
-	}
-	return saveJSON(settingsPath(dir), layer)
 }
 
 func (c *Core) DeleteItem(project, path string) error {
@@ -262,7 +134,7 @@ func (c *Core) DeleteItem(project, path string) error {
 		return err
 	}
 	if kind == "settings" {
-		return &Invalid{[]string{"settings can't be deleted; save new ones instead"}}
+		return &RefusedError{[]string{"settings can't be deleted; save new ones instead"}}
 	}
 	lib, err := c.Library(project)
 	if err != nil {
@@ -290,7 +162,7 @@ func (c *Core) DeleteItem(project, path string) error {
 	}
 	if !sharedRemains {
 		if users := lib.usersOf(kind, name); len(users) > 0 {
-			return &Invalid{[]string{fmt.Sprintf("%s is still used by %s", path, strings.Join(users, ", "))}}
+			return &RefusedError{[]string{fmt.Sprintf("%s is still used by %s", path, strings.Join(users, ", "))}}
 		}
 	}
 	return os.Remove(filepath.Join(sourceDir(c.home, project, source), rel))
@@ -316,8 +188,6 @@ func (c *Core) Check(project string) ([]string, *Library, error) {
 	}
 	return lib.problems(), lib, nil
 }
-
-/* memory */
 
 func (c *Core) Memory(project string) string {
 	raw, _ := os.ReadFile(memoryPath(project))
@@ -348,8 +218,6 @@ func (c *Core) RememberNotes(project, about string, notes []string) (int, error)
 	return len(kept), writeFile(memoryPath(project), []byte(text))
 }
 
-/* runs */
-
 func (c *Core) StartRun(project, chainName string, inputs map[string]string) (*Run, error) {
 	lib, err := c.Library(project)
 	if err != nil {
@@ -363,15 +231,15 @@ func (c *Core) StartRun(project, chainName string, inputs map[string]string) (*R
 }
 
 func (c *Core) Decide(id string, d decision) error {
-	run, status := c.store.live(id)
-	if run == nil {
-		return errors.New("no such run in progress")
-	}
 	if d.Choice != "approve" && d.Choice != "reject" && d.Choice != "revise" {
 		return errors.New("choice must be approve, revise or reject")
 	}
-	step := c.store.waiting(id)
-	if status != "waiting" || step == nil {
+	run := c.store.load(id)
+	if run == nil {
+		return fmt.Errorf("no run %s", id)
+	}
+	step := findStep(run.Steps, func(s *StepRun) bool { return s.Status == "waiting" })
+	if run.Status != "waiting" || step == nil {
 		return errors.New("the run is not waiting for you")
 	}
 	if d.Choice == "revise" && step.Revise == "" {
@@ -380,19 +248,42 @@ func (c *Core) Decide(id string, d decision) error {
 	if d.Choice == "revise" && strings.TrimSpace(d.Note) == "" {
 		return errors.New("say what to change in the note")
 	}
-	select {
-	case run.decisions <- d:
-		return nil
-	default:
+	if c.store.hasSignal(id, decisionFile) {
 		return errors.New("a decision is already being applied")
 	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	return c.store.signal(id, decisionFile, raw)
 }
 
 func (c *Core) Stop(id string) error {
-	run, _ := c.store.live(id)
-	if run == nil {
+	run := c.store.load(id)
+	if run == nil || !run.going() {
 		return errors.New("no such run in progress")
 	}
-	run.cancel()
-	return nil
+	return c.store.signal(id, cancelFile, nil)
+}
+
+func (c *Core) target(lib *Library, kind, name, scope string) (string, error) {
+	if scope == "" {
+		switch kind {
+		case "chains":
+			if chain := lib.Chains[name]; chain != nil {
+				scope = chain.Source
+			}
+		case "tools":
+			scope = lib.Tools[name].Source
+		case "prompts":
+			scope = lib.Prompts[name].Source
+		}
+	}
+	switch scope {
+	case "", "project":
+		return sourceDir(c.home, lib.Project, "project"), nil
+	case "shared":
+		return sourceDir(c.home, lib.Project, "shared"), nil
+	}
+	return "", fmt.Errorf("scope is project or shared, not %q", scope)
 }

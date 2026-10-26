@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -37,20 +39,13 @@ func loadSettings(home, project string) (Settings, error) {
 		if layer.Agent != "" {
 			merged.Agent = layer.Agent
 		}
-		for name, cli := range layer.Agents {
-			merged.Agents[name] = cli
-		}
+		maps.Copy(merged.Agents, layer.Agents)
 	}
 	return merged, nil
 }
 
 func isBuiltinRunner(name string) bool {
-	for _, b := range builtinRunners {
-		if b == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(builtinRunners, name)
 }
 
 func (s Settings) defaultRunner() string {

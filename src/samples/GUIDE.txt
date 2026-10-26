@@ -3,15 +3,14 @@ SWARM GUIDE
 swarm runs chains: ordered steps that each do one thing. A step runs a tool
 (a named shell command), an agent (Claude Code, Codex or another agent CLI,
 given a prompt and returning named fields), an approval (waits for a
-person), or another chain. A person
-watches every run on a page, step by step, with the videos, diffs and drafts
-each step produced. Approvals happen on that page.
+person), or another chain. A person can watch every run on a page, step by
+step, with the videos, diffs and drafts each step produced, and answer
+approvals there. The page is optional: every command below works without it.
 
 Chains, tools and prompts are plain JSON and text files, but change them only
-through the swarm command, the same way the page does. Both send the same
-requests to the swarm server, which checks every file before it saves it and
-refuses a broken one with the reasons. Do not write into .swarm/ or ~/.swarm/
-yourself.
+through the swarm command, which checks every file before it saves it and
+refuses a broken one with the reasons. The page saves through the same checks.
+Do not write into .swarm/ or ~/.swarm/ yourself.
 
 
 WHERE THINGS LIVE
@@ -31,12 +30,8 @@ they are ordinary files.
 COMMANDS
 
 Every command works on the project in the current folder; -project DIR picks
-another. All but guide, samples and help need the swarm server.
-
-Never start or stop the server yourself, not even in the background. The
-person runs "swarm serve" in their own terminal, where they can see its
-address. If a command says the server is not running, finish what you can,
-then tell the person: "Run swarm serve in a terminal, then I'll continue."
+another. None of them needs the page. Never start or stop the page ("swarm
+serve", "swarm stop") yourself; it belongs to the person.
 
     swarm guide                     this text
     swarm init [DIR]                make a folder a swarm project
@@ -62,6 +57,7 @@ then tell the person: "Run swarm serve in a terminal, then I'll continue."
 
     swarm run CHAIN -input name=value
                                     start a run, print each step as it ends
+    swarm run CHAIN -detach         start it and return at once
     swarm runs                      recent runs
     swarm show RUN                  a run's steps
     swarm approve RUN               answer the approval a run is waiting on;
@@ -69,9 +65,13 @@ then tell the person: "Run swarm serve in a terminal, then I'll continue."
     swarm reject RUN
     swarm cancel RUN                stop one run; its cleanup steps still run
 
-When a run reaches an approval, "swarm run" prints the question and the page
-link, then waits. The person answers on the page, or tells you to run
-"swarm approve".
+A run works in the background in its own process. "swarm run" only watches
+it, so if your command times out or is stopped, the run keeps going; check it
+with "swarm show RUN". For a long chain, start it with -detach and check it
+with "swarm show RUN" now and then.
+
+When a run reaches an approval, it waits and "swarm run" prints the question.
+The person answers on the page, or tells you to run "swarm approve".
 
 
 A CHAIN: chains/<name>.json

@@ -25,9 +25,9 @@ func writeSamples(home string) (written, kept []string, err error) {
 			kept = append(kept, rel)
 			return nil
 		}
-		raw, err := sampleFiles.ReadFile(path)
-		if err != nil {
-			return err
+		raw, readErr := sampleFiles.ReadFile(path)
+		if readErr != nil {
+			return readErr
 		}
 		written = append(written, rel)
 		return writeFile(dest, raw)

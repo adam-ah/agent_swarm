@@ -1,15 +1,108 @@
 #!/usr/bin/env bash
-# Builds ./swarm from src/, with src/web and src/samples packed in. "./build.sh install" also copies it to ~/.local/bin.
-set -euo pipefail
+set -uo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
-cd "$root/src"
 
-if command -v node >/dev/null; then
-  node --check web/app.js
+check_comments() {
+  ast-grep scan -r "$root/lint/no-comments.yml" "$root/src"
+}
+
+check_lengths() {
+  local bad=0 file lines
+  while IFS= read -r file; do
+    lines=$(awk 'END { print NR }' "$root/$file")
+    if [ "$lines" -gt 400 ]; then
+      echo "$file has $lines lines, the limit is 400"
+      bad=1
+    fi
+  done < <(cd "$root" && find src \( -name '*.go' -o -path 'src/web/*.js' -o -path 'src/web/*.css' -o -path 'src/web/*.html' \) -type f | sort)
+  return "$bad"
+}
+
+check_gofmt() {
+  local unformatted
+  unformatted=$(cd "$root/src" && gofmt -l .)
+  if [ -n "$unformatted" ]; then
+    echo "$unformatted"
+    echo "run gofmt -w src first"
+    return 1
+  fi
+}
+
+check_vet() {
+  cd "$root/src" && go vet ./...
+}
+
+check_lint() {
+  if ! command -v golangci-lint >/dev/null; then
+    echo "golangci-lint is not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3" >&2
+    return 1
+  fi
+  cd "$root/src" && golangci-lint run ./...
+}
+
+check_tests() {
+  cd "$root/src" || return 1
+  if [ "$(go env CGO_ENABLED)" = 1 ] && command -v gcc >/dev/null; then
+    go test -race -count=1 ./...
+  else
+    go test -count=1 ./...
+  fi
+}
+
+check_eslint() {
+  if [ ! -x "$root/node_modules/.bin/eslint" ]; then
+    echo "run npm install in $root first" >&2
+    return 1
+  fi
+  cd "$root" && node_modules/.bin/eslint src/web
+}
+
+check_js_syntax() {
+  local bad=0 file
+  if ! command -v node >/dev/null; then
+    echo "node is required" >&2
+    return 1
+  fi
+  for file in "$root"/src/web/*.js; do
+    node --check "$file" || bad=1
+  done
+  return "$bad"
+}
+
+build() {
+  cd "$root/src" && go build -o "$root/swarm" .
+}
+
+failed=()
+run() {
+  local name="$1"
+  shift
+  echo "== $name"
+  if "$@"; then
+    echo "ok: $name"
+  else
+    failed+=("$name")
+  fi
+}
+
+run "comment check" check_comments
+run "line limit" check_lengths
+run "gofmt" check_gofmt
+run "go vet" check_vet
+run "golangci-lint" check_lint
+run "go test" check_tests
+run "eslint" check_eslint
+run "node --check" check_js_syntax
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo "build.sh: failed checks: ${failed[*]}" >&2
+  exit 1
 fi
-gofmt -l . | { ! grep .; } || { echo "run gofmt -w src first" >&2; exit 1; }
-go vet ./...
-go build -o "$root/swarm" .
+
+if ! build; then
+  echo "build.sh: go build failed" >&2
+  exit 1
+fi
 echo "built $root/swarm"
 
 if [ "${1:-}" = "install" ]; then
