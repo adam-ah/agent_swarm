@@ -194,7 +194,18 @@ func (c *cli) check(project string) error {
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	fmt.Printf("ok: %d chains, %d tools, %d prompts\n", len(lib.Chains), len(lib.Tools), len(lib.Prompts))
+	printWarnings(lib.allWarnings())
 	return nil
+}
+
+func printWarnings(warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+	fmt.Println("warnings:")
+	for _, w := range warnings {
+		fmt.Println("- " + w)
+	}
 }
 
 func (c *cli) get(project string) error {
@@ -223,6 +234,9 @@ func (c *cli) put(project string) error {
 		return refused(err)
 	}
 	fmt.Println("saved " + path)
+	if lib, err := c.core.Library(project); err == nil {
+		printWarnings(lib.allWarnings(lib.chainsUsing(path)...))
+	}
 	return nil
 }
 

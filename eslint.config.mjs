@@ -7,9 +7,10 @@ const sharedFunctions = [
   "money", "fileURL", "loadLibrary", "loadRuns", "loadProjects", "renderProjects", "switchProject", "renderSide",
   "createItem", "closeStream", "refresh", "field", "textInput", "textArea", "selectBox", "linesInput", "rowsEditor",
   "mapToRows", "rowsToMap", "usedBy", "showChain", "touch", "renderChainPage", "renderSaveBar", "removeChain",
-  "saveChain", "treeRow", "subchainRows", "renderEditorTree", "select", "uniqueID", "addStep", "move", "removeStep",
-  "renderInspector", "rootInspector", "stepInspector", "kindFields", "toolPicker", "promptPicker", "itemButtons",
-  "showTool", "showSettings", "showMemory", "showPrompt", "showRun", "renderRun", "runTreeRows", "keyOf", "focusCard",
+  "saveChain", "treeRow", "subchainRows", "renderEditorTree", "select", "slugOf", "uniqueID", "addStep", "move", "removeStep",
+  "renderInspector", "rootInspector", "stepInspector", "kindFields", "toolValues", "valuesEditor", "picked", "toolPicker",
+  "promptPicker", "itemButtons",
+  "showTool", "showSettings", "showMemory", "returnsList", "showPrompt", "showRun", "renderRun", "runTreeRows", "keyOf", "focusCard",
   "syncCards", "stepFields", "earlierPanel", "sizeOf", "shellWord", "elapsed", "remembered", "block", "actionLabel",
   "callView", "callPanel", "stepCard", "editLinks", "decideForm", "renderArtifacts", "diffView", "prettyJSON",
   "openLightbox", "stopRun",
@@ -17,7 +18,7 @@ const sharedFunctions = [
 
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
-  "folded", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
+  "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
 ];
 
 const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];

@@ -18,8 +18,8 @@ func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRu
 	switch step.Kind() {
 	case "agent":
 		return r.runAgent(ctx, lib, run, sr, step, sc)
-	case "approval":
-		return r.runApproval(ctx, run, sr, step, sc)
+	case "user":
+		return r.askUser(ctx, run, sr, step, sc)
 	default:
 		return r.runTool(ctx, lib, run, sr, step, sc)
 	}
@@ -55,14 +55,17 @@ func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRu
 		return out, errors.New(reason)
 	}
 	headline := lastLine(stdout.String())
+	if fields != nil {
+		headline = out["summary"]
+	}
 	r.store.update(run, func() { sr.Headline = headline })
 	return out, nil
 }
 
-func (r *Runner) runApproval(ctx context.Context, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
+func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
 	r.store.update(run, func() {
 		sr.Status = "waiting"
-		sr.Question = stepScope(step, sc, nil).fill(step.Approval, false)
+		sr.Question = stepScope(step, sc, nil).fill(step.User, false)
 		sr.Artifacts = r.artifacts(run.Project, stepScope(step, sc, nil), step.Show)
 		run.Status = "waiting"
 	})

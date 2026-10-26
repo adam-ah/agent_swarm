@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const usage = `swarm runs chains of agent, tool and approval steps. Every command works on its own, straight
+const usage = `swarm runs chains of agent, tool and user steps. Every command works on its own, straight
 on the files; swarm serve adds a page that does the same in a browser. Every change is checked
 before it is saved. Only the commands marked "writes" change anything on disk.
 
@@ -29,7 +29,7 @@ before it is saved. Only the commands marked "writes" change anything on disk.
   swarm put PATH [-file F] [-scope project|shared]
                                          writes: saves one, from F or stdin; refused with reasons if invalid
   swarm rm PATH                          writes: deletes one; refused while a chain still uses it
-  swarm check                            confirm every chain loads
+  swarm check                            confirm every chain loads, and list what looks wrong
 
   swarm memory                           print what this project has learned
   swarm memory add [-about TEXT] NOTE... writes: adds notes
@@ -40,9 +40,9 @@ before it is saved. Only the commands marked "writes" change anything on disk.
                                          as it finishes; the run keeps going if you stop watching
   swarm runs                             recent runs in this project
   swarm show RUN                         a run's steps
-  swarm approve RUN [-note TEXT]         writes: answers the approval a run is waiting on
-  swarm revise RUN -note TEXT            writes: sends the run back to the approval's revise step,
-                                         with the note as {{feedback}}
+  swarm approve RUN [-note TEXT]         writes: answers the user step a run is waiting on
+  swarm revise RUN -note TEXT            writes: sends the run back to the user step's revise step,
+                                         with the note for the agents that run again
   swarm reject RUN [-note TEXT]          writes
   swarm cancel RUN                       writes: stops one run; its cleanup steps still run
 
@@ -63,7 +63,7 @@ Agents
     codex    Codex (codex exec). Runs with your own Codex config, sandbox and approval
              settings, and ignores the step's "tools" list.
     custom   any command you add in settings, for example pi. It gets the prompt on stdin
-             (and in $SWARM_PROMPT_FILE) and must print the step's fields as a JSON object last.
+             (and in $SWARM_PROMPT_FILE) and must print the prompt's fields as a JSON object last.
   settings.json in ~/.swarm (every project) or <project>/.swarm (that project) chooses:
     {
       "agent": "codex",
@@ -161,7 +161,7 @@ func overview() {
 	isProject := projectErr == nil
 	serving := pageUp(addr)
 
-	fmt.Print("swarm runs chains of agent, tool and approval steps; swarm serve shows every run live on a page.\n\n")
+	fmt.Print("swarm runs chains of agent, tool and user steps; swarm serve shows every run live on a page.\n\n")
 	state := func(done bool, yes, no string) {
 		mark := "✗"
 		if done {

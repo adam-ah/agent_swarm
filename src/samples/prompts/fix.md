@@ -19,6 +19,6 @@ If the description is not a bug, or you cannot find the cause, change nothing an
 ## Return
 
 - `summary`: one plain sentence for a reviewer: what was wrong and what you changed
-- `files_changed`: the repo-relative files you changed or added
+- `files_changed` (list): the repo-relative files you changed or added
 - `test_command`: the shell command, run from the repository root, that runs the tests covering this fix
 - `commit_message`: one line in the style of `git log --oneline -10`

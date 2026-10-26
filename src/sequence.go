@@ -118,12 +118,6 @@ func (r *Runner) record(ctx context.Context, p pass, step Step, sr *StepRun, out
 		if step.Kind() != "chain" {
 			sr.Output = toAny(out)
 		}
-		if sr.Artifacts == nil {
-			sr.Artifacts = r.artifacts(p.run.Project, local, append(p.lib.Tools[step.Tool].Show, step.Show...))
-		}
-		if step.Headline != "" {
-			sr.Headline = local.fill(step.Headline, false)
-		}
 		if err != nil {
 			p.fail(ctx, step, sr, err)
 			return
@@ -151,7 +145,7 @@ func (p pass) settle(step Step, sr *StepRun, out map[string]string, local *scope
 			sr.Status = child.Status
 		}
 	}
-	if step.Kind() == "approval" && out["decision"] == "reject" {
+	if step.Kind() == "user" && out["decision"] == "reject" {
 		reason := "You rejected: " + step.Title
 		if out["note"] != "" {
 			reason += " (" + out["note"] + ")"
@@ -189,12 +183,18 @@ func skipAll(sr *StepRun) {
 }
 
 func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (map[string]string, error) {
+	sub := p.lib.Chains[step.Chain]
 	values := map[string]string{}
+	for _, in := range sub.Inputs {
+		if _, known := p.sc.lookup(in.Name); !known && in.Default != "" {
+			values[in.Name] = p.sc.fill(in.Default, false)
+		}
+	}
 	for k, v := range step.With {
 		values[k] = p.sc.fill(v, false)
 	}
 	child := p.sc.child(values)
-	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: p.lib.Chains[step.Chain], steps: sr.Children, sc: child, end: p.end})
+	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: child, end: p.end})
 
 	out := map[string]string{}
 	for k, v := range child.flatten() {

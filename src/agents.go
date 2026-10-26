@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -39,12 +40,13 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 	}
 	defer func() { _ = transcript.Close() }()
 
+	prompt := lib.Prompts[step.Agent]
 	call := agentCall{
 		run: run, sr: sr, step: step, transcript: transcript, cli: lib.Settings.Agents[runner],
-		prompt: stepScope(step, sc, nil).fill(lib.Prompts[step.Agent].Text, false),
+		prompt: withFeedback(stepScope(step, sc, nil).fill(prompt.Text, false), prompt.Text, sc),
 	}
-	if len(step.Returns) > 0 {
-		call.schema, err = json.Marshal(returnsSchema(step.Returns))
+	if len(prompt.Returns) > 0 {
+		call.schema, err = json.Marshal(returnsSchema(prompt.Returns))
 		if err != nil {
 			return nil, err
 		}
@@ -73,25 +75,15 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 	}
 
 	out := map[string]string{}
-	if len(step.Returns) > 0 {
+	if len(prompt.Returns) > 0 {
 		if result.structured == nil {
-			return nil, fmt.Errorf("%s did not return the fields this step declares", runner)
+			return nil, fmt.Errorf("%s did not return the fields in prompts/%s.md", runner, step.Agent)
 		}
-		for _, f := range step.Returns {
+		for _, f := range prompt.Returns {
 			out[f.Name] = text(result.structured[f.Name])
 		}
-		if step.Save != "" {
-			path := stepScope(step, sc, nil).fill(step.Save, false)
-			saved, marshalErr := json.MarshalIndent(result.structured, "", "  ")
-			if marshalErr != nil {
-				return out, marshalErr
-			}
-			if err := os.WriteFile(path, saved, 0o644); err != nil {
-				return out, fmt.Errorf("could not save %s: %w", path, err)
-			}
-		}
 	} else {
-		out["result"] = result.text
+		out["output"] = result.text
 	}
 	headline := out["summary"]
 	if headline == "" {
@@ -99,6 +91,14 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 	}
 	r.store.update(run, func() { sr.Headline = headline })
 	return out, nil
+}
+
+func withFeedback(filled, template string, sc *scope) string {
+	feedback, _ := sc.lookup("feedback")
+	if feedback == "" || slices.Contains(placeholders(template), "feedback") {
+		return filled
+	}
+	return strings.TrimRight(filled, "\n") + "\n\n## Notes from the person\n\nA person sent an earlier attempt back with these notes, oldest first. Follow them.\n\n" + feedback + "\n"
 }
 
 func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, stdin string, onLine func([]byte, *callLog)) (string, error) {

@@ -50,14 +50,14 @@ const putItem = (kind, name, value, scope = "") =>
 const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" });
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-const KIND_LETTER = { tool: "T", agent: "A", approval: "U", chain: "C", root: "≡" };
-const KIND_NAME = { tool: "tool", agent: "agent", approval: "user", chain: "chain" };
+const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", root: "≡" };
+const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain" };
 const STATE_ICON = { done: "✓", failed: "!", rejected: "✕", stopped: "■" };
 const STATUS_LABEL = { running: "Running", waiting: "Waiting for you", done: "Done", failed: "Failed", stopped: "Stopped", rejected: "Rejected", interrupted: "Interrupted" };
 
 function kindOf(step) {
   if (step.agent) return "agent";
-  if (step.approval !== undefined && step.approval !== null && step.approval !== "") return "approval";
+  if (step.user !== undefined && step.user !== null && step.user !== "") return "user";
   if (step.chain) return "chain";
   return "tool";
 }
@@ -107,7 +107,7 @@ function renderProjects() {
 
 document.getElementById("project-select").addEventListener("change", (e) => switchProject(e.target.value));
 document.getElementById("add-project").addEventListener("click", async () => {
-  const path = prompt("Full path of a project folder", "/mnt/e/Temp/");
+  const path = prompt("Full path of a project folder", project.replace(/[^/]+\/?$/, ""));
   if (!path) return;
   try {
     const res = await send("POST", "/api/projects", { path });
@@ -145,7 +145,7 @@ function renderSide() {
   document.getElementById("memory-link").classList.toggle("active", current.kind === "memory");
   document.getElementById("settings-link").classList.toggle("active", current.kind === "settings");
   document.getElementById("settings-meta").textContent = lib.default_runner ? `agents: ${lib.default_runner}` : "";
-  list("chains", lib.chains.map((c) => item("chain", c.name, c.title, c.problems?.length ? "!" : `${c.steps?.length ?? 0}`, c.source)), "No chains");
+  list("chains", lib.chains.map((c) => item("chain", c.name, c.title, c.problems?.length ? "!" : c.warnings?.length ? "⚠" : `${c.steps?.length ?? 0}`, c.source)), "No chains");
   list("tools", Object.keys(lib.tools).sort().map((n) => item("tool", n, n, null, lib.tools[n].source)), "No tools");
   list("prompts", Object.keys(lib.prompts).sort().map((n) => item("prompt", n, n, null, lib.prompts[n].source)), "No prompts");
   list("runs", runsCache.map((r) =>
@@ -169,13 +169,15 @@ for (const section of document.querySelectorAll("[data-fold]")) {
   });
 }
 
+const NEW_PROMPT = "Describe the job here. Use {{request}} or {{memory}} for values from the chain.\n\n## Return\n\n- `summary`: one plain sentence a person reads first\n";
+
 async function createItem(kind) {
   const name = prompt(`Name for the new ${kind} (lowercase letters, digits, - and _)`);
   if (!name) return;
   try {
     if (kind === "chain") await putItem("chains", name, { title: name, steps: [] }, "project");
     if (kind === "tool") await putItem("tools", name, { title: name, run: "echo hello" }, "project");
-    if (kind === "prompt") await putItem("prompts", name, "Describe the job here. Use {{request}} or {{memory}} for values from the chain.\n", "project");
+    if (kind === "prompt") await putItem("prompts", name, NEW_PROMPT, "project");
     await loadLibrary();
     location.hash = `#/${kind}/${name}`;
   } catch (err) {
@@ -243,15 +245,20 @@ function rowsEditor(rows, columns, onChange) {
   const wrap = h("div", { class: "kv" });
   const draw = () => {
     wrap.replaceChildren(
-      ...rows.map((row, i) => h("div", { class: `kv-row ${columns.length === 3 ? "three" : ""}` },
-        columns.map((col) => textInput(row[col.key], (v) => { row[col.key] = v; onChange(rows); }, { placeholder: col.label, class: col.mono ? "code" : "" })),
+      ...rows.map((row, i) => h("div", { class: `kv-row ${["", "", "", "three", "four"][columns.length]}` },
+        columns.map((col) => (col.check
+          ? h("label", { class: `check ${row[col.key] ? "on" : ""}` },
+            h("input", { type: "checkbox", checked: !!row[col.key], onchange: (e) => { row[col.key] = e.target.checked || undefined; onChange(rows); draw(); } }), col.label)
+          : textInput(row[col.key], (v) => { row[col.key] = v; onChange(rows); }, { placeholder: col.label, class: col.mono ? "code" : "" }))),
         h("button", { class: "icon-btn", type: "button", title: "Remove", onclick: () => { rows.splice(i, 1); onChange(rows); draw(); } }, "×"))),
-      h("button", { class: "linkish", type: "button", onclick: () => { rows.push(Object.fromEntries(columns.map((c) => [c.key, ""]))); onChange(rows); draw(); } }, "+ add"));
+      h("button", { class: "linkish", type: "button", onclick: () => { rows.push(Object.fromEntries(columns.filter((c) => !c.check).map((c) => [c.key, ""]))); onChange(rows); draw(); } }, "+ add"));
   };
   draw();
   return wrap;
 }
 
+const placeholdersIn = (text) => [...new Set([...(text || "").matchAll(/\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}/g)].map((m) => m[1]))];
+const returnsText = (prompt) => (prompt?.returns || []).map((f) => (f.value === "text" ? f.name : `${f.name} (${f.value})`)).join(", ");
 const mapToRows = (m) => Object.entries(m || {}).map(([key, value]) => ({ key, value }));
 const rowsToMap = (rows) => Object.fromEntries(rows.filter((r) => r.key).map((r) => [r.key, r.value]));
 

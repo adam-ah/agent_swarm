@@ -1,4 +1,4 @@
-function itemButtons(kind, name, source, status, payload) {
+function itemButtons(kind, name, source, status, payload, onSaved) {
   const save = async (scope = "") => {
     try {
       await putItem(kind, name, payload(), scope);
@@ -6,6 +6,7 @@ function itemButtons(kind, name, source, status, payload) {
       status.className = "ok-text";
       status.textContent = scope ? "Copied to this folder" : "Saved";
       renderSide();
+      onSaved?.();
       if (scope) refresh();
     } catch (err) {
       status.className = "error-text";
@@ -31,7 +32,7 @@ function itemButtons(kind, name, source, status, payload) {
 }
 
 function showTool(name) {
-  const tool = clone(lib.tools[name] || { title: name, run: "", show: [] });
+  const tool = clone(lib.tools[name] || { title: name, run: "" });
   const source = tool.source;
   delete tool.source;
   const status = h("span", { class: "status" });
@@ -46,8 +47,7 @@ function showTool(name) {
         h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Definition"), itemButtons("tools", name, source, status, () => tool)),
         h("div", { class: "panel-body form" },
           field("What it does", textInput(tool.title, (v) => { tool.title = v; dirty(); })),
-          field("Command", textArea(tool.run, (v) => { tool.run = v; dirty(); }, { class: "code", rows: 12 })),
-          field("Files it shows", linesInput(tool.show, (v) => { tool.show = v; dirty(); }), "one per line; globs work"))))));
+          field("Command", textArea(tool.run, (v) => { tool.run = v; dirty(); }, { class: "code", rows: 12 })))))));
 }
 
 async function showSettings() {
@@ -132,20 +132,37 @@ async function showMemory() {
       h("div", { class: "panel-body" }, textArea(text, (v) => { text = v; status.className = "status"; status.textContent = "Unsaved"; }, { class: "code prompt", placeholder: "Nothing remembered yet. Facts here reach every agent in this folder." })))));
 }
 
+function returnsList(prompt) {
+  const fields = prompt.returns || [];
+  const problems = prompt.problems || [];
+  if (!fields.length && !problems.length) return h("span", { class: "hint" }, "No ## Return section, so the agent answers in free text, read as {{step_id.output}}");
+  return [
+    ...problems.map((p) => h("span", { class: "error-text" }, p)),
+    ...fields.map((f) => h("span", {}, h("code", {}, f.name), f.value === "text" ? null : h("span", { class: "hint" }, ` ${f.value}`))),
+  ];
+}
+
 function showPrompt(name) {
   let text = lib.prompts[name]?.text ?? "";
   const source = lib.prompts[name]?.source;
   const status = h("span", { class: "status" });
-  const placeholders = [...new Set([...text.matchAll(/\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}/g)].map((m) => m[1]))];
+  const facts = h("div", { class: "panel" });
+  const drawFacts = () => {
+    const saved = lib.prompts[name] || {};
+    const placeholders = placeholdersIn(saved.text);
+    facts.replaceChildren(
+      h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s) => s.agent === name)),
+      h("div", { class: "panel-head" }, "Fields it returns"), h("div", { class: "panel-body used-by" }, returnsList(saved)),
+      h("div", { class: "panel-head" }, "Placeholders it reads"), h("div", { class: "panel-body used-by" }, placeholders.length ? placeholders.map((p) => h("code", {}, `{{${p}}}`)) : h("span", { class: "hint" }, "none")));
+  };
+  drawFacts();
   main.replaceChildren(h("div", { class: "page" },
     h("div", { class: "eyebrow" }, `Prompt · ${FROM[source]} · prompts/${name}.md`),
     h("h1", {}, name),
-    h("p", { class: "lead" }, "What an agent step tells Claude. {{placeholders}} are filled from the chain before the agent starts."),
+    h("p", { class: "lead" }, "What an agent step tells the agent. {{placeholders}} are filled from the chain before it starts. The fields under ## Return, one per line like - `verdict`: `APPROVE` or `CHANGES`, are what it must return; write (list), (number) or (bool) after a name for those kinds."),
     h("div", { class: "split" },
+      facts,
       h("div", { class: "panel" },
-        h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s) => s.agent === name)),
-        h("div", { class: "panel-head" }, "Placeholders it reads"), h("div", { class: "panel-body used-by" }, placeholders.length ? placeholders.map((p) => h("code", {}, `{{${p}}}`)) : h("span", { class: "hint" }, "none"))),
-      h("div", { class: "panel" },
-        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", name, source, status, () => text)),
+        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", name, source, status, () => text, drawFacts)),
         h("div", { class: "panel-body" }, textArea(text, (v) => { text = v; status.className = "status"; status.textContent = "Unsaved"; }, { class: "code prompt" }))))));
 }

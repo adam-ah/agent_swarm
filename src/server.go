@@ -129,7 +129,7 @@ func (s *server) library(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"chains": lib.sortedChains(), "tools": lib.Tools, "prompts": lib.Prompts,
-		"agent_tools": agentTools, "project": lib.Project,
+		"agent_tools": agentTools, "builtins": builtinNames, "project": lib.Project,
 		"runners": lib.Settings.runners(), "default_runner": lib.Settings.defaultRunner(),
 	})
 }
@@ -170,7 +170,7 @@ func (s *server) check(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"problems": problems, "chains": len(lib.Chains), "tools": len(lib.Tools), "prompts": len(lib.Prompts)})
+	writeJSON(w, http.StatusOK, map[string]any{"problems": problems, "warnings": lib.allWarnings(), "chains": len(lib.Chains), "tools": len(lib.Tools), "prompts": len(lib.Prompts)})
 }
 
 func itemPath(r *http.Request) string {

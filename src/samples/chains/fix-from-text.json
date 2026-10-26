@@ -10,20 +10,13 @@
     {
       "id": "branch",
       "title": "Start a branch",
-      "tool": "start_branch",
-      "headline": "{{branch}} from {{base}}"
+      "tool": "start_branch"
     },
     {
       "id": "fix",
       "title": "Fix it",
       "agent": "fix",
-      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
-      "returns": [
-        { "name": "summary", "value": "text" },
-        { "name": "files_changed", "value": "list" },
-        { "name": "test_command", "value": "text" },
-        { "name": "commit_message", "value": "text" }
-      ]
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"]
     },
     {
       "id": "diff",
@@ -35,11 +28,6 @@
       "title": "Blind review by a second agent",
       "agent": "review-change",
       "tools": ["Bash", "Read", "Grep", "Glob"],
-      "returns": [
-        { "name": "verdict", "value": "APPROVE | CHANGES" },
-        { "name": "summary", "value": "text" },
-        { "name": "findings", "value": "text" }
-      ],
       "stop_if": "verdict != APPROVE",
       "stop": "The reviewer asked for changes. {{findings}}"
     },
@@ -52,7 +40,7 @@
     {
       "id": "approve",
       "title": "Your approval to commit and push",
-      "approval": "Commit this change on {{branch.branch}} and push it?",
+      "user": "Commit this change on {{branch.branch}} and push it?",
       "show": ["{{run_folder}}/change.diff"]
     },
     {
@@ -71,10 +59,6 @@
       "title": "Decide what to remember",
       "agent": "learn",
       "tools": ["Read", "Grep", "Glob"],
-      "returns": [
-        { "name": "notes", "value": "list" }
-      ],
-      "headline": "{{notes}}",
       "always": true,
       "when": "fix.summary != "
     },

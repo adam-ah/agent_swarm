@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +125,9 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 		if strings.TrimSpace(string(content)) == "" {
 			return &RefusedError{[]string{"a prompt cannot be empty"}}
 		}
+		if problems := newPrompt(string(content), "").Problems; len(problems) > 0 {
+			return &RefusedError{problems}
+		}
 		return savePrompt(dir, name, string(content))
 	}
 }
@@ -179,6 +183,24 @@ func (lib *Library) usersOf(kind, name string) []string {
 		}
 	}
 	return users
+}
+
+func (lib *Library) chainsUsing(path string) []string {
+	kind, name, err := splitItem(path)
+	if err != nil || kind == "settings" {
+		return nil
+	}
+	chains := []string{}
+	if kind == "chains" {
+		chains = append(chains, name)
+	}
+	for _, user := range lib.usersOf(kind, name) {
+		chain, _, _ := strings.Cut(user, ".")
+		if !slices.Contains(chains, chain) {
+			chains = append(chains, chain)
+		}
+	}
+	return chains
 }
 
 func (c *Core) Check(project string) ([]string, *Library, error) {
@@ -243,7 +265,7 @@ func (c *Core) Decide(id string, d decision) error {
 		return errors.New("the run is not waiting for you")
 	}
 	if d.Choice == "revise" && step.Revise == "" {
-		return fmt.Errorf("%q cannot send the run back; give the approval step a revise step first", step.Title)
+		return fmt.Errorf("%q cannot send the run back; give the user step a revise step first", step.Title)
 	}
 	if d.Choice == "revise" && strings.TrimSpace(d.Note) == "" {
 		return errors.New("say what to change in the note")

@@ -1,6 +1,6 @@
 # swarm
 
-Runs chains of agent, tool and approval steps you design, and shows every run live as a tree on a page.
+Runs chains of agent, tool and user steps you design, and shows every run live as a tree on a page.
 
 ## Build, install, start
 

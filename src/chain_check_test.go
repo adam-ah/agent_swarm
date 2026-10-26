@@ -33,14 +33,16 @@ func TestLibraryCheck(t *testing.T) {
 		want   []string
 	}{
 		{name: "valid tool step", chain: "main", steps: []Step{tool}},
-		{name: "valid agent step", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage", Returns: Fields{{Name: "verdict", Value: "bug|not_bug"}}}}},
-		{name: "valid approval with earlier revise", chain: "main", steps: []Step{tool, {ID: "ok", Title: "OK", Approval: "Go?", Revise: "a"}}},
+		{name: "valid agent step", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage"}}},
+		{name: "valid user step with earlier revise", chain: "main", steps: []Step{tool, {ID: "ok", Title: "OK", User: "Go?", Revise: "a"}}},
+		{name: "valid user step showing a file", chain: "main", steps: []Step{{ID: "ok", Title: "OK", User: "Go?", Show: []string{"change.diff"}}}},
+		{name: "show on tool step", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Show: []string{"change.diff"}}}, want: []string{`step "a": show only applies to user steps`}},
 		{name: "valid conditions", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", When: "x == y", StopIf: "x != z"}}},
 		{name: "bad id", chain: "main", steps: []Step{{ID: "Bad", Title: "A", Tool: "run_tests"}}, want: []string{`step "Bad": ids are lowercase letters, digits and underscores, starting with a letter`}},
 		{name: "id starting with digit", chain: "main", steps: []Step{{ID: "1a", Title: "A", Tool: "run_tests"}}, want: []string{`step "1a": ids are lowercase letters, digits and underscores, starting with a letter`}},
 		{name: "duplicate id", chain: "main", steps: []Step{tool, tool}, want: []string{`step "a": duplicate id`}},
-		{name: "no kind", chain: "main", steps: []Step{{ID: "a", Title: "A"}}, want: []string{`step "a": needs exactly one of tool, agent, approval or chain`}},
-		{name: "two kinds", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Agent: "triage"}}, want: []string{`step "a": needs exactly one of tool, agent, approval or chain`}},
+		{name: "no kind", chain: "main", steps: []Step{{ID: "a", Title: "A"}}, want: []string{`step "a": needs exactly one of tool, agent, user or chain`}},
+		{name: "two kinds", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Agent: "triage"}}, want: []string{`step "a": needs exactly one of tool, agent, user or chain`}},
 		{name: "unknown tool", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "nope"}}, want: []string{`step "a": no tool named "nope"`}},
 		{name: "unknown prompt", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "nope"}}, want: []string{`step "a": no prompt prompts/nope.md`}},
 		{name: "runner on tool step", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Runner: "claude"}}, want: []string{`step "a": runner only applies to agent steps`}},
@@ -59,10 +61,12 @@ func TestLibraryCheck(t *testing.T) {
 		{name: "valid sub-chain", chain: "main", steps: []Step{{ID: "a", Title: "A", Chain: "other"}}, setup: func(lib *Library) {
 			lib.Chains["other"] = &Chain{Name: "other", Steps: []Step{tool}}
 		}},
-		{name: "revise on tool step", chain: "main", steps: []Step{tool, {ID: "b", Title: "B", Tool: "run_tests", Revise: "a"}}, want: []string{`step "b": revise only applies to approval steps`}},
-		{name: "revise to a later step", chain: "main", steps: []Step{{ID: "ok", Title: "OK", Approval: "Go?", Revise: "later"}, tool}, want: []string{`step "ok": revise must name an earlier step in this chain, not "later"`}},
-		{name: "revise to itself", chain: "main", steps: []Step{{ID: "ok", Title: "OK", Approval: "Go?", Revise: "ok"}}, want: []string{`step "ok": revise must name an earlier step in this chain, not "ok"`}},
-		{name: "bad return kind", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage", Returns: Fields{{Name: "color", Value: "red"}}}}, want: []string{`step "a": returns color: "red" is not text, number, bool, list or A | B | C`}},
+		{name: "revise on tool step", chain: "main", steps: []Step{tool, {ID: "b", Title: "B", Tool: "run_tests", Revise: "a"}}, want: []string{`step "b": revise only applies to user steps`}},
+		{name: "revise to a later step", chain: "main", steps: []Step{{ID: "ok", Title: "OK", User: "Go?", Revise: "later"}, tool}, want: []string{`step "ok": revise must name an earlier step in this chain, not "later"`}},
+		{name: "revise to itself", chain: "main", steps: []Step{{ID: "ok", Title: "OK", User: "Go?", Revise: "ok"}}, want: []string{`step "ok": revise must name an earlier step in this chain, not "ok"`}},
+		{name: "prompt with a bad return kind", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage"}}, setup: func(lib *Library) {
+			lib.Prompts["triage"] = newPrompt("Triage it.\n\n## Return\n\n- `color` (red): its shade\n", "shared")
+		}, want: []string{`step "a": prompts/triage.md ## Return: color: "red" is not text, number, bool, list or A | B | C`}},
 		{name: "bad when", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", When: "verdict"}}, want: []string{`step "a": cannot read condition "verdict"; write it as name == value or name != value`}},
 		{name: "bad stop_if", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", StopIf: "x < 3"}}, want: []string{`step "a": cannot read condition "x < 3"; write it as name == value or name != value`}},
 		{name: "bad input name", chain: "main", steps: []Step{tool}, inputs: []Input{{Name: "Bad Name"}}, want: []string{`input "Bad Name": names are lowercase letters, digits and underscores`}},

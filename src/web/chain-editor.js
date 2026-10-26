@@ -12,7 +12,10 @@ function showChain(name, stepID = "") {
   delete draft.source;
   const prompts = Object.fromEntries(Object.entries(lib.prompts).map(([k, v]) => [k, v.text]));
   const at = draft.steps.findIndex((s) => s.id === stepID);
-  editor = { name, source: chain.source, draft, selected: at >= 0 ? at : "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(), dirty: false, problems: chain.problems || [], message: "" };
+  editor = {
+    name, source: chain.source, draft, selected: at >= 0 ? at : "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(),
+    fresh: new Set(), dirty: false, problems: chain.problems || [], warnings: chain.warnings || [], message: "",
+  };
   renderChainPage();
 }
 
@@ -66,7 +69,9 @@ function renderChainPage() {
 function renderSaveBar() {
   const refused = editor.refused?.length
     ? h("div", { class: "problems" }, h("strong", {}, "Not saved. swarm refused it because:"), h("ul", {}, editor.refused.map((p) => h("li", {}, p))))
-    : editor.problems.length && !editor.dirty ? h("ul", { class: "problems" }, editor.problems.map((p) => h("li", {}, p))) : "";
+    : editor.dirty ? ""
+      : editor.problems.length ? h("ul", { class: "problems" }, editor.problems.map((p) => h("li", {}, p)))
+        : editor.warnings.length ? h("div", { class: "problems warnings" }, h("strong", {}, "This chain runs, but these look wrong:"), h("ul", {}, editor.warnings.map((w) => h("li", {}, w)))) : "";
   document.getElementById("problems").replaceChildren(refused);
   document.getElementById("savebar").replaceChildren(...[
     editor.message ? h("span", { class: "status ok-text" }, editor.message) : editor.dirty ? h("span", { class: "status" }, "Unsaved") : null,
@@ -158,7 +163,7 @@ function renderEditorTree() {
   const i = editor.selected;
   const isStep = typeof i === "number";
   document.getElementById("tree-actions").replaceChildren(
-    ...[["tool", "Tool"], ["agent", "Agent"], ["approval", "User approval"], ["chain", "Sub-chain"]].map(([kind, label]) =>
+    ...[["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"]].map(([kind, label]) =>
       h("button", { class: `btn small add-kind ${kind}`, onclick: () => addStep(kind) }, h("span", { class: `kind ${kind}` }, KIND_LETTER[kind]), `+ ${label}`)),
     h("span", { style: "flex:1" }),
     h("button", { class: "btn small", disabled: !isStep || i === 0, onclick: () => move(-1), title: "Move up" }, "↑"),
@@ -172,19 +177,27 @@ function select(i) {
   renderInspector();
 }
 
-function uniqueID(base) {
-  const ids = new Set(editor.draft.steps.map((s) => s.id));
-  for (let n = 1; ; n++) if (!ids.has(`${base}_${n}`)) return `${base}_${n}`;
+function slugOf(title) {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 32).replace(/^_+|_+$/g, "");
+  return /^[a-z]/.test(slug) ? slug : `step_${slug}`.replace(/_+$/, "");
+}
+
+function uniqueID(base, self) {
+  const ids = new Set(editor.draft.steps.filter((s) => s !== self).map((s) => s.id));
+  if (!ids.has(base)) return base;
+  for (let n = 2; ; n++) if (!ids.has(`${base}_${n}`)) return `${base}_${n}`;
 }
 
 function addStep(kind) {
   const otherChains = lib.chains.map((c) => c.name).filter((n) => n !== editor.name);
   const step = {
-    tool: { id: uniqueID("tool"), title: "New tool step", tool: Object.keys(editor.tools).sort()[0] || "" },
-    agent: { id: uniqueID("agent"), title: "New agent step", agent: Object.keys(editor.prompts).sort()[0] || "", tools: ["Read", "Grep", "Glob"], returns: [{ name: "summary", value: "text" }] },
-    approval: { id: uniqueID("approve"), title: "Your approval", approval: "Continue?" },
-    chain: { id: uniqueID("sub"), title: "Sub-chain", chain: otherChains[0] || "" },
+    tool: { title: "New tool step", tool: Object.keys(editor.tools).sort()[0] || "" },
+    agent: { title: "New agent step", agent: Object.keys(editor.prompts).sort()[0] || "", tools: ["Read", "Grep", "Glob"] },
+    user: { title: "Your approval", user: "Continue?" },
+    chain: { title: "Sub-chain", chain: otherChains[0] || "" },
   }[kind];
+  step.id = uniqueID(slugOf(step.title));
+  editor.fresh.add(step);
   const at = typeof editor.selected === "number" ? editor.selected + 1 : editor.draft.steps.length;
   editor.draft.steps.splice(at, 0, step);
   editor.selected = at;
@@ -229,119 +242,7 @@ function rootInspector() {
     h("div", { class: "row2" },
       field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. #{{issue}} {{read_issue.title}}" })),
       field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }))),
-    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "label" }, { key: "default", label: "default" }], () => touch()), "asked for when a run starts"),
+    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "label" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
+      "asked for when a run starts; a run needs every input that is not optional and has no default"),
     field("Vars", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "computed once at the start"));
-}
-
-function stepInspector(step) {
-  const kind = kindOf(step);
-  const setKind = (next) => {
-    for (const key of ["tool", "agent", "approval", "revise", "chain", "tools", "returns", "save", "with"]) delete step[key];
-    if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
-    if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; step.returns = [{ name: "summary", value: "text" }]; }
-    if (next === "approval") step.approval = "Continue?";
-    if (next === "chain") step.chain = lib.chains.map((c) => c.name).find((n) => n !== editor.name) || "";
-    touch(true);
-  };
-  return h("div", { class: "form" },
-    h("div", { class: "card-head" }, h("span", { class: `chip ${kind}` }, KIND_NAME[kind]), h("span", { class: "card-title" }, step.title || "(untitled)")),
-    h("div", { class: "row2" },
-      field("Title", textInput(step.title, (v) => { step.title = v; touch(); })),
-      field("ID", textInput(step.id, (v) => { step.id = v; touch(); }, { class: "code" }), "used as {{id.field}}")),
-    field("Kind", selectBox([["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["approval", "User approval: wait for a person"], ["chain", "Sub-chain: run another chain"]], kind, setKind)),
-    kindFields(step, kind),
-    h("div", { class: "subpanel" },
-      h("h3", {}, "Flow"),
-      h("div", { class: "row2" },
-        field("Run only if", textInput(step.when, (v) => { step.when = v || undefined; touch(); }, { class: "code", placeholder: "e.g. triage.verdict == bug" })),
-        field("Stop the chain if", textInput(step.stop_if, (v) => { step.stop_if = v || undefined; touch(); }, { class: "code", placeholder: "e.g. verdict != REPRODUCED" }))),
-      field("Message when it stops", textInput(step.stop, (v) => { step.stop = v || undefined; touch(); }, { placeholder: "e.g. Could not reproduce. {{summary}}" })),
-      field("Files to show", linesInput(step.show, (v) => { step.show = v.length ? v : undefined; touch(); }), "one per line; videos, stills and markdown display inline"),
-      field("Headline", textInput(step.headline, (v) => { step.headline = v || undefined; touch(); }, { class: "code", placeholder: "defaults to the summary or last output line" })),
-      h("label", { class: `check${step.always ? " on" : ""}` },
-        h("input", { type: "checkbox", checked: !!step.always, onchange: (e) => { step.always = e.target.checked || undefined; touch(true); } }),
-        "Always runs, even after a failure or stop")));
-}
-
-function kindFields(step, kind) {
-  if (kind === "approval") {
-    const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
-    return h("div", { class: "form" },
-      field("Question for you", textArea(step.approval, (v) => { step.approval = v || "Continue?"; touch(); }, { rows: 2 }), "add the files to show below"),
-      field("Revise goes back to", selectBox([["", "nowhere: only approve or reject"], ...earlier.map((s) => [s.id, s.title || s.id])], step.revise || "", (v) => { step.revise = v || undefined; touch(true); }),
-        "the person's note reaches the steps that run again as {{feedback}}"));
-  }
-  if (kind === "chain") {
-    const withRows = mapToRows(step.with);
-    return h("div", { class: "form" },
-      field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
-      field("Values to pass in", rowsEditor(withRows, [{ key: "key", label: "name", mono: true }, { key: "value", label: "value", mono: true }], (rows) => { step.with = rowsToMap(rows); touch(); }), "it also sees everything this chain sees"),
-      step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open the ${step.chain} chain →`) : null);
-  }
-  if (kind === "agent") {
-    const name = step.agent;
-    step.returns = step.returns || [];
-    const toolChecks = h("div", { class: "checks" }, lib.agent_tools.map((t) => {
-      const on = (step.tools || []).includes(t);
-      return h("label", { class: `check ${on ? "on" : ""}` },
-        h("input", { type: "checkbox", checked: on, onchange: () => {
-          const set = new Set(step.tools || []);
-          if (set.has(t)) set.delete(t); else set.add(t);
-          step.tools = lib.agent_tools.filter((x) => set.has(x));
-          touch(true);
-        } }), t);
-    }));
-    return h("div", { class: "form" },
-      field("Prompt", promptPicker(step)),
-      field("Runs with", selectBox([["", `the default (${lib.default_runner})`], ...lib.runners.map((n) => [n, n])], step.runner || "", (v) => { step.runner = v || undefined; touch(true); }),
-        step.runner === "codex" || (!step.runner && lib.default_runner === "codex") ? "Codex uses your own Codex config and ignores the list below" : "change the default under Settings"),
-      field("What the agent may use", toolChecks),
-      field("Fields it returns", rowsEditor(step.returns, [{ key: "name", label: "name", mono: true }, { key: "value", label: "text · number · bool · list · A | B | C", mono: true }], () => touch()), "summary becomes the step's headline"),
-      field("Save the fields to", textInput(step.save, (v) => { step.save = v || undefined; touch(); }, { class: "code", placeholder: "e.g. {{run_dir}}/triage.json" })),
-      name ? h("div", { class: "subpanel" },
-        h("h3", {}, `Prompt · prompts/${name}.md`),
-        textArea(editor.prompts[name], (v) => { editor.prompts[name] = v; editor.dirtyPrompts.add(name); touch(); }, { class: "code prompt" })) : null);
-  }
-  const name = step.tool;
-  const tool = editor.tools[name];
-  const withRows = mapToRows(step.with);
-  return h("div", { class: "form" },
-    field("Tool", toolPicker(step)),
-    field("Values for the tool", rowsEditor(withRows, [{ key: "key", label: "name", mono: true }, { key: "value", label: "value", mono: true }], (rows) => { step.with = rowsToMap(rows); touch(); }), "filled into {{name}} in its command"),
-    tool ? h("div", { class: "subpanel" },
-      h("h3", {}, `Tool · ${name}`),
-      field("What it does", textInput(tool.title, (v) => { tool.title = v; editor.dirtyTools.add(name); touch(); })),
-      field("Command", textArea(tool.run, (v) => { tool.run = v; editor.dirtyTools.add(name); touch(); }, { class: "code", rows: 6 }), "runs in the project folder"),
-      field("Files it shows", linesInput(tool.show, (v) => { tool.show = v; editor.dirtyTools.add(name); touch(); })),
-      h("span", { class: "hint" }, "Changes here apply to every chain that uses this tool.")) : null);
-}
-
-function toolPicker(step) {
-  const names = Object.keys(editor.tools).sort();
-  return selectBox([...names.map((n) => [n, `${n} · ${editor.tools[n].title || ""}`]), ["__new", "+ New tool…"]], step.tool, (v) => {
-    if (v === "__new") {
-      const name = prompt("Name for the new tool");
-      if (!name) { touch(true); return; }
-      editor.tools[name] = { title: name, run: "echo hello", show: [] };
-      editor.dirtyTools.add(name);
-      v = name;
-    }
-    step.tool = v;
-    touch(true);
-  });
-}
-
-function promptPicker(step) {
-  const names = Object.keys(editor.prompts).sort();
-  return selectBox([...names.map((n) => [n, `prompts/${n}.md`]), ["__new", "+ New prompt…"]], step.agent, (v) => {
-    if (v === "__new") {
-      const name = prompt("Name for the new prompt");
-      if (!name) { touch(true); return; }
-      editor.prompts[name] = "Describe the job here.\n";
-      editor.dirtyPrompts.add(name);
-      v = name;
-    }
-    step.agent = v;
-    touch(true);
-  });
 }

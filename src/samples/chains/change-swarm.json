@@ -15,11 +15,7 @@
       "id": "edit",
       "title": "Edit the swarm files",
       "agent": "edit-swarm",
-      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
-      "returns": [
-        { "name": "summary", "value": "text" },
-        { "name": "files", "value": "list" }
-      ]
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"]
     },
     {
       "id": "check",
@@ -34,7 +30,7 @@
     {
       "id": "approve",
       "title": "Your approval to keep it",
-      "approval": "Keep this change to swarm?",
+      "user": "Keep this change to swarm?",
       "show": ["{{run_folder}}/swarm-change.diff"]
     },
     {

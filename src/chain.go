@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -21,15 +22,16 @@ type Field struct {
 type Fields []Field
 
 type Tool struct {
-	Title  string   `json:"title"`
-	Run    string   `json:"run"`
-	Show   []string `json:"show,omitempty"`
-	Source string   `json:"source,omitempty"`
+	Title  string `json:"title"`
+	Run    string `json:"run"`
+	Source string `json:"source,omitempty"`
 }
 
 type Prompt struct {
-	Text   string `json:"text"`
-	Source string `json:"source"`
+	Text     string   `json:"text"`
+	Source   string   `json:"source"`
+	Returns  Fields   `json:"returns,omitempty"`
+	Problems []string `json:"problems,omitempty"`
 }
 
 type Input struct {
@@ -40,32 +42,29 @@ type Input struct {
 }
 
 type Step struct {
-	ID       string            `json:"id"`
-	Title    string            `json:"title"`
-	Tool     string            `json:"tool,omitempty"`
-	Agent    string            `json:"agent,omitempty"`
-	Runner   string            `json:"runner,omitempty"`
-	Chain    string            `json:"chain,omitempty"`
-	Approval string            `json:"approval,omitempty"`
-	Revise   string            `json:"revise,omitempty"`
-	With     map[string]string `json:"with,omitempty"`
-	Tools    []string          `json:"tools,omitempty"`
-	Returns  Fields            `json:"returns,omitempty"`
-	Save     string            `json:"save,omitempty"`
-	Show     []string          `json:"show,omitempty"`
-	When     string            `json:"when,omitempty"`
-	StopIf   string            `json:"stop_if,omitempty"`
-	Stop     string            `json:"stop,omitempty"`
-	Headline string            `json:"headline,omitempty"`
-	Always   bool              `json:"always,omitempty"`
+	ID     string            `json:"id"`
+	Title  string            `json:"title"`
+	Tool   string            `json:"tool,omitempty"`
+	Agent  string            `json:"agent,omitempty"`
+	Runner string            `json:"runner,omitempty"`
+	Chain  string            `json:"chain,omitempty"`
+	User   string            `json:"user,omitempty"`
+	Revise string            `json:"revise,omitempty"`
+	With   map[string]string `json:"with,omitempty"`
+	Tools  []string          `json:"tools,omitempty"`
+	Show   []string          `json:"show,omitempty"`
+	When   string            `json:"when,omitempty"`
+	StopIf string            `json:"stop_if,omitempty"`
+	Stop   string            `json:"stop,omitempty"`
+	Always bool              `json:"always,omitempty"`
 }
 
 func (s Step) Kind() string {
 	switch {
 	case s.Agent != "":
 		return "agent"
-	case s.Approval != "":
-		return "approval"
+	case s.User != "":
+		return "user"
 	case s.Chain != "":
 		return "chain"
 	default:
@@ -87,6 +86,7 @@ type Chain struct {
 	Vars        Fields   `json:"vars,omitempty"`
 	Steps       []Step   `json:"steps"`
 	Problems    []string `json:"problems,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
 	Source      string   `json:"source,omitempty"`
 }
 
@@ -160,7 +160,7 @@ func loadLibrary(home, project string) (*Library, error) {
 		for _, file := range prompts {
 			text, err := fs.ReadFile(layer.fsys, file)
 			if err == nil {
-				lib.Prompts[strings.TrimSuffix(path.Base(file), ".md")] = Prompt{Text: string(text), Source: source}
+				lib.Prompts[strings.TrimSuffix(path.Base(file), ".md")] = newPrompt(string(text), source)
 			}
 		}
 		chains, _ := fs.Glob(layer.fsys, "chains/*.json")
@@ -178,6 +178,11 @@ func loadLibrary(home, project string) (*Library, error) {
 	for _, chain := range lib.Chains {
 		if len(chain.Problems) == 0 {
 			chain.Problems = lib.check(chain)
+		}
+	}
+	for _, chain := range lib.Chains {
+		if len(chain.Problems) == 0 {
+			chain.Warnings = lib.warnings(chain)
 		}
 	}
 	return lib, nil
@@ -220,6 +225,7 @@ func (lib *Library) sortedChains() []*Chain {
 func saveChain(dir, name string, chain *Chain) error {
 	chain.Name = ""
 	chain.Problems = nil
+	chain.Warnings = nil
 	chain.Source = ""
 	return saveJSON(filepath.Join(dir, "chains", name+".json"), chain)
 }
@@ -290,6 +296,19 @@ func (lib *Library) problems() []string {
 	for _, chain := range lib.sortedChains() {
 		for _, p := range chain.Problems {
 			out = append(out, fmt.Sprintf("%s (%s): %s", chain.Name, chain.Source, p))
+		}
+	}
+	return out
+}
+
+func (lib *Library) allWarnings(chains ...string) []string {
+	var out []string
+	for _, chain := range lib.sortedChains() {
+		if len(chains) > 0 && !slices.Contains(chains, chain.Name) {
+			continue
+		}
+		for _, w := range chain.Warnings {
+			out = append(out, fmt.Sprintf("%s (%s): %s", chain.Name, chain.Source, w))
 		}
 	}
 	return out

@@ -102,7 +102,7 @@ function syncCards(container, steps, run, chain) {
 
 function stepFields(step) {
   const fields = Object.entries(step.output || {}).filter(([k, v]) => k !== "summary" && v !== "" && !(step.kind === "tool" && k === "output" && Object.keys(step.output).length > 1));
-  if (!fields.length || step.kind === "approval") return null;
+  if (!fields.length || step.kind === "user") return null;
   return h("details", { class: "output" }, h("summary", {}, step.kind === "agent" ? "What the agent returned" : "Output"),
     h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
 }
@@ -216,7 +216,7 @@ function stepCard(run, step, i, entry) {
   else if (step.tokens) stats.push(`${(step.tokens / 1000).toFixed(step.tokens < 10000 ? 1 : 0)}k tokens`);
   const body = [];
   if (step.headline) body.push(h("div", { class: "headline" }, step.headline));
-  else if (step.status === "pending" && step.kind !== "approval" && step.kind !== "chain") body.push(h("div", { class: "rule" }, step.kind === "agent" ? `prompt prompts/${step.uses}.md` : `tool ${step.uses}`));
+  else if (step.status === "pending" && step.kind !== "user" && step.kind !== "chain") body.push(h("div", { class: "rule" }, step.kind === "agent" ? `prompt prompts/${step.uses}.md` : `tool ${step.uses}`));
   if (step.status === "running" && step.kind !== "chain") {
     body.push(h("div", { class: "working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
       `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at))));
@@ -234,7 +234,7 @@ function stepCard(run, step, i, entry) {
     h("div", { class: "card-head" },
       h("span", { class: `state ${step.status}` }, STATE_ICON[step.status] || ""),
       h("span", { class: "card-title" }, step.title),
-      h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind]),
+      h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind] || step.kind),
       step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
       step.always ? h("span", { class: "chip flag" }, "always runs") : null,
       h("span", { class: "card-stats" }, stats.join(" · ")),

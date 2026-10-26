@@ -27,13 +27,13 @@ func (lib *Library) stepProblems(chain *Chain, step Step, seen map[string]bool) 
 		problems = append(problems, where+": duplicate id")
 	}
 	kinds := 0
-	for _, set := range []bool{step.Tool != "", step.Agent != "", step.Approval != "", step.Chain != ""} {
+	for _, set := range []bool{step.Tool != "", step.Agent != "", step.User != "", step.Chain != ""} {
 		if set {
 			kinds++
 		}
 	}
 	if kinds != 1 {
-		problems = append(problems, where+": needs exactly one of tool, agent, approval or chain")
+		problems = append(problems, where+": needs exactly one of tool, agent, user or chain")
 	}
 	problems = append(problems, lib.referenceProblems(chain, step, where)...)
 	problems = append(problems, fieldProblems(step, where, seen)...)
@@ -48,8 +48,12 @@ func (lib *Library) referenceProblems(chain *Chain, step Step, where string) []s
 		}
 	}
 	if step.Agent != "" {
-		if _, ok := lib.Prompts[step.Agent]; !ok {
+		prompt, ok := lib.Prompts[step.Agent]
+		if !ok {
 			problems = append(problems, fmt.Sprintf("%s: no prompt prompts/%s.md", where, step.Agent))
+		}
+		for _, p := range prompt.Problems {
+			problems = append(problems, fmt.Sprintf("%s: prompts/%s.md %s", where, step.Agent, p))
 		}
 	}
 	if step.Runner != "" && step.Agent == "" {
@@ -70,15 +74,13 @@ func (lib *Library) referenceProblems(chain *Chain, step Step, where string) []s
 
 func fieldProblems(step Step, where string, seen map[string]bool) []string {
 	var problems []string
-	if step.Revise != "" && step.Approval == "" {
-		problems = append(problems, where+": revise only applies to approval steps")
+	if step.Revise != "" && step.User == "" {
+		problems = append(problems, where+": revise only applies to user steps")
 	} else if step.Revise != "" && !seen[step.Revise] {
 		problems = append(problems, fmt.Sprintf("%s: revise must name an earlier step in this chain, not %q", where, step.Revise))
 	}
-	for _, f := range step.Returns {
-		if _, err := fieldSchema(f.Value); err != nil {
-			problems = append(problems, fmt.Sprintf("%s: returns %s: %v", where, f.Name, err))
-		}
+	if len(step.Show) > 0 && step.User == "" {
+		problems = append(problems, where+": show only applies to user steps")
 	}
 	for _, c := range []string{step.When, step.StopIf} {
 		if c == "" {

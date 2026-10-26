@@ -12,4 +12,5 @@ Decide what a future run here would otherwise have to rediscover: how to run the
 
 ## Return
 
-- `notes`: one line each, each a fact that stays true after this run
+- `summary`: one plain line a person reads first: what you chose to remember, or that nothing was new
+- `notes` (list): one line each, each a fact that stays true after this run

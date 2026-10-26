@@ -24,4 +24,4 @@ This might mean creating a new chain with the tools and prompts it needs, changi
 ## Return
 
 - `summary`: one plain sentence a person reads first: what you changed
-- `files`: the paths you saved, like `chains/release-notes.json`
+- `files` (list): the paths you saved, like `chains/release-notes.json`

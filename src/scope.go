@@ -4,10 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 var placeholder = regexp.MustCompile(`\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}`)
+
+var builtinNames = []string{"project", "home", "swarm", "memory", "feedback", "run_id", "run_folder", "guide", "catalog"}
+
+func placeholders(template string) []string {
+	var names []string
+	for _, m := range placeholder.FindAllStringSubmatch(template, -1) {
+		if !slices.Contains(names, m[1]) {
+			names = append(names, m[1])
+		}
+	}
+	return names
+}
 
 type scope struct {
 	parent  *scope
