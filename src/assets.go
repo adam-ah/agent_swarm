@@ -21,7 +21,7 @@ func writeSamples(home string) (written, kept []string, err error) {
 		}
 		rel := strings.TrimPrefix(path, "samples/")
 		dest := filepath.Join(home, rel)
-		if _, err := os.Stat(dest); err == nil {
+		if _, err := os.Stat(dest); err == nil && rel != "GUIDE.txt" {
 			kept = append(kept, rel)
 			return nil
 		}
@@ -40,10 +40,7 @@ func samplesWritten(home string) bool {
 	return err == nil
 }
 
-func guideText(home string) string {
-	if raw, err := os.ReadFile(filepath.Join(home, "GUIDE.txt")); err == nil {
-		return string(raw)
-	}
+func guideText() string {
 	raw, _ := sampleFiles.ReadFile("samples/GUIDE.txt")
 	return string(raw)
 }

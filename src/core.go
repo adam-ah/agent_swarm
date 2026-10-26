@@ -367,11 +367,18 @@ func (c *Core) Decide(id string, d decision) error {
 	if run == nil {
 		return errors.New("no such run in progress")
 	}
-	if d.Choice != "approve" && d.Choice != "reject" {
-		return errors.New("choice must be approve or reject")
+	if d.Choice != "approve" && d.Choice != "reject" && d.Choice != "revise" {
+		return errors.New("choice must be approve, revise or reject")
 	}
-	if status != "waiting" {
+	step := c.store.waiting(id)
+	if status != "waiting" || step == nil {
 		return errors.New("the run is not waiting for you")
+	}
+	if d.Choice == "revise" && step.Revise == "" {
+		return fmt.Errorf("%q cannot send the run back; give the approval step a revise step first", step.Title)
+	}
+	if d.Choice == "revise" && strings.TrimSpace(d.Note) == "" {
+		return errors.New("say what to change in the note")
 	}
 	select {
 	case run.decisions <- d:

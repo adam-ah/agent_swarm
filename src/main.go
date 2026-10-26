@@ -23,7 +23,8 @@ Only the commands marked "writes" change anything on disk.
 
   swarm guide                            how chains, tools, prompts and memory work; read it first
   swarm samples                          writes the sample chains, tools, prompts and guide into ~/.swarm,
-                                         leaving any file you already have alone
+                                         leaving any file you already have alone, apart from
+                                         GUIDE.txt, which always matches this version
   swarm init [DIR]                       writes: makes a folder a swarm project
   swarm serve                            the page, on http://localhost:7070; the commands below need it
   swarm stop                             stop the server; runs still going are cancelled first and
@@ -46,6 +47,8 @@ Only the commands marked "writes" change anything on disk.
   swarm runs                             recent runs in this project
   swarm show RUN                         a run's steps
   swarm approve RUN [-note TEXT]         writes: answers the approval a run is waiting on
+  swarm revise RUN -note TEXT            writes: sends the run back to the approval's revise step,
+                                         with the note as {{feedback}}
   swarm reject RUN [-note TEXT]          writes
   swarm cancel RUN                       writes: stops one run; its cleanup steps still run
 
@@ -89,14 +92,14 @@ func main() {
 	case "serve":
 		err = serve(args)
 	case "guide":
-		fmt.Print(guideText(defaultHome()))
+		fmt.Print(guideText())
 	case "samples":
 		err = samples()
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	case "stop":
 		err = stopServer(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "reject", "cancel":
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel":
 		err = clientCommand(command, args)
 	default:
 		err = fmt.Errorf("no command %q\n\n%s", command, usage)
@@ -157,7 +160,7 @@ func overview() {
 	}
 	fmt.Printf("  agent steps run with %s unless a step says otherwise (see swarm help, \"Agents\")\n", settings.defaultRunner())
 
-	fmt.Print("\nNothing has been written. To get going:\n\n")
+	fmt.Print("\nNothing has been written. Next:\n\n")
 	fmt.Println("  swarm guide       read how it works")
 	if !samplesWritten(home) {
 		fmt.Println("  swarm samples     write the sample chains, tools, prompts and guide into " + home)
@@ -166,7 +169,13 @@ func overview() {
 		fmt.Println("  swarm init        make this folder a swarm project")
 	}
 	if serverErr != nil {
-		fmt.Println("  swarm serve       start the page")
+		fmt.Println("  swarm serve       start the page, in a terminal you keep open")
+	} else {
+		fmt.Println("  open              http://" + addr)
+		if isProject {
+			fmt.Println("  swarm list        what this project can run")
+		}
+		fmt.Println("  swarm stop        stop the page; runs still going are cancelled first")
 	}
 	fmt.Println("  swarm help        every command")
 }
@@ -192,6 +201,12 @@ func serve(args []string) error {
 	project := flags.String("project", "", "a folder to open for this session, without adding it to the project list")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if !inTerminal() && os.Getenv("SWARM_SERVE_ANYWAY") == "" {
+		return errors.New(`swarm serve runs in a terminal of your own, so you can see its address and stop it.
+It refused to start here because this is not a terminal, which usually means an agent started it.
+Agents: ask the person to run "swarm serve" instead.
+To run it without a terminal on purpose, for example as a service, set SWARM_SERVE_ANYWAY=1.`)
 	}
 	homeDir, err := filepath.Abs(*home)
 	if err != nil {
@@ -221,6 +236,11 @@ func serve(args []string) error {
 	}
 	log.Print("swarm server stopped")
 	return nil
+}
+
+func inTerminal() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func stopServer(args []string) error {
@@ -290,7 +310,7 @@ func clientCommand(command string, args []string) error {
 	below := flags.Bool("below", false, "get: the shared version below this project's copy")
 	file := flags.String("file", "", "put, memory set: read from this file instead of stdin")
 	scope := flags.String("scope", "", "put: project or shared; default is where it already lives, else project")
-	note := flags.String("note", "", "approve, reject: a note for the record")
+	note := flags.String("note", "", "approve, revise, reject: a note for the record; revise needs one")
 	about := flags.String("about", "", "memory add: what the notes came from")
 	detach := flags.Bool("detach", false, "run: print the run's link and return")
 	inputs := inputFlags{}
@@ -459,7 +479,7 @@ func clientCommand(command string, args []string) error {
 		if run.Reason != "" {
 			fmt.Printf("\n%s\n", run.Reason)
 		}
-	case "approve", "reject":
+	case "approve", "revise", "reject":
 		id, err := arg(0, "a run id")
 		if err != nil {
 			return err
@@ -536,7 +556,7 @@ func (c client) send(method, path string, raw []byte, out any) error {
 
 func (c client) serverUp(addr string) error {
 	if _, err := http.Get(c.base + "/api/projects"); err != nil {
-		return fmt.Errorf("the swarm server is not running on %s. Start it in another terminal with:\n\n  swarm serve", addr)
+		return fmt.Errorf("the swarm server is not running on %s. Start it in a terminal of your own with:\n\n  swarm serve\n\nAgents: do not start it yourself; ask the person to run it", addr)
 	}
 	return nil
 }
@@ -567,7 +587,7 @@ func (c client) init() error {
 
 So agents working here know about swarm, add this line to the project's CLAUDE.md or AGENTS.md:
 
-  This project uses swarm for multi-step agent work. Run "swarm guide" before creating, changing or running a chain.
+  This project uses swarm for multi-step agent work. Run "swarm guide" before creating, changing or running a chain. Never start or stop the swarm server yourself; ask the person to run "swarm serve".
 `, c.base)
 	return nil
 }
@@ -643,7 +663,11 @@ func report(steps []*StepRun, indent string, seen map[string]string, link string
 			case "running":
 				fmt.Printf("%s… %s [%s]\n", indent, s.Title, s.Kind)
 			case "waiting":
-				fmt.Printf("%s⏸ %s: %s\n%s  approve or reject on the page (%s) or with swarm approve / swarm reject\n", indent, s.Title, s.Question, indent, link)
+				answers := "swarm approve / swarm reject"
+				if s.Revise != "" {
+					answers = "swarm approve / swarm revise -note TEXT (back to " + s.Revise + ") / swarm reject"
+				}
+				fmt.Printf("%s⏸ %s: %s\n%s  answer on the page (%s) or with %s\n", indent, s.Title, s.Question, indent, link, answers)
 			case "done":
 				fmt.Printf("%s✓ %s%s\n", indent, s.Title, suffix(s.Headline))
 			case "failed":

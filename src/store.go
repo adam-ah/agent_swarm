@@ -36,7 +36,30 @@ type StepRun struct {
 	Actions   int            `json:"actions,omitempty"`
 	Error     string         `json:"error,omitempty"`
 	Question  string         `json:"question,omitempty"`
+	Revise    string         `json:"revise,omitempty"`
+	Round     int            `json:"round,omitempty"`
+	Log       string         `json:"log,omitempty"`
 	Children  []*StepRun     `json:"children,omitempty"`
+	Earlier   []*StepRun     `json:"earlier,omitempty"`
+}
+
+func (sr *StepRun) logName() string {
+	if sr.Round == 0 {
+		return sr.Path
+	}
+	return fmt.Sprintf("%s-%d", sr.Path, sr.Round+1)
+}
+
+func again(old *StepRun) *StepRun {
+	fresh := &StepRun{ID: old.ID, Path: old.Path, Title: old.Title, Kind: old.Kind, Uses: old.Uses, Always: old.Always, Revise: old.Revise, Status: "pending", Round: old.Round + 1, Earlier: old.Earlier}
+	for _, child := range old.Children {
+		fresh.Children = append(fresh.Children, again(child))
+	}
+	old.Children, old.Earlier = nil, nil
+	if old.StartedAt != nil {
+		fresh.Earlier = append(fresh.Earlier, old)
+	}
+	return fresh
 }
 
 type Run struct {
@@ -175,17 +198,48 @@ func (s *Store) hasArtifact(id, path string) bool {
 }
 
 func stepsHave(steps []*StepRun, path string) bool {
-	for _, step := range steps {
+	return findStep(steps, func(step *StepRun) bool {
 		for _, a := range step.Artifacts {
 			if a.Path == path {
 				return true
 			}
 		}
-		if stepsHave(step.Children, path) {
-			return true
+		return false
+	}) != nil
+}
+
+func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {
+	for _, step := range steps {
+		if match(step) {
+			return step
+		}
+		if found := findStep(step.Children, match); found != nil {
+			return found
+		}
+		if found := findStep(step.Earlier, match); found != nil {
+			return found
 		}
 	}
-	return false
+	return nil
+}
+
+func (s *Store) hasLog(id, log string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := s.runs[id]
+	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log }) != nil
+}
+
+func (s *Store) waiting(id string) *StepRun {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run := s.runs[id]; run != nil {
+		if step := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); step != nil {
+			copied := *step
+			return &copied
+		}
+	}
+	return nil
 }
 
 func (s *Store) live(id string) (*Run, string) {

@@ -48,6 +48,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/stop", s.stop)
 	mux.HandleFunc("GET /api/runs/{id}/file", s.file)
 	mux.HandleFunc("GET /api/runs/{id}/doc", s.doc)
+	mux.HandleFunc("GET /api/runs/{id}/call", s.call)
 	return mux
 }
 
@@ -400,6 +401,25 @@ func (s *server) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, path)
+}
+
+func (s *server) call(w http.ResponseWriter, r *http.Request) {
+	id, log := r.PathValue("id"), r.URL.Query().Get("log")
+	if !s.core.store.hasLog(id, log) {
+		fail(w, errors.New("no such step in this run"))
+		return
+	}
+	ext, kind := ".call.json", "application/json"
+	if r.URL.Query().Get("part") == "stream" {
+		ext, kind = ".jsonl", "text/plain; charset=utf-8"
+	}
+	raw, err := os.ReadFile(filepath.Join(s.core.store.dir, id, log+ext))
+	if err != nil {
+		fail(w, errors.New("nothing recorded for this step yet"))
+		return
+	}
+	w.Header().Set("Content-Type", kind)
+	_, _ = w.Write(raw)
 }
 
 var markdown = goldmark.New(goldmark.WithExtensions(extension.GFM))

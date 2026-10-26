@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -34,7 +33,7 @@ type agentCall struct {
 func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
 	runner := lib.Settings.runnerFor(step)
 	r.store.update(run, func() { sr.Runner = runner })
-	transcript, err := os.Create(filepath.Join(r.store.logDir(run), sr.Path+".jsonl"))
+	transcript, err := os.Create(r.logFile(run, sr, ".jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -96,10 +95,13 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 	return out, nil
 }
 
-func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, onLine func([]byte)) (string, error) {
+func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, stdin string, onLine func([]byte, *callLog)) (string, error) {
 	cmd.Dir = call.run.Project
 	if cmd.Env == nil {
 		cmd.Env = r.environment(call.run)
+	}
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
 	}
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -107,6 +109,7 @@ func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, onLi
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	log := startCall(r.logFile(call.run, call.sr, ".call.json"), cmd, stdin, true)
 	done := make(chan error, 1)
 	go func() { done <- runGroup(ctx, cmd) }()
 	scanner := bufio.NewScanner(pipe)
@@ -114,9 +117,10 @@ func (r *Runner) stream(ctx context.Context, call agentCall, cmd *exec.Cmd, onLi
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		call.transcript.Write(append(append([]byte{}, line...), '\n'))
-		onLine(line)
+		onLine(line, log)
 	}
 	err = <-done
+	log.finish(cmd, err, "", stderr.String())
 	return lastLines(stderr.String(), 3), err
 }
 
@@ -142,12 +146,18 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 		Cost       float64        `json:"total_cost_usd"`
 	}
 	got := false
-	stderr, runErr := r.stream(ctx, call, exec.Command("claude", args...), func(line []byte) {
+	stderr, runErr := r.stream(ctx, call, exec.Command("claude", args...), "", func(line []byte, log *callLog) {
 		var event struct {
 			Type    string `json:"type"`
 			Message struct {
 				Content []struct {
-					Type string `json:"type"`
+					Type      string          `json:"type"`
+					ID        string          `json:"id"`
+					Name      string          `json:"name"`
+					Input     json.RawMessage `json:"input"`
+					ToolUseID string          `json:"tool_use_id"`
+					Content   json.RawMessage `json:"content"`
+					IsError   bool            `json:"is_error"`
 				} `json:"content"`
 			} `json:"message"`
 		}
@@ -160,11 +170,19 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 			for _, c := range event.Message.Content {
 				if c.Type == "tool_use" {
 					calls++
+					log.begin(c.ID, c.Name, prettyRaw(c.Input))
 				}
 			}
 			r.countActions(call, calls)
+		case "user":
+			for _, c := range event.Message.Content {
+				if c.Type == "tool_result" {
+					log.end(c.ToolUseID, "", "", rawText(c.Content), c.IsError)
+				}
+			}
 		case "result":
 			got = json.Unmarshal(line, &final) == nil
+			log.edit(func(c *Call) { c.Result = prettyRaw(line) })
 		}
 	})
 	result := agentResult{structured: final.Structured, text: final.Result, cost: final.Cost}
@@ -180,29 +198,24 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 func (r *Runner) runCodex(ctx context.Context, call agentCall) (agentResult, error) {
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
 	if call.schema != nil {
-		schemaFile := filepath.Join(r.store.logDir(call.run), call.sr.Path+".schema.json")
+		schemaFile := r.logFile(call.run, call.sr, ".schema.json")
 		if err := os.WriteFile(schemaFile, call.schema, 0o644); err != nil {
 			return agentResult{}, err
 		}
 		args = append(args, "--output-schema", schemaFile)
 	}
 	args = append(append(args, call.cli.Args...), "-")
-	cmd := exec.Command("codex", args...)
-	cmd.Stdin = strings.NewReader(call.prompt)
 
 	var result agentResult
 	var failure string
-	stderr, runErr := r.stream(ctx, call, cmd, func(line []byte) {
+	stderr, runErr := r.stream(ctx, call, exec.Command("codex", args...), call.prompt, func(line []byte, log *callLog) {
 		var event struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 			Error   struct {
 				Message string `json:"message"`
 			} `json:"error"`
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
+			Item  json.RawMessage `json:"item"`
 			Usage struct {
 				Input  int `json:"input_tokens"`
 				Output int `json:"output_tokens"`
@@ -211,14 +224,22 @@ func (r *Runner) runCodex(ctx context.Context, call agentCall) (agentResult, err
 		if json.Unmarshal(line, &event) != nil {
 			return
 		}
+		var item codexItem
+		_ = json.Unmarshal(event.Item, &item)
+		action := item.Type != "agent_message" && item.Type != "reasoning"
 		switch event.Type {
 		case "item.started":
-			if event.Item.Type != "agent_message" && event.Item.Type != "reasoning" {
+			if action {
 				r.countActions(call, 1)
+				log.begin(item.ID, item.Type, item.input(event.Item))
 			}
 		case "item.completed":
-			if event.Item.Type == "agent_message" {
-				result.text = event.Item.Text
+			if item.Type == "agent_message" {
+				result.text = item.Text
+				log.edit(func(c *Call) { c.Result = item.Text })
+			} else if action {
+				output, failed := item.output(event.Item)
+				log.end(item.ID, item.Type, item.input(event.Item), output, failed)
 			}
 		case "turn.completed":
 			result.tokens += event.Usage.Input + event.Usage.Output
@@ -243,16 +264,15 @@ func (r *Runner) runCustom(ctx context.Context, call agentCall) (agentResult, er
 	if call.schema != nil {
 		prompt += "\n\nWhen you are done, print one JSON object as the last thing you output, matching this JSON Schema:\n" + string(call.schema) + "\n"
 	}
-	promptFile := filepath.Join(r.store.logDir(call.run), call.sr.Path+".prompt.txt")
+	promptFile := r.logFile(call.run, call.sr, ".prompt.txt")
 	if err := os.WriteFile(promptFile, []byte(prompt), 0o644); err != nil {
 		return agentResult{}, err
 	}
 	command := strings.Join(append([]string{call.cli.Command}, call.cli.Args...), " ")
 	cmd := exec.Command("bash", "-c", command)
-	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Env = append(r.environment(call.run), "SWARM_PROMPT_FILE="+promptFile)
 	var output strings.Builder
-	stderr, runErr := r.stream(ctx, call, cmd, func(line []byte) {
+	stderr, runErr := r.stream(ctx, call, cmd, prompt, func(line []byte, _ *callLog) {
 		output.Write(line)
 		output.WriteByte('\n')
 	})
@@ -264,6 +284,31 @@ func (r *Runner) runCustom(ctx context.Context, call agentCall) (agentResult, er
 		result.structured = lastJSONObject(result.text)
 	}
 	return result, nil
+}
+
+type codexItem struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Command  string `json:"command"`
+	Output   string `json:"aggregated_output"`
+	ExitCode *int   `json:"exit_code"`
+	Status   string `json:"status"`
+}
+
+func (item codexItem) input(raw json.RawMessage) string {
+	if item.Command != "" {
+		return item.Command
+	}
+	return prettyRaw(raw)
+}
+
+func (item codexItem) output(raw json.RawMessage) (string, bool) {
+	failed := item.Status == "failed" || (item.ExitCode != nil && *item.ExitCode != 0)
+	if item.Command != "" {
+		return item.Output, failed
+	}
+	return prettyRaw(raw), failed
 }
 
 func lastJSONObject(text string) map[string]any {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +19,10 @@ type Runner struct {
 	store *Store
 	swarm string
 	addr  string
+}
+
+func (r *Runner) logFile(run *Run, sr *StepRun, ext string) string {
+	return filepath.Join(r.store.logDir(run), sr.Log+ext)
 }
 
 func (r *Runner) environment(run *Run) []string {
@@ -49,7 +52,7 @@ func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*R
 	if len(chain.Steps) == 0 {
 		return nil, fmt.Errorf("%s has no steps yet", chain.Name)
 	}
-	values := map[string]string{"project": lib.Project, "home": lib.Home, "swarm": r.swarm, "memory": readMemory(lib.Project)}
+	values := map[string]string{"project": lib.Project, "home": lib.Home, "swarm": r.swarm, "memory": readMemory(lib.Project), "feedback": ""}
 	for _, in := range chain.Inputs {
 		v := strings.TrimSpace(inputs[in.Name])
 		if v == "" {
@@ -75,7 +78,7 @@ func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*R
 	}
 	values["run_id"] = run.ID
 	values["run_folder"] = r.store.logDir(run)
-	values["guide"] = guideText(lib.Home)
+	values["guide"] = guideText()
 	values["catalog"] = lib.catalog()
 	run.Steps = expand(lib, chain, "")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,6 +92,9 @@ func expand(lib *Library, chain *Chain, prefix string) []*StepRun {
 	var out []*StepRun
 	for _, step := range chain.Steps {
 		sr := &StepRun{ID: step.ID, Path: prefix + step.ID, Title: step.Title, Kind: step.Kind(), Uses: step.Uses(), Always: step.Always, Status: "pending"}
+		if i := chain.stepIndex(step.Revise); step.Revise != "" && i >= 0 {
+			sr.Revise = chain.Steps[i].Title
+		}
 		if step.Chain != "" {
 			sr.Children = expand(lib, lib.Chains[step.Chain], sr.Path+".")
 		}
@@ -112,8 +118,8 @@ func (r *Runner) runSteps(ctx context.Context, lib *Library, run *Run, chain *Ch
 	for _, v := range chain.Vars {
 		sc.values[v.Name] = sc.fill(v.Value, false)
 	}
-	for i, step := range chain.Steps {
-		sr := steps[i]
+	for i := 0; i < len(chain.Steps); i++ {
+		step, sr := chain.Steps[i], steps[i]
 		if ctx.Err() != nil {
 			end.finish("stopped", "You stopped the run before: "+step.Title)
 		}
@@ -130,7 +136,13 @@ func (r *Runner) runSteps(ctx context.Context, lib *Library, run *Run, chain *Ch
 			stepCtx = context.Background()
 		}
 		now := time.Now()
-		r.store.update(run, func() { sr.Status = "running"; sr.StartedAt = &now })
+		r.store.update(run, func() {
+			sr.Status = "running"
+			sr.StartedAt = &now
+			if step.Kind() == "tool" || step.Kind() == "agent" {
+				sr.Log = sr.logName()
+			}
+		})
 
 		var out map[string]string
 		var err error
@@ -182,6 +194,17 @@ func (r *Runner) runSteps(ctx context.Context, lib *Library, run *Run, chain *Ch
 				r.refreshSubject(chain, run, sc)
 			}
 		})
+		if err == nil && !end.ended && out["decision"] == "revise" {
+			target := chain.stepIndex(step.Revise)
+			r.store.update(run, func() {
+				for j := target; j <= i; j++ {
+					steps[j] = again(steps[j])
+				}
+			})
+			earlier, _ := sc.lookup("feedback")
+			sc.values["feedback"] = strings.TrimSpace(earlier + "\n\n" + out["note"])
+			i = target - 1
+		}
 	}
 }
 
@@ -246,20 +269,15 @@ func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRu
 
 func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
 	command := stepScope(step, sc, nil).fill(lib.Tools[step.Tool].Run, true)
-	logFile, err := os.Create(filepath.Join(r.store.logDir(run), sr.Path+".log"))
-	if err != nil {
-		return nil, err
-	}
-	defer logFile.Close()
-	fmt.Fprintf(logFile, "$ %s\n\n", command)
-
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = run.Project
 	cmd.Env = r.environment(run)
-	cmd.Stdout = io.MultiWriter(&stdout, logFile)
-	cmd.Stderr = io.MultiWriter(&stderr, logFile)
-	err = runGroup(ctx, cmd)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	call := startCall(r.logFile(run, sr, ".call.json"), cmd, "", false)
+	err := runGroup(ctx, cmd)
+	call.finish(cmd, err, stdout.String(), stderr.String())
 
 	out := map[string]string{"output": strings.TrimSpace(stdout.String())}
 	var fields map[string]any
@@ -274,7 +292,7 @@ func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRu
 			reason = lastLines(stdout.String(), 3)
 		}
 		if reason == "" {
-			reason = err.Error()
+			reason = err.Error() + "; it printed nothing"
 		}
 		return out, errors.New(reason)
 	}
@@ -292,10 +310,7 @@ func (r *Runner) runApproval(ctx context.Context, run *Run, sr *StepRun, step St
 	})
 	select {
 	case d := <-run.decisions:
-		headline := "Approved"
-		if d.Choice == "reject" {
-			headline = "Rejected"
-		}
+		headline := map[string]string{"approve": "Approved", "reject": "Rejected", "revise": "Sent back to " + sr.Revise}[d.Choice]
 		if d.Note != "" {
 			headline += ": " + d.Note
 		}

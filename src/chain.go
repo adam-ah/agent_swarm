@@ -47,6 +47,7 @@ type Step struct {
 	Runner   string            `json:"runner,omitempty"`
 	Chain    string            `json:"chain,omitempty"`
 	Approval string            `json:"approval,omitempty"`
+	Revise   string            `json:"revise,omitempty"`
 	With     map[string]string `json:"with,omitempty"`
 	Tools    []string          `json:"tools,omitempty"`
 	Returns  Fields            `json:"returns,omitempty"`
@@ -225,6 +226,11 @@ func (lib *Library) check(chain *Chain) []string {
 				problems = append(problems, fmt.Sprintf("%s: %q calls back into %q", where, step.Chain, chain.Name))
 			}
 		}
+		if step.Revise != "" && step.Approval == "" {
+			problems = append(problems, where+": revise only applies to approval steps")
+		} else if step.Revise != "" && !seen[step.Revise] {
+			problems = append(problems, fmt.Sprintf("%s: revise must name an earlier step in this chain, not %q", where, step.Revise))
+		}
 		for _, f := range step.Returns {
 			if _, err := fieldSchema(f.Value); err != nil {
 				problems = append(problems, fmt.Sprintf("%s: returns %s: %v", where, f.Name, err))
@@ -246,6 +252,15 @@ func (lib *Library) check(chain *Chain) []string {
 		}
 	}
 	return problems
+}
+
+func (c *Chain) stepIndex(id string) int {
+	for i, step := range c.Steps {
+		if step.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func (lib *Library) calls(from, target string, depth int) bool {

@@ -50,8 +50,8 @@ const putItem = (kind, name, value, scope = "") =>
 const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" });
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-const KIND_LETTER = { tool: "T", agent: "A", approval: "Y", chain: "C", root: "≡" };
-const KIND_NAME = { tool: "tool", agent: "agent", approval: "you", chain: "chain" };
+const KIND_LETTER = { tool: "T", agent: "A", approval: "U", chain: "C", root: "≡" };
+const KIND_NAME = { tool: "tool", agent: "agent", approval: "user", chain: "chain" };
 const STATUS_LABEL = { running: "Running", waiting: "Waiting for you", done: "Done", failed: "Failed", stopped: "Stopped", rejected: "Rejected", interrupted: "Interrupted" };
 
 function kindOf(step) {
@@ -160,7 +160,18 @@ function renderSide() {
 }
 
 for (const button of document.querySelectorAll("[data-new]")) {
-  button.addEventListener("click", () => createItem(button.dataset.new));
+  button.addEventListener("click", (e) => { e.stopPropagation(); createItem(button.dataset.new); });
+}
+
+const folded = new Set((() => { try { return JSON.parse(localStorage.getItem("swarm.folded")) || []; } catch { return []; } })());
+for (const section of document.querySelectorAll("[data-fold]")) {
+  const name = section.dataset.fold;
+  section.classList.toggle("folded", folded.has(name));
+  section.querySelector(".side-label").addEventListener("click", () => {
+    folded.has(name) ? folded.delete(name) : folded.add(name);
+    section.classList.toggle("folded", folded.has(name));
+    try { localStorage.setItem("swarm.folded", JSON.stringify([...folded])); } catch {}
+  });
 }
 
 async function createItem(kind) {
@@ -423,10 +434,8 @@ function renderEditorTree() {
   const i = editor.selected;
   const isStep = typeof i === "number";
   document.getElementById("tree-actions").replaceChildren(
-    h("button", { class: "btn small", onclick: () => addStep("tool") }, "+ Tool"),
-    h("button", { class: "btn small", onclick: () => addStep("agent") }, "+ Agent"),
-    h("button", { class: "btn small", onclick: () => addStep("approval") }, "+ Approval"),
-    h("button", { class: "btn small", onclick: () => addStep("chain") }, "+ Sub-chain"),
+    ...[["tool", "Tool"], ["agent", "Agent"], ["approval", "User approval"], ["chain", "Sub-chain"]].map(([kind, label]) =>
+      h("button", { class: `btn small add-kind ${kind}`, onclick: () => addStep(kind) }, h("span", { class: `kind ${kind}` }, KIND_LETTER[kind]), `+ ${label}`)),
     h("span", { style: "flex:1" }),
     h("button", { class: "btn small", disabled: !isStep || i === 0, onclick: () => move(-1), title: "Move up" }, "↑"),
     h("button", { class: "btn small", disabled: !isStep || i === d.steps.length - 1, onclick: () => move(1), title: "Move down" }, "↓"),
@@ -503,7 +512,7 @@ function rootInspector() {
 function stepInspector(step) {
   const kind = kindOf(step);
   const setKind = (next) => {
-    for (const key of ["tool", "agent", "approval", "chain", "tools", "returns", "save", "with"]) delete step[key];
+    for (const key of ["tool", "agent", "approval", "revise", "chain", "tools", "returns", "save", "with"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
     if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; step.returns = [{ name: "summary", value: "text" }]; }
     if (next === "approval") step.approval = "Continue?";
@@ -515,7 +524,7 @@ function stepInspector(step) {
     h("div", { class: "row2" },
       field("Title", textInput(step.title, (v) => { step.title = v; touch(); })),
       field("ID", textInput(step.id, (v) => { step.id = v; touch(); }, { class: "code" }), "used as {{id.field}}")),
-    field("Kind", selectBox([["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["approval", "Approval: wait for you"], ["chain", "Sub-chain: run another chain"]], kind, setKind)),
+    field("Kind", selectBox([["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["approval", "User approval: wait for a person"], ["chain", "Sub-chain: run another chain"]], kind, setKind)),
     kindFields(step, kind),
     h("div", { class: "subpanel" },
       h("h3", {}, "Flow"),
@@ -532,7 +541,11 @@ function stepInspector(step) {
 
 function kindFields(step, kind) {
   if (kind === "approval") {
-    return field("Question for you", textArea(step.approval, (v) => { step.approval = v || "Continue?"; touch(); }, { rows: 2 }), "add the files to show below");
+    const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
+    return h("div", { class: "form" },
+      field("Question for you", textArea(step.approval, (v) => { step.approval = v || "Continue?"; touch(); }, { rows: 2 }), "add the files to show below"),
+      field("Revise goes back to", selectBox([["", "nowhere: only approve or reject"], ...earlier.map((s) => [s.id, s.title || s.id])], step.revise || "", (v) => { step.revise = v || undefined; touch(true); }),
+        "the person's note reaches the steps that run again as {{feedback}}"));
   }
   if (kind === "chain") {
     const withRows = mapToRows(step.with);
@@ -850,15 +863,130 @@ function syncCards(container, steps, run) {
       entry.arts.replaceChildren(...renderArtifacts(run.id, step.artifacts || []));
       entry.artSig = artSig;
     }
+    if (entry.call?.log !== step.log) entry.call = step.log ? callPanel(run.id, step.log) : null;
+    if (entry.earlierCount !== (step.earlier?.length || 0)) {
+      entry.earlierCount = step.earlier?.length || 0;
+      entry.earlier = entry.earlierCount ? earlierPanel(run, step.earlier) : null;
+    }
     if (step.children?.length) syncCards(entry.kids, step.children, run);
-    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, cost: step.kind === "chain" ? undefined : step.cost });
+    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: step.kind === "chain" ? undefined : step.cost });
     if (entry.sig !== sig) {
       const fresh = stepCard(run, step, i, entry);
       entry.el.replaceWith(fresh);
       entry.el = fresh;
       entry.sig = sig;
+      if (entry.call?.el.open) entry.call.load();
     }
   });
+}
+
+function stepFields(step) {
+  const fields = Object.entries(step.output || {}).filter(([k, v]) => k !== "summary" && v !== "" && !(step.kind === "tool" && k === "output" && Object.keys(step.output).length > 1));
+  if (!fields.length || step.kind === "approval") return null;
+  return h("details", { class: "output" }, h("summary", {}, step.kind === "agent" ? "What the agent returned" : "Output"),
+    h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
+}
+
+function earlierPanel(run, earlier) {
+  return h("details", { class: "output earlier" }, h("summary", {}, `Earlier attempts (${earlier.length})`),
+    earlier.map((step, n) => h("div", { class: "attempt" },
+      h("div", { class: "attempt-head" }, `Attempt ${n + 1}`, h("span", { class: "card-stats" }, step.started_at ? duration(step.started_at, step.ended_at) : step.status)),
+      step.headline ? h("div", { class: "headline" }, step.headline) : null,
+      step.error ? h("div", { class: "error-box" }, step.error) : null,
+      stepFields(step),
+      step.log ? callPanel(run.id, step.log).el : null)));
+}
+
+const sizeOf = (text) => (text.length < 1024 ? `${text.length} chars` : `${(text.length / 1024).toFixed(1)} KB`);
+const shellWord = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
+
+function elapsed(from, to) {
+  if (!from) return "";
+  const ms = (to ? new Date(to) : new Date()) - new Date(from);
+  if (ms < 1000) return `${Math.max(0, ms)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return duration(from, to);
+}
+
+function remembered(el, key, opened) {
+  el.open = opened.get(key) ?? el.open;
+  el.addEventListener("toggle", () => opened.set(key, el.open));
+  return el;
+}
+
+function block(label, text, opened, always = false) {
+  if (!text && !always) return null;
+  if (!text) return h("div", { class: "block empty" }, label, h("span", { class: "hint" }, " printed nothing"));
+  return remembered(h("details", { class: "block", open: text.length < 600 },
+    h("summary", {}, label, h("span", { class: "hint" }, ` ${sizeOf(text)}`)), h("pre", {}, text)), label, opened);
+}
+
+function actionLabel(action) {
+  let input = action.input;
+  try {
+    const parsed = JSON.parse(input);
+    input = ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"].map((k) => parsed?.[k]).find((v) => typeof v === "string") ?? JSON.stringify(parsed);
+  } catch {}
+  return input.split("\n").find((line) => line.trim()) || "";
+}
+
+function callView(runID, log, call, opened) {
+  const ended = call.ended_at;
+  const exit = call.exit_code === undefined ? null : call.exit_code === 0 ? "exit 0" : call.exit_code === -1 ? "killed" : `exit ${call.exit_code}`;
+  const long = [];
+  const words = call.command.map((arg, i) => {
+    if (arg.length <= 160 && !arg.includes("\n")) return shellWord(arg);
+    long.push([i, arg]);
+    return `<argument ${i}>`;
+  });
+  const out = [
+    h("div", { class: "call-meta" },
+      h("span", {}, `started ${new Date(call.started_at).toLocaleTimeString()}`),
+      h("span", {}, ended ? `ran ${elapsed(call.started_at, ended)}` : "still running"),
+      exit ? h("span", { class: call.exit_code === 0 ? "good" : "bad" }, exit) : null,
+      h("span", { class: "hint" }, `in ${call.dir}`)),
+    h("pre", { class: "command" }, `$ ${words.join(" ")}${call.stdin ? " < stdin" : ""}`),
+    long.map(([i, arg]) => block(`argument ${i}`, arg, opened)),
+    block("stdin", call.stdin, opened),
+  ];
+  if (call.error) out.push(h("div", { class: "error-box" }, call.error));
+  if (call.actions?.length) {
+    out.push(h("div", { class: "actions-head" }, `Tool calls (${call.actions.length})`),
+      h("div", { class: "actions" }, call.actions.map((a, n) => remembered(
+        h("details", { class: `action ${a.failed ? "failed" : ""}` },
+          h("summary", {},
+            h("span", { class: "action-tool" }, a.tool),
+            h("span", { class: "action-input" }, actionLabel(a)),
+            h("span", { class: "action-time" }, a.ended_at ? elapsed(a.started_at, a.ended_at) : "running")),
+          h("div", { class: "action-body" }, h("div", { class: "hint" }, "input"), h("pre", {}, a.input),
+            a.ended_at ? [h("div", { class: "hint" }, a.failed ? "output (failed)" : "output"), h("pre", {}, a.output || "(empty)")] : null)),
+        `action ${a.id || n}`, opened))));
+  }
+  out.push(block("result", call.result, opened), block("stdout", call.stdout, opened, !call.stream && !!ended), block("stderr", call.stderr, opened, !!ended));
+  if (call.stream) {
+    const pre = h("pre", {}, "Loading…");
+    const el = remembered(h("details", { class: "block" }, h("summary", {}, call.result ? "full output stream" : "stdout"), pre), "stream", opened);
+    const fill = () => fetch(`/api/runs/${encodeURIComponent(runID)}/call?log=${encodeURIComponent(log)}&part=stream`).then((r) => r.text()).then((t) => { pre.textContent = t || "(empty)"; });
+    el.addEventListener("toggle", () => { if (el.open) fill(); });
+    if (el.open) fill();
+    out.push(el);
+  }
+  return out;
+}
+
+function callPanel(runID, log) {
+  const opened = new Map();
+  const body = h("div", { class: "call-body" }, "Loading…");
+  const el = h("details", { class: "output call" }, h("summary", {}, "How it was called"), body);
+  const load = async () => {
+    try {
+      body.replaceChildren(...callView(runID, log, await api(`/api/runs/${encodeURIComponent(runID)}/call?log=${encodeURIComponent(log)}`), opened).flat().filter(Boolean));
+    } catch (err) {
+      body.replaceChildren(h("p", { class: "hint" }, err.message));
+    }
+  };
+  el.addEventListener("toggle", () => { if (el.open) load(); });
+  return { log, el, load };
 }
 
 function stepCard(run, step, i, entry) {
@@ -876,31 +1004,36 @@ function stepCard(run, step, i, entry) {
   if (step.error) body.push(h("div", { class: "error-box" }, step.error));
   if (step.status === "waiting") body.push(h("div", { class: "decide" }, h("div", { class: "question" }, step.question)));
   body.push(entry.arts);
-  if (step.status === "waiting") body.push(decideForm(run.id));
-  const fields = Object.entries(step.output || {}).filter(([k, v]) => k !== "summary" && v !== "" && !(step.kind === "tool" && k === "output" && Object.keys(step.output).length > 1));
-  if (fields.length && step.kind !== "approval") {
-    body.push(h("details", { class: "output" }, h("summary", {}, step.kind === "agent" ? "What the agent returned" : "Output"),
-      h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]))));
-  }
+  if (step.status === "waiting") body.push(decideForm(run.id, step));
+  body.push(stepFields(step));
+  if (entry.call) body.push(entry.call.el);
+  if (entry.earlier) body.push(entry.earlier);
   if (step.kind === "chain") body.push(entry.kids);
   return h("div", { class: `card ${step.status} ${step.kind}`, id: `card-${keyOf(step)}` },
     h("div", { class: "card-head" },
       h("span", { class: `state ${step.status}` }, step.status === "done" ? "✓" : step.status === "failed" ? "!" : ""),
       h("span", { class: "card-title" }, step.title),
       h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind]),
+      step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
       step.always ? h("span", { class: "chip flag" }, "always runs") : null,
       h("span", { class: "card-stats" }, stats.join(" · "))),
     ...body);
 }
 
-function decideForm(runID) {
-  const note = h("textarea", { placeholder: "Optional note" });
+function decideForm(runID, step) {
+  const note = h("textarea", { placeholder: step.revise ? "Note: what to change, if you send it back" : "Optional note" });
   const decide = async (choice, button) => {
+    if (choice === "revise" && !note.value.trim()) {
+      note.placeholder = "Say what to change, then send it back";
+      note.focus();
+      return;
+    }
     button.disabled = true;
     try { await send("POST", `/api/runs/${encodeURIComponent(runID)}/decide`, { choice, note: note.value }); } catch (err) { alert(err.message); button.disabled = false; }
   };
   return h("div", { class: "decide" }, note, h("div", { class: "row" },
     h("button", { class: "btn approve", onclick: (e) => decide("approve", e.target) }, "Approve"),
+    step.revise ? h("button", { class: "btn", onclick: (e) => decide("revise", e.target) }, `Revise: back to ${step.revise}`) : null,
     h("button", { class: "btn", onclick: (e) => decide("reject", e.target) }, "Reject")));
 }
 

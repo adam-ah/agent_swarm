@@ -18,21 +18,21 @@
       <a class="side-item" id="memory-link" href="#/memory"><span class="text">Memory</span><span class="meta">.swarm/memory.md</span></a>
       <a class="side-item" id="settings-link" href="#/settings"><span class="text">Settings</span><span class="meta" id="settings-meta"></span></a>
     </div>
-    <div class="side-section">
-      <div class="side-label">Chains <button class="add" data-new="chain" title="New chain">+</button></div>
+    <div class="side-section" data-fold="chains">
+      <div class="side-label"><span class="caret"></span>Chains <button class="add" data-new="chain" title="New chain">+</button></div>
       <nav id="chains"></nav>
     </div>
-    <div class="side-section">
-      <div class="side-label">Tools <button class="add" data-new="tool" title="New tool">+</button></div>
+    <div class="side-section" data-fold="runs">
+      <div class="side-label"><span class="caret"></span>Runs</div>
+      <nav id="runs"></nav>
+    </div>
+    <div class="side-section" data-fold="tools">
+      <div class="side-label"><span class="caret"></span>Tools <button class="add" data-new="tool" title="New tool">+</button></div>
       <nav id="tools"></nav>
     </div>
-    <div class="side-section">
-      <div class="side-label">Prompts <button class="add" data-new="prompt" title="New prompt">+</button></div>
+    <div class="side-section" data-fold="prompts">
+      <div class="side-label"><span class="caret"></span>Prompts <button class="add" data-new="prompt" title="New prompt">+</button></div>
       <nav id="prompts"></nav>
-    </div>
-    <div class="side-section">
-      <div class="side-label">Runs</div>
-      <nav id="runs"></nav>
     </div>
   </aside>
   <main id="main"></main>

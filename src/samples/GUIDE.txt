@@ -31,7 +31,12 @@ they are ordinary files.
 COMMANDS
 
 Every command works on the project in the current folder; -project DIR picks
-another. All but guide, samples and help need the server: "swarm serve".
+another. All but guide, samples and help need the swarm server.
+
+Never start or stop the server yourself, not even in the background. The
+person runs "swarm serve" in their own terminal, where they can see its
+address. If a command says the server is not running, finish what you can,
+then tell the person: "Run swarm serve in a terminal, then I'll continue."
 
     swarm guide                     this text
     swarm init [DIR]                make a folder a swarm project
@@ -60,7 +65,8 @@ another. All but guide, samples and help need the server: "swarm serve".
     swarm runs                      recent runs
     swarm show RUN                  a run's steps
     swarm approve RUN               answer the approval a run is waiting on;
-    swarm reject RUN                only when the person told you to
+    swarm revise RUN -note TEXT     only when the person told you to
+    swarm reject RUN
     swarm cancel RUN                stop one run; its cleanup steps still run
 
 When a run reaches an approval, "swarm run" prints the question and the page
@@ -148,6 +154,14 @@ It has exactly one of these:
   "approval": "<question>"
       Pauses until the person approves or rejects. Rejecting ends the run.
       Put the files they need to decide in "show".
+      "revise": "<earlier step id>" adds a third answer: the person writes
+      what to change and the run goes back to that step, in the same
+      chain, and runs everything from there again, this approval
+      included. The notes reach those steps as {{feedback}}, so the
+      prompt of the step it goes back to should say "If {{feedback}} is
+      not empty, it is the person's answer to your last attempt; follow
+      it." Use this whenever a person checks a plan or a draft, instead of
+      asking them to reject and start over.
 
   "chain": "<name>"
       Runs another chain as a nested step. It sees everything the calling
@@ -248,6 +262,8 @@ PLACEHOLDERS
        swarm        the swarm binary
        guide        this text
        catalog      what "swarm list" prints
+       feedback     the notes a person sent back with Revise, oldest
+                    first; empty until then
   4. {{step_id.field}}: a field an earlier step returned, including steps
      inside a sub-chain, by their own id
 
