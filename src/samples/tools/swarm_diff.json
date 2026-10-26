@@ -1,0 +1,5 @@
+{
+  "title": "Collect the change to .swarm as a diff",
+  "run": "set -uo pipefail\ncd {{run_folder}}\nrm -rf swarm-after swarm-base\ncp -a {{project}}/.swarm swarm-after\ncp -a swarm-before swarm-base\n(cd swarm-after && find . -type f | sed 's|^\\./||') | while read -r f; do\n  if [ ! -e \"swarm-base/$f\" ] && {{swarm}} get -project {{project}} -below \"$f\" > /dev/null 2>&1; then\n    mkdir -p \"swarm-base/$(dirname \"$f\")\"\n    {{swarm}} get -project {{project}} -below \"$f\" > \"swarm-base/$f\" 2>/dev/null\n  fi\ndone\ndiff -ruN swarm-base swarm-after > swarm-change.diff\nstatus=$?\n[ \"$status\" -le 1 ] || exit \"$status\"\necho \"$(grep -c '^+++ ' swarm-change.diff) file(s) changed; a new project copy is compared with the shared one it overrides\"\n",
+  "show": ["{{run_folder}}/swarm-change.diff"]
+}

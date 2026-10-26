@@ -1,0 +1,48 @@
+{
+  "title": "Change swarm itself",
+  "description": "Describe a change to how this folder's chains, tools, prompts or memory work. An agent edits this folder's .swarm files, swarm checks they still load, and you approve the diff. If you reject it or anything fails, the files are put back.",
+  "subject": "{{request}}",
+  "inputs": [
+    { "name": "request", "label": "What to change" }
+  ],
+  "steps": [
+    {
+      "id": "snapshot",
+      "title": "Save the current .swarm files",
+      "tool": "snapshot_swarm"
+    },
+    {
+      "id": "edit",
+      "title": "Edit the swarm files",
+      "agent": "edit-swarm",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
+      "returns": [
+        { "name": "summary", "value": "text" },
+        { "name": "files", "value": "list" }
+      ]
+    },
+    {
+      "id": "check",
+      "title": "Check every chain still loads",
+      "tool": "check_swarm"
+    },
+    {
+      "id": "diff",
+      "title": "Collect the change",
+      "tool": "swarm_diff"
+    },
+    {
+      "id": "approve",
+      "title": "Your approval to keep it",
+      "approval": "Keep this change to swarm?",
+      "show": ["{{run_folder}}/swarm-change.diff"]
+    },
+    {
+      "id": "restore",
+      "title": "Put the files back",
+      "tool": "restore_swarm",
+      "always": true,
+      "when": "approve.decision != approve"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "title": "Collect the change as a diff",
+  "run": "set -euo pipefail\ngit add -N -- . ':!.swarm'\ngit diff -- . ':!.swarm' > {{run_folder}}/change.diff\ngit diff --stat -- . ':!.swarm' | tail -1\n",
+  "show": ["{{run_folder}}/change.diff"]
+}

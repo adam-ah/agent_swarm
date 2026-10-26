@@ -1,0 +1,4 @@
+{
+  "title": "Run the tests",
+  "run": "set -uo pipefail\ncmd={{command}}\n[ -n \"$cmd\" ] || cmd={{fallback}}\nif [ -z \"$cmd\" ]; then echo \"no test command; give one when starting the run\" >&2; exit 1; fi\necho \"\\$ $cmd\"\nbash -c \"$cmd\" 2>&1 | tail -40\nstatus=${PIPESTATUS[0]}\n[ \"$status\" -eq 0 ] && echo \"tests passed\" || { echo \"tests failed (exit $status)\" >&2; exit \"$status\"; }\n"
+}

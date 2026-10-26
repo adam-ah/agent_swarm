@@ -1,0 +1,4 @@
+{
+  "title": "Commit everything in the approved diff",
+  "run": "set -euo pipefail\ngit add -A -- . ':!.swarm'\ngit commit -q -m {{message}}\ngit log -1 --format='%h %s'\n"
+}

@@ -1,0 +1,4 @@
+{
+  "title": "Put this folder's .swarm files back as they were",
+  "run": "set -euo pipefail\nrm -rf {{project}}/.swarm\ncp -a {{run_folder}}/swarm-before {{project}}/.swarm\necho \"put .swarm back as it was before this run\"\n"
+}

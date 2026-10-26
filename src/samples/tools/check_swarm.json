@@ -1,0 +1,4 @@
+{
+  "title": "Check every chain still loads",
+  "run": "{{swarm}} check -project {{project}}\n"
+}

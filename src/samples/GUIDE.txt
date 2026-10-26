@@ -1,0 +1,289 @@
+SWARM GUIDE
+
+swarm runs chains: ordered steps that each do one thing. A step runs a tool
+(a named shell command), an agent (Claude Code, Codex or another agent CLI,
+given a prompt and returning named fields), an approval (waits for a
+person), or another chain. A person
+watches every run on a page, step by step, with the videos, diffs and drafts
+each step produced. Approvals happen on that page.
+
+Chains, tools and prompts are plain JSON and text files, but change them only
+through the swarm command, the same way the page does. Both send the same
+requests to the swarm server, which checks every file before it saves it and
+refuses a broken one with the reasons. Do not write into .swarm/ or ~/.swarm/
+yourself.
+
+
+WHERE THINGS LIVE
+
+There are two layers. A project's copy overrides the shared one with the same
+name.
+
+    ~/.swarm/             shared: the person's own, for all their projects
+    <project>/.swarm/     project: committed with the project
+
+Each layer has chains/<name>.json, tools/<name>.json, prompts/<name>.md and
+settings.json. A project also has .swarm/memory.md. "swarm samples" writes
+the sample chains, tools, prompts and this guide into ~/.swarm; after that
+they are ordinary files.
+
+
+COMMANDS
+
+Every command works on the project in the current folder; -project DIR picks
+another. All but guide, samples and help need the server: "swarm serve".
+
+    swarm guide                     this text
+    swarm init [DIR]                make a folder a swarm project
+    swarm settings                  which agent runs agent steps, and which
+                                    agent CLIs are installed
+
+    swarm list                      every chain, tool and prompt the project
+                                    can use, with its layer and steps
+    swarm get PATH                  print one, e.g. chains/fix-from-text.json
+    swarm get PATH -below           the shared version a project copy
+                                    overrides
+    swarm put PATH -file F          save one from file F (or stdin); refused
+                                    with reasons if invalid
+    swarm put PATH -file F -scope shared
+                                    save to ~/.swarm for every project; only
+                                    when the person asks
+    swarm rm PATH                   delete one; refused while a chain uses it
+    swarm check                     confirm every chain loads
+
+    swarm memory                    what the project has learned
+    swarm memory add -about TEXT NOTE...
+                                    add notes
+
+    swarm run CHAIN -input name=value
+                                    start a run, print each step as it ends
+    swarm runs                      recent runs
+    swarm show RUN                  a run's steps
+    swarm approve RUN               answer the approval a run is waiting on;
+    swarm reject RUN                only when the person told you to
+    swarm cancel RUN                stop one run; its cleanup steps still run
+
+When a run reaches an approval, "swarm run" prints the question and the page
+link, then waits. The person answers on the page, or tells you to run
+"swarm approve".
+
+
+A CHAIN: chains/<name>.json
+
+    {
+      "title": "Lint and report",
+      "description": "Runs the linter and writes a short report.",
+      "subject": "Lint {{target}}",
+      "inputs": [
+        { "name": "target", "label": "Folder to lint", "default": "." },
+        { "name": "note", "label": "Anything to watch for",
+          "optional": true }
+      ],
+      "vars": [
+        { "name": "report", "value": "{{run_folder}}/lint-report.md" }
+      ],
+      "steps": [
+        {
+          "id": "lint",
+          "title": "Run the linter",
+          "tool": "run_linter",
+          "with": { "path": "{{target}}" }
+        },
+        {
+          "id": "explain",
+          "title": "Explain the findings",
+          "agent": "explain-lint",
+          "tools": ["Read", "Grep", "Glob", "Write"],
+          "returns": [
+            { "name": "summary", "value": "text" },
+            { "name": "severity", "value": "none | minor | serious" }
+          ],
+          "show": ["{{report}}"],
+          "stop_if": "severity == none",
+          "stop": "Nothing to fix. {{summary}}"
+        },
+        {
+          "id": "approve",
+          "title": "Your approval to open an issue",
+          "approval": "Open an issue with this report?",
+          "show": ["{{report}}"]
+        }
+      ]
+    }
+
+title        names the chain on the page
+description  what it does and when to use it
+subject      the run's heading, once its placeholders can be filled
+link         makes the heading a link
+inputs       asked for when a run starts; each needs a name (lowercase,
+             digits, _) and a label, and may have a default or
+             "optional": true
+vars         computed once at the start, in order; can use inputs and
+             earlier vars
+
+
+STEPS
+
+Every step has an id (lowercase letters, digits and _, starting with a
+letter) and a title that says what it does, like "Record the before video".
+It has exactly one of these:
+
+  "tool": "<name>"
+      Runs that tool. "with": { "name": "value" } gives it its values.
+
+  "agent": "<prompt name>"
+      Runs an agent CLI headless in the project folder with
+      prompts/<name>.md. Which one is set in settings (see AGENTS below);
+      "runner": "codex" (or "claude", or a custom name) overrides it for
+      this step.
+      "tools" lists what a Claude step may use: Bash, Read, Grep, Glob,
+      Write, Edit, WebFetch, WebSearch. Give it only what it needs; a
+      reviewer gets no Write or Edit. Codex ignores this list and runs with
+      the person's own Codex config, sandbox and approval settings.
+      "returns" lists the fields it must return. Each value is text, number,
+      bool, list, or choices written A | B | C. A field named summary
+      becomes the step's headline.
+      "save": "<path>" writes the returned fields to a JSON file.
+
+  "approval": "<question>"
+      Pauses until the person approves or rejects. Rejecting ends the run.
+      Put the files they need to decide in "show".
+
+  "chain": "<name>"
+      Runs another chain as a nested step. It sees everything the calling
+      chain sees, plus its "with" values. Afterwards its steps' outputs can
+      be read by their own ids.
+
+Any step can also have:
+
+  "when": "name == value"   (or !=) run only if that holds, else skip. A
+                            missing name counts as empty, so
+                            "fix.summary != " means "only if fix returned a
+                            summary".
+  "stop_if": "field == value" with "stop": "<message>"
+                            after the step, end the run with that message;
+                            it reads the step's own fields by name.
+  "show": ["<file>", ...]   files the page displays for the step: videos
+                            play, images form a filmstrip, .md renders,
+                            .diff is coloured, anything else shows as text.
+                            Globs work; relative paths start at the project.
+  "headline": "<text>"      the line under the step's title; defaults to the
+                            agent's summary or a tool's last line of output.
+  "always": true            run even after a failure, a stop or a rejection;
+                            for cleanup and for saving what was learned.
+
+A failed step ends the run, apart from steps marked always.
+
+
+A TOOL: tools/<name>.json
+
+    {
+      "title": "Run the linter",
+      "run": "npx eslint {{path}} | tee {{run_folder}}/lint.txt | tail -1",
+      "show": ["{{run_folder}}/lint.txt"]
+    }
+
+- run is a bash script run in the project folder. A non-zero exit fails the
+  step, and its last lines of error output become the step's error.
+- Every value filled into run is already shell-quoted. Write {{path}}, never
+  "{{path}}".
+- If it prints a JSON object, each field becomes an output later steps can
+  read. Otherwise the whole output is the field "output", and its last line
+  is the headline.
+- Make a tool for anything deterministic: running tests, recording a video,
+  committing, posting. Keep judgement for agents.
+
+
+AGENTS
+
+An agent step runs one of these:
+
+  claude   Claude Code, as "claude -p". Returns its fields through a JSON
+           schema; the step's "tools" list limits what it may use.
+  codex    Codex, as "codex exec". Returns its fields through
+           --output-schema; runs with the person's own Codex config.
+  custom   a command added in settings, for example pi. It gets the prompt
+           on stdin and in $SWARM_PROMPT_FILE, and must print the step's
+           fields as one JSON object as the last thing it outputs.
+
+settings.json, in ~/.swarm for every project or in <project>/.swarm for one
+project, chooses the default and defines custom agents:
+
+    {
+      "agent": "codex",
+      "agents": {
+        "claude": { "args": ["--model", "opus"] },
+        "pi": { "command": "pi -p" }
+      }
+    }
+
+"agent" is the default for every agent step. "args" adds arguments to the
+claude or codex command line. Change settings with "swarm put settings.json
+-file F" (add -scope project for one project only); it is refused if a chain
+would then name an agent that does not exist.
+
+
+A PROMPT: prompts/<name>.md
+
+The text an agent step gives the agent, with placeholders filled first. Say what
+the agent is given and what it must not do, then how to work. End with a
+"Return" section that explains each field in "returns". The agent runs
+headless in the project folder and cannot ask questions; it must finish with
+its fields.
+
+
+PLACEHOLDERS
+
+{{name}} is replaced, in this order, by:
+
+  1. the step's own "with" values; for stop, headline and show, the step's
+     returned fields come first
+  2. the chain's inputs and vars, and those of every chain that called it
+  3. values every run has:
+       project      the project folder
+       run_id       this run's id
+       run_folder   where this run keeps its files
+       memory       the project's memory.md
+       home         the shared library, ~/.swarm
+       swarm        the swarm binary
+       guide        this text
+       catalog      what "swarm list" prints
+  4. {{step_id.field}}: a field an earlier step returned, including steps
+     inside a sub-chain, by their own id
+
+A name that cannot be filled is left as written, so a draft can keep
+{{VIDEO_URL}} for a later step to replace.
+
+
+MEMORY
+
+.swarm/memory.md holds facts a future run in this project would otherwise
+rediscover: how to run the tests, where things live, conventions, traps.
+Prompts read it as {{memory}}. The sample fix-from-text chain ends with an
+agent that proposes notes and a remember tool that saves them with
+"swarm memory add". Keep notes short, true and specific to the project.
+
+
+HOW TO CREATE OR CHANGE THINGS
+
+  1. Run "swarm list" and reuse what exists. Do not write a second tool that
+     does what take_video already does.
+  2. Write a draft file, then save it with "swarm put PATH -file DRAFT".
+     swarm checks it before saving it into the project. Invalid JSON, an
+     unknown field, a step without exactly one kind, a bad condition, or a
+     step naming a tool, prompt or chain that does not exist are refused
+     with the reason. Fix the draft and put it again.
+  3. Save tools and prompts before the chain that uses them.
+  4. To change a shared chain, tool or prompt for one project only, start
+     from "swarm get PATH > DRAFT", edit the draft, and put it. The
+     project's copy overrides the shared one in that project only. Use
+     -scope shared only when the person asks for a change to every project.
+  5. Finish with "swarm check".
+  6. Anything that reaches outside the machine (pushing, posting, uploading,
+     messaging) goes after an approval step.
+  7. Show the person what each step produced: a diff, a video, a report.
+
+The sample chain change-swarm does exactly this for a request in plain
+words: an agent drafts and puts the project's files, "swarm check" runs, the
+person approves the diff, and a rejection puts the files back. So changes to
+swarm go through the same kind of chain as any other work.

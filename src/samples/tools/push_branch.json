@@ -1,0 +1,4 @@
+{
+  "title": "Push the current branch",
+  "run": "set -euo pipefail\ngit push -u origin HEAD 2>&1 | tail -4\necho \"pushed $(git rev-parse --abbrev-ref HEAD) to $(git remote get-url origin)\"\n"
+}

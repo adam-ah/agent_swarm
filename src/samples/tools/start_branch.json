@@ -1,0 +1,4 @@
+{
+  "title": "Start a branch from a clean tree",
+  "run": "set -euo pipefail\nif [ -n \"$(git status --porcelain -- . ':!.swarm')\" ]; then\n  echo \"this folder has uncommitted changes; commit or stash them first:\" >&2\n  git status --short -- . ':!.swarm' >&2\n  exit 1\nfi\nbranch=\"swarm/$(printf %s {{run_id}})\"\ngit switch -c \"$branch\" >&2\njq -n --arg branch \"$branch\" --arg base \"$(git rev-parse --short HEAD)\" '{branch: $branch, base: $base}'\n"
+}

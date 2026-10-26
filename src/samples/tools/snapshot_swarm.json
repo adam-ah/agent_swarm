@@ -1,0 +1,4 @@
+{
+  "title": "Save a copy of this folder's .swarm files",
+  "run": "set -euo pipefail\nmkdir -p {{project}}/.swarm\nrm -rf {{run_folder}}/swarm-before\ncp -a {{project}}/.swarm {{run_folder}}/swarm-before\necho \"saved $(find {{run_folder}}/swarm-before -type f | wc -l) file(s)\"\n"
+}
