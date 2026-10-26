@@ -487,7 +487,7 @@ func clientCommand(command string, args []string) error {
 		if err := c.call("POST", "/api/runs/"+id+"/decide", decision{Choice: command, Note: *note}, nil); err != nil {
 			return err
 		}
-		fmt.Println(command + "d " + id)
+		fmt.Println(map[string]string{"approve": "approved", "revise": "sent back", "reject": "rejected"}[command] + " " + id)
 	case "cancel":
 		id, err := arg(0, "a run id")
 		if err != nil {
@@ -672,6 +672,10 @@ func report(steps []*StepRun, indent string, seen map[string]string, link string
 				fmt.Printf("%s✓ %s%s\n", indent, s.Title, suffix(s.Headline))
 			case "failed":
 				fmt.Printf("%s✗ %s%s\n", indent, s.Title, suffix(s.Error))
+			case "rejected":
+				fmt.Printf("%s✗ %s (rejected)%s\n", indent, s.Title, suffix(s.Headline))
+			case "stopped":
+				fmt.Printf("%s■ %s (ended the run)%s\n", indent, s.Title, suffix(s.Headline))
 			case "skipped":
 				fmt.Printf("%s- %s (skipped)\n", indent, s.Title)
 			case "pending":

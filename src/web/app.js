@@ -52,6 +52,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 
 const KIND_LETTER = { tool: "T", agent: "A", approval: "U", chain: "C", root: "≡" };
 const KIND_NAME = { tool: "tool", agent: "agent", approval: "user", chain: "chain" };
+const STATE_ICON = { done: "✓", failed: "!", rejected: "✕", stopped: "■" };
 const STATUS_LABEL = { running: "Running", waiting: "Waiting for you", done: "Done", failed: "Failed", stopped: "Stopped", rejected: "Rejected", interrupted: "Interrupted" };
 
 function kindOf(step) {
@@ -407,7 +408,7 @@ async function saveChain(scope = "") {
 
 function treeRow({ kind, title, id, selected, readonly, depth, onclick, state, time }) {
   return h("div", { class: `tree-row ${selected ? "selected" : ""} ${readonly ? "readonly" : ""} ${state || ""} ${kind === "root" ? "tree-root" : ""}`, onclick },
-    state !== undefined ? h("span", { class: `state ${state}` }, state === "done" ? "✓" : state === "failed" ? "!" : "") : null,
+    state !== undefined ? h("span", { class: `state ${state}` }, STATE_ICON[state] || "") : null,
     h("span", { class: `kind ${kind}`, title: KIND_NAME[kind] || "chain" }, KIND_LETTER[kind]),
     h("span", { class: "title" }, title || "(untitled)"),
     time !== undefined ? h("span", { class: "time" }, time) : id ? h("span", { class: "id" }, id) : null);
@@ -916,7 +917,7 @@ function remembered(el, key, opened) {
 
 function block(label, text, opened, always = false) {
   if (!text && !always) return null;
-  if (!text) return h("div", { class: "block empty" }, label, h("span", { class: "hint" }, " printed nothing"));
+  if (!text) return h("div", { class: "block-empty" }, label, h("span", { class: "hint" }, " printed nothing"));
   return remembered(h("details", { class: "block", open: text.length < 600 },
     h("summary", {}, label, h("span", { class: "hint" }, ` ${sizeOf(text)}`)), h("pre", {}, text)), label, opened);
 }
@@ -1002,6 +1003,7 @@ function stepCard(run, step, i, entry) {
       `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at))));
   }
   if (step.error) body.push(h("div", { class: "error-box" }, step.error));
+  if (step.ended) body.push(h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended));
   if (step.status === "waiting") body.push(h("div", { class: "decide" }, h("div", { class: "question" }, step.question)));
   body.push(entry.arts);
   if (step.status === "waiting") body.push(decideForm(run.id, step));
@@ -1011,7 +1013,7 @@ function stepCard(run, step, i, entry) {
   if (step.kind === "chain") body.push(entry.kids);
   return h("div", { class: `card ${step.status} ${step.kind}`, id: `card-${keyOf(step)}` },
     h("div", { class: "card-head" },
-      h("span", { class: `state ${step.status}` }, step.status === "done" ? "✓" : step.status === "failed" ? "!" : ""),
+      h("span", { class: `state ${step.status}` }, STATE_ICON[step.status] || ""),
       h("span", { class: "card-title" }, step.title),
       h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind]),
       step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,

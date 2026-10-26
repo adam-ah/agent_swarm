@@ -176,11 +176,17 @@ func (r *Runner) runSteps(ctx context.Context, lib *Library, run *Run, chain *Ch
 				return
 			}
 			sr.Status = "done"
+			for _, child := range sr.Children {
+				if child.Status == "stopped" || child.Status == "rejected" {
+					sr.Status = child.Status
+				}
+			}
 			if step.Kind() == "approval" && out["decision"] == "reject" {
 				reason := "You rejected: " + step.Title
 				if out["note"] != "" {
 					reason += " (" + out["note"] + ")"
 				}
+				sr.Status = "rejected"
 				end.finish("rejected", reason)
 			}
 			if step.StopIf != "" && !end.ended && local.holds(step.StopIf) {
@@ -188,6 +194,7 @@ func (r *Runner) runSteps(ctx context.Context, lib *Library, run *Run, chain *Ch
 				if reason == "" {
 					reason = "Stopped after: " + step.Title
 				}
+				sr.Status, sr.Ended = "stopped", reason
 				end.finish("stopped", reason)
 			}
 			if sc.parent == nil {

@@ -35,6 +35,7 @@ type StepRun struct {
 	Runner    string         `json:"runner,omitempty"`
 	Actions   int            `json:"actions,omitempty"`
 	Error     string         `json:"error,omitempty"`
+	Ended     string         `json:"ended,omitempty"`
 	Question  string         `json:"question,omitempty"`
 	Revise    string         `json:"revise,omitempty"`
 	Round     int            `json:"round,omitempty"`

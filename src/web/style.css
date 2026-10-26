@@ -80,6 +80,7 @@ a:hover { text-decoration: underline; }
 .dot.waiting { background: var(--warn); animation: blink 1.4s infinite; }
 .dot.done { background: var(--ok); }
 .dot.failed, .dot.rejected { background: var(--bad); }
+.dot.stopped { background: var(--warn); }
 
 /* page */
 
@@ -179,6 +180,8 @@ input[type=checkbox] { width: auto; }
 .state.waiting { border-color: var(--warn); animation: ring-warn 1.4s infinite; }
 .state.waiting::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 .state.skipped { border-style: dashed; }
+.state.stopped { border-color: var(--warn); background: var(--warn); color: #fff; font-size: 8px; }
+.state.rejected { border-color: var(--bad); background: var(--bad); color: #fff; }
 
 .kind { flex: none; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font: 700 10px var(--mono); }
 .kind.tool { background: var(--tool-soft); color: var(--tool); }
@@ -230,7 +233,9 @@ input[type=checkbox] { width: auto; }
 .card.skipped { opacity: .6; }
 .card.running { border-color: #b9c6f6; box-shadow: 0 0 0 3px var(--accent-soft); }
 .card.waiting { border-color: #f0cf8f; background: #fffdf7; box-shadow: 0 0 0 3px var(--warn-soft); }
-.card.failed { border-color: #f0b8b8; }
+.card.failed, .card.rejected { border-color: #f0b8b8; }
+.card.stopped { border-color: #f0d9a8; }
+.ended-box { margin-top: 10px; padding: 10px 12px; border-radius: 9px; background: var(--warn-soft); color: #7a4a00; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .card.chain { background: #fffcf8; }
 .card-head { display: flex; align-items: center; gap: 9px; min-height: 22px; }
 .card-title { font-weight: 650; font-size: 15px; }
@@ -285,8 +290,8 @@ details.output summary { cursor: pointer; color: var(--muted); font-size: 12.5px
 .call-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .call-meta .good { color: var(--ok); font-weight: 600; }
 .call-meta .bad { color: var(--bad); font-weight: 600; }
-.call-body details.block > summary, .call-body .block.empty { cursor: pointer; font: 12px var(--mono); color: var(--muted); }
-.call-body .block.empty { cursor: default; padding-left: 14px; }
+.call-body details.block > summary { cursor: pointer; font: 12px var(--mono); color: var(--muted); }
+.call-body .block-empty { padding-left: 14px; font: 12px var(--mono); color: var(--muted); }
 .actions-head { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
 .actions { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: 8px; overflow: hidden; }
 .action + .action { border-top: 1px solid var(--line-soft); }
