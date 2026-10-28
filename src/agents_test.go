@@ -7,26 +7,30 @@ import (
 	"testing"
 )
 
-func TestLastJSONObject(t *testing.T) {
+func TestObjectWithFields(t *testing.T) {
+	fields := Fields{{Name: "summary", Value: "text"}, {Name: "files", Value: "list"}}
 	tests := []struct {
 		name string
 		text string
 		want map[string]any
 	}{
-		{name: "object alone", text: `{"a":1}`, want: map[string]any{"a": 1.0}},
-		{name: "object after prose", text: "done.\n{\"verdict\":\"bug\"}", want: map[string]any{"verdict": "bug"}},
-		{name: "trailing whitespace", text: "{\"a\":1}\n\n  ", want: map[string]any{"a": 1.0}},
-		{name: "last of several objects wins", text: `{"x":1}` + "\n" + `{"y":2}`, want: map[string]any{"y": 2.0}},
-		{name: "nested object", text: `{"a":{"b":[1,2]}}`, want: map[string]any{"a": map[string]any{"b": []any{1.0, 2.0}}}},
-		{name: "text after the object is not accepted", text: `{"a":1} more`, want: nil},
+		{name: "object alone", text: `{"summary":"s","files":[]}`, want: map[string]any{"summary": "s", "files": []any{}}},
+		{name: "object after prose", text: "done.\n{\"summary\":\"s\",\"files\":[\"a\"]}", want: map[string]any{"summary": "s", "files": []any{"a"}}},
+		{name: "object in a code fence", text: "done.\n\n```json\n{\"summary\":\"s\",\"files\":[]}\n```", want: map[string]any{"summary": "s", "files": []any{}}},
+		{name: "text after the object", text: `{"summary":"s","files":[]} and that is all`, want: map[string]any{"summary": "s", "files": []any{}}},
+		{name: "last complete object wins", text: `{"summary":"one","files":[]}` + "\n" + `{"summary":"two","files":[]}`, want: map[string]any{"summary": "two", "files": []any{}}},
+		{name: "objects missing a field are skipped", text: `{"summary":"s","files":[]} then {"summary":"partial"}`, want: map[string]any{"summary": "s", "files": []any{}}},
+		{name: "extra fields are kept", text: `{"summary":"s","files":[],"note":1}`, want: map[string]any{"summary": "s", "files": []any{}, "note": 1.0}},
+		{name: "nested values", text: `{"summary":{"b":[1,2]},"files":[]}`, want: map[string]any{"summary": map[string]any{"b": []any{1.0, 2.0}}, "files": []any{}}},
+		{name: "no object has every field", text: `{"summary":"s"}`, want: nil},
 		{name: "no object", text: "hello", want: nil},
-		{name: "broken object", text: `{"a":`, want: nil},
+		{name: "broken object", text: `{"summary":`, want: nil},
 		{name: "empty", text: "", want: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := lastJSONObject(tt.text); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("lastJSONObject(%q) = %v, want %v", tt.text, got, tt.want)
+			if got := objectWithFields(tt.text, fields); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("objectWithFields(%q) = %v, want %v", tt.text, got, tt.want)
 			}
 		})
 	}

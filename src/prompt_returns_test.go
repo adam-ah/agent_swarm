@@ -54,14 +54,14 @@ func TestSamplePromptReturns(t *testing.T) {
 		prompt string
 		want   Fields
 	}{
-		{prompt: "change", want: Fields{{"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
-		{prompt: "review-change", want: Fields{{"verdict", "APPROVE | CHANGES"}, {"summary", "text"}, {"findings", "text"}}},
-		{prompt: "learn", want: Fields{{"summary", "text"}, {"notes", "list"}}},
-		{prompt: "edit-chain", want: Fields{{"summary", "text"}, {"files", "list"}}},
+		{prompt: "make-change/change", want: Fields{{"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
+		{prompt: "make-change/review-change", want: Fields{{"verdict", "APPROVE | CHANGES"}, {"summary", "text"}, {"findings", "text"}}},
+		{prompt: "make-change/learn", want: Fields{{"summary", "text"}, {"notes", "list"}}},
+		{prompt: "edit-chain/edit-chain", want: Fields{{"summary", "text"}, {"files", "list"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.prompt, func(t *testing.T) {
-			raw, err := sampleFiles.ReadFile("samples/prompts/" + tt.prompt + ".md")
+			raw, err := sampleFiles.ReadFile("samples/chains/" + tt.prompt + ".md")
 			if err != nil {
 				t.Fatal(err)
 			}

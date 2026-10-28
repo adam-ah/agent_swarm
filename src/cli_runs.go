@@ -101,7 +101,7 @@ func (c *cli) follow(id string) error {
 			}
 			return nil
 		}
-		time.Sleep(time.Second)
+		time.Sleep(followEvery)
 	}
 }
 

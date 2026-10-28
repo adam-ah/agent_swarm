@@ -24,11 +24,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/catalog", s.catalog)
 	mux.HandleFunc("GET /api/settings", s.settings)
 	mux.HandleFunc("GET /api/check", s.check)
-	mux.HandleFunc("GET /api/items/{kind}/{file}", s.getItem)
-	mux.HandleFunc("PUT /api/items/{kind}/{file}", s.putItem)
+	mux.HandleFunc("GET /api/items/{kind}/{file...}", s.getItem)
+	mux.HandleFunc("PUT /api/items/{kind}/{file...}", s.putItem)
 	mux.HandleFunc("GET /api/items/{file}", s.getItem)
 	mux.HandleFunc("PUT /api/items/{file}", s.putItem)
-	mux.HandleFunc("DELETE /api/items/{kind}/{file}", s.deleteItem)
+	mux.HandleFunc("DELETE /api/items/{kind}/{file...}", s.deleteItem)
+	mux.HandleFunc("POST /api/chains/{name}/transfer", s.transferChain)
 	mux.HandleFunc("GET /api/memory", s.getMemory)
 	mux.HandleFunc("PUT /api/memory", s.putMemory)
 	mux.HandleFunc("POST /api/memory/notes", s.addNotes)
@@ -38,6 +39,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/events", s.events)
 	mux.HandleFunc("POST /api/runs/{id}/decide", s.decide)
 	mux.HandleFunc("POST /api/runs/{id}/stop", s.stop)
+	mux.HandleFunc("POST /api/runs/{id}/rerun", s.rerun)
+	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
 	mux.HandleFunc("GET /api/runs/{id}/file", s.file)
 	mux.HandleFunc("GET /api/runs/{id}/doc", s.doc)
 	mux.HandleFunc("GET /api/runs/{id}/call", s.call)
@@ -128,7 +131,7 @@ func (s *server) library(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"chains": lib.sortedChains(), "tools": lib.Tools, "prompts": lib.Prompts,
+		"chains": lib.sortedChains(), "tools": lib.Tools,
 		"agent_tools": agentTools, "builtins": builtinNames, "input_values": lib.Settings.Inputs, "project": lib.Project,
 		"runners": lib.Settings.runners(), "default_runner": lib.Settings.defaultRunner(),
 	})
@@ -170,7 +173,7 @@ func (s *server) check(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"problems": problems, "warnings": lib.allWarnings(), "chains": len(lib.Chains), "tools": len(lib.Tools), "prompts": len(lib.Prompts)})
+	writeJSON(w, http.StatusOK, map[string]any{"problems": problems, "warnings": lib.allWarnings(), "chains": len(lib.Chains), "tools": len(lib.Tools), "prompts": lib.promptCount()})
 }
 
 func itemPath(r *http.Request) string {
@@ -220,6 +223,26 @@ func (s *server) deleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w)
+}
+
+func (s *server) transferChain(w http.ResponseWriter, r *http.Request) {
+	project, good := s.project(w, r)
+	if !good {
+		return
+	}
+	var body struct {
+		To   string `json:"to"`
+		Move bool   `json:"move"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	done, err := s.core.TransferChain(project, r.PathValue("name"), body.To, body.Move)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, done)
 }
 
 func (s *server) getMemory(w http.ResponseWriter, r *http.Request) {

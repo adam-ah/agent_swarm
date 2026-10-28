@@ -5,9 +5,9 @@ function stepFields(step) {
     h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, Array.isArray(v) ? h("ol", {}, v.map((item) => h("li", {}, asText(item)))) : asText(v))])));
 }
 
-function readsOf(def) {
+function readsOf(def, chainName = editor?.name) {
   const own = new Set(Object.keys(def.with || {}));
-  const scoped = [def.tool ? lib.tools[def.tool]?.run : "", def.agent ? lib.prompts[def.agent]?.text : "", kindOf(def) === "user" ? [def.user, ...(def.show || [])].join("\n") : ""];
+  const scoped = [def.tool ? lib.tools[def.tool]?.run : "", def.agent ? promptOf(chainName, def.agent)?.text : "", kindOf(def) === "user" ? [def.user, ...(def.show || [])].join("\n") : ""];
   const names = [...placeholdersIn(Object.values(def.with || {}).join("\n")), ...placeholdersIn(scoped.join("\n")).filter((n) => !own.has(n))];
   const when = readCondition(def.when);
   if (when) names.push(when.name);
@@ -29,7 +29,7 @@ function readsList(names, chain, go, valueOf) {
 function readsPanel(run, step, chainName) {
   const chain = lib.chains.find((c) => c.name === chainName);
   const def = chain?.steps?.find((s) => s.id === step.id);
-  const names = def ? readsOf(def) : [];
+  const names = def ? readsOf(def, chainName) : [];
   if (!names.length) return null;
   const prefix = keyOf(step).slice(0, -step.id.length);
   return h("details", { class: "output reads", open: true }, h("summary", {}, `What it read (${names.length})`),
@@ -43,8 +43,12 @@ function earlierPanel(run, earlier) {
       step.headline ? h("div", { class: "headline" }, step.headline) : null,
       step.error ? h("div", { class: "error-box" }, step.error) : null,
       stepFields(step),
-      step.log ? callPanel(run.id, step.log).el : null)));
+      step.log ? callPanel(run.id, step.log).el : null,
+      step.asked_again ? callPanel(run.id, step.asked_again, ASKED_AGAIN_TITLE).el : null)));
 }
+
+const ASKED_AGAIN = "Its answer had no JSON object with every field, so it was asked for them again in the same session";
+const ASKED_AGAIN_TITLE = "How it was asked again for its fields";
 
 const sizeOf = (text) => (text.length < 1024 ? `${text.length} chars` : `${(text.length / 1024).toFixed(1)} KB`);
 const shellWord = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
@@ -94,12 +98,15 @@ function callView(runID, log, call, opened) {
       h("span", {}, `started ${new Date(call.started_at).toLocaleTimeString()}`),
       h("span", {}, ended ? `ran ${elapsed(call.started_at, ended)}` : "still running"),
       exit ? h("span", { class: call.exit_code === 0 ? "good" : "bad" }, exit) : null,
-      h("span", { class: "hint" }, `in ${call.dir}`)),
+      h("span", { class: "hint" }, `in ${call.dir}`),
+      call.limits ? h("span", { class: "hint" }, call.limits) : null),
     h("pre", { class: "command" }, `$ ${words.join(" ")}${call.stdin ? " < stdin" : ""}`),
     long.map(([i, arg]) => block(`argument ${i}`, arg, opened)),
     block("stdin", call.stdin, opened),
   ];
   if (call.error) out.push(h("div", { class: "error-box" }, call.error));
+  if (call.stopped?.length) out.push(processList(`Processes swarm stopped when the step ended (${call.stopped.length})`, call.stopped, opened));
+  if (call.kept?.length) out.push(processList(`Left running until ${call.kept_until} ends (${call.kept.length})`, call.kept, opened));
   if (call.actions?.length) {
     out.push(h("div", { class: "actions-head" }, `Tool calls (${call.actions.length})`),
       h("div", { class: "actions" }, call.actions.map((a, n) => remembered(
@@ -124,10 +131,14 @@ function callView(runID, log, call, opened) {
   return out;
 }
 
-function callPanel(runID, log) {
+function processList(title, processes, opened) {
+  return remembered(h("details", { class: "block" }, h("summary", {}, title), h("pre", {}, processes.join("\n"))), title, opened);
+}
+
+function callPanel(runID, log, title = "How it was called") {
   const opened = new Map();
   const body = h("div", { class: "call-body" }, "Loading…");
-  const el = h("details", { class: "output call" }, h("summary", {}, "How it was called"), body);
+  const el = h("details", { class: "output call" }, h("summary", {}, title), body);
   const load = async () => {
     try {
       body.replaceChildren(...callView(runID, log, await api(`/api/runs/${encodeURIComponent(runID)}/call?log=${encodeURIComponent(log)}`), opened).flat().filter(Boolean));

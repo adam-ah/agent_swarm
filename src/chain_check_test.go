@@ -10,9 +10,12 @@ func testLibrary() *Library {
 	return &Library{
 		Tools:    map[string]Tool{"run_tests": {Title: "Run tests", Run: "make test"}},
 		Chains:   map[string]*Chain{},
-		Prompts:  map[string]Prompt{"triage": {Text: "Triage the bug"}},
 		Settings: Settings{Agents: map[string]AgentCLI{}},
 	}
+}
+
+func testPrompts() map[string]Prompt {
+	return map[string]Prompt{"triage": {Text: "Triage the bug"}}
 }
 
 func sameProblems(got, want []string) bool {
@@ -25,12 +28,13 @@ func sameProblems(got, want []string) bool {
 func TestLibraryCheck(t *testing.T) {
 	tool := Step{ID: "a", Title: "A", Tool: "run_tests"}
 	tests := []struct {
-		name   string
-		chain  string
-		steps  []Step
-		inputs []Input
-		setup  func(*Library)
-		want   []string
+		name    string
+		chain   string
+		steps   []Step
+		inputs  []Input
+		prompts map[string]Prompt
+		setup   func(*Library)
+		want    []string
 	}{
 		{name: "valid tool step", chain: "main", steps: []Step{tool}},
 		{name: "valid agent step", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage"}}},
@@ -44,7 +48,7 @@ func TestLibraryCheck(t *testing.T) {
 		{name: "no kind", chain: "main", steps: []Step{{ID: "a", Title: "A"}}, want: []string{`step "a": needs exactly one of tool, agent, user or chain`}},
 		{name: "two kinds", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Agent: "triage"}}, want: []string{`step "a": needs exactly one of tool, agent, user or chain`}},
 		{name: "unknown tool", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "nope"}}, want: []string{`step "a": no tool named "nope"`}},
-		{name: "unknown prompt", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "nope"}}, want: []string{`step "a": no prompt prompts/nope.md`}},
+		{name: "unknown prompt", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "nope"}}, want: []string{`step "a": no prompt chains/main/nope.md`}},
 		{name: "runner on tool step", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", Runner: "claude"}}, want: []string{`step "a": runner only applies to agent steps`}},
 		{name: "unknown runner", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage", Runner: "pi"}}, want: []string{`step "a": no agent named "pi"; use claude, codex, or add it under agents in settings`}},
 		{name: "custom runner defined", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage", Runner: "pi"}}, setup: func(lib *Library) {
@@ -64,9 +68,9 @@ func TestLibraryCheck(t *testing.T) {
 		{name: "revise on tool step", chain: "main", steps: []Step{tool, {ID: "b", Title: "B", Tool: "run_tests", Revise: "a"}}, want: []string{`step "b": revise only applies to user steps`}},
 		{name: "revise to a later step", chain: "main", steps: []Step{{ID: "ok", Title: "OK", User: "Go?", Revise: "later"}, tool}, want: []string{`step "ok": revise must name an earlier step in this chain, not "later"`}},
 		{name: "revise to itself", chain: "main", steps: []Step{{ID: "ok", Title: "OK", User: "Go?", Revise: "ok"}}, want: []string{`step "ok": revise must name an earlier step in this chain, not "ok"`}},
-		{name: "prompt with a bad return kind", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage"}}, setup: func(lib *Library) {
-			lib.Prompts["triage"] = newPrompt("Triage it.\n\n## Return\n\n- `color` (red): its shade\n", "shared")
-		}, want: []string{`step "a": prompts/triage.md ## Return: color: "red" is not text, number, bool, list or A | B | C`}},
+		{name: "prompt with a bad return kind", chain: "main", steps: []Step{{ID: "a", Title: "A", Agent: "triage"}},
+			prompts: map[string]Prompt{"triage": newPrompt("Triage it.\n\n## Return\n\n- `color` (red): its shade\n", "shared")},
+			want:    []string{`step "a": chains/main/triage.md ## Return: color: "red" is not text, number, bool, list or A | B | C`}},
 		{name: "bad when", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", When: "verdict"}}, want: []string{`step "a": cannot read condition "verdict"; write it as name == value or name != value`}},
 		{name: "bad stop_if", chain: "main", steps: []Step{{ID: "a", Title: "A", Tool: "run_tests", StopIf: "x < 3"}}, want: []string{`step "a": cannot read condition "x < 3"; write it as name == value or name != value`}},
 		{name: "bad input name", chain: "main", steps: []Step{tool}, inputs: []Input{{Name: "Bad Name"}}, want: []string{`input "Bad Name": names are lowercase letters, digits and underscores`}},
@@ -78,7 +82,11 @@ func TestLibraryCheck(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(lib)
 			}
-			chain := &Chain{Name: tt.chain, Steps: tt.steps, Inputs: tt.inputs}
+			prompts := tt.prompts
+			if prompts == nil {
+				prompts = testPrompts()
+			}
+			chain := &Chain{Name: tt.chain, Steps: tt.steps, Inputs: tt.inputs, Prompts: prompts}
 			lib.Chains[tt.chain] = chain
 			if got := lib.check(chain); !sameProblems(got, tt.want) {
 				t.Errorf("check() = %q, want %q", got, tt.want)
@@ -159,11 +167,10 @@ func TestLibraryCatalog(t *testing.T) {
 	lib := testLibrary()
 	lib.Settings = Settings{Agent: "codex", Agents: map[string]AgentCLI{"pi": {Command: "pi -p"}}}
 	lib.Tools["run_tests"] = Tool{Title: "Run tests", Run: "make test", Source: "shared"}
-	lib.Prompts["triage"] = Prompt{Text: "Triage the bug\nmore detail", Source: "shared"}
 	lib.Chains["fix"] = &Chain{Name: "fix", Title: "Fix bug", Source: "project", Steps: []Step{
 		{ID: "t", Title: "Test", Tool: "run_tests"},
 		{ID: "a", Title: "Agent", Agent: "triage", Runner: "pi"},
-	}}
+	}, Prompts: map[string]Prompt{"triage": {Text: "Triage the bug\nmore detail"}}}
 	want := "Agent steps run with codex unless a step sets runner. Agents available: claude, codex, pi.\n\n" +
 		"Chains:\n" +
 		"- fix (project): Fix bug\n" +
@@ -171,8 +178,8 @@ func TestLibraryCatalog(t *testing.T) {
 		"    a: Agent [agent triage via pi]\n" +
 		"Tools:\n" +
 		"- run_tests (shared): Run tests\n" +
-		"Prompts:\n" +
-		"- triage (shared): Triage the bug\n"
+		"Prompts, each kept with its chain:\n" +
+		"- chains/fix/triage.md: Triage the bug\n"
 	if got := lib.catalog(); got != want {
 		t.Errorf("catalog() =\n%s\nwant\n%s", got, want)
 	}

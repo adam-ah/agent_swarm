@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -16,7 +17,6 @@ func sequenceLibrary(t *testing.T) *Library {
 			"items": {Run: `echo '{"items": ["one", "two", "three"], "word": "solo"}'`},
 			"say":   {Run: "echo {{value}} > {{run_folder}}/said; echo {{value}}"},
 		},
-		Prompts: map[string]Prompt{},
 		Chains: map[string]*Chain{
 			"sub": {Name: "sub", Inputs: []Input{{Name: "value"}}, Steps: []Step{
 				{ID: "say", Title: "Say it", Tool: "say"},
@@ -36,8 +36,9 @@ func execute(t *testing.T, lib *Library, chain *Chain, decisions ...string) (*Ru
 		t.Fatal(err)
 	}
 	run := &Run{ID: id, Project: lib.Project, Status: "running", Steps: expand(lib, chain, ""), decisions: make(chan decision, len(decisions))}
-	for _, choice := range decisions {
-		run.decisions <- decision{Choice: choice}
+	for _, d := range decisions {
+		choice, note, _ := strings.Cut(d, ":")
+		run.decisions <- decision{Choice: choice, Note: note}
 	}
 	r := &Runner{store: store, swarm: "true", home: t.TempDir()}
 	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": store.logDir(run)}))
@@ -146,12 +147,11 @@ func TestChainStepRefusesTwoLists(t *testing.T) {
 
 func TestCheckRefusesTwoDeclaredLists(t *testing.T) {
 	lib := sequenceLibrary(t)
-	lib.Prompts["split"] = newPrompt("Split.\n\n## Return\n\n- `a` (list): one\n- `b` (list): two\n", "shared")
 	lib.Chains["sub"].Inputs = append(lib.Chains["sub"].Inputs, Input{Name: "other"})
 	chain := &Chain{Name: "main", Steps: []Step{
 		{ID: "split", Title: "Split", Agent: "split"},
 		{ID: "each", Title: "Each", Chain: "sub", With: map[string]string{"value": "{{split.a}}", "other": "{{split.b}}"}},
-	}}
+	}, Prompts: map[string]Prompt{"split": newPrompt("Split.\n\n## Return\n\n- `a` (list): one\n- `b` (list): two\n", "shared")}}
 	want := []string{`step "each": passes 2 lists (split.b, split.a); it can run sub once per item of only one`}
 	if got := lib.check(chain); !reflect.DeepEqual(got, want) {
 		t.Errorf("check = %q, want %q", got, want)

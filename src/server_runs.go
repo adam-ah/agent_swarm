@@ -70,7 +70,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	send(last)
-	ticker := time.NewTicker(400 * time.Millisecond)
+	ticker := time.NewTicker(eventsEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -99,6 +99,33 @@ func (s *server) decide(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 	if err := s.core.Stop(r.PathValue("id")); err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w)
+}
+
+func (s *server) rerun(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		From string `json:"from"`
+	}
+	if !readBody(w, r, &req) {
+		return
+	}
+	if req.From != "scratch" && req.From != "failed" {
+		fail(w, errors.New(`from must be "scratch" or "failed"`))
+		return
+	}
+	id, err := s.core.Rerun(r.PathValue("id"), req.From == "scratch")
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": id})
+}
+
+func (s *server) deleteRun(w http.ResponseWriter, r *http.Request) {
+	if err := s.core.DeleteRun(r.PathValue("id")); err != nil {
 		fail(w, err)
 		return
 	}

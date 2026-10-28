@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,14 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
-	"time"
 )
 
-func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
+func (r *Runner) runStep(ctx context.Context, lib *Library, chain *Chain, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	switch step.Kind() {
 	case "agent":
-		return r.runAgent(ctx, lib, run, sr, step, sc)
+		return r.runAgent(ctx, lib, chain, run, sr, step, sc)
 	case "user":
 		return r.askUser(ctx, run, sr, step, sc)
 	default:
@@ -28,20 +25,29 @@ func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRu
 
 func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	command := stepScope(step, sc, nil).fill(lib.Tools[step.Tool].Run, true)
-	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = run.Project
-	cmd.Env = r.environment(run)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	call := startCall(r.logFile(run, sr, ".call.json"), cmd, "", false)
-	err := runGroup(ctx, cmd)
+	mark := r.stepMark(run, sr.Log)
+	cmd.Env = append(r.environment(run), stepVar+mark)
+	call := startCall(r.logFile(run, sr.Log, ".call.json"), cmd, "", false)
+	g, guarded := r.guard(ctx, mark, limitsFor(step, toolStall, true), call)
+	stdout, stderr := &capture{g: g}, &capture{g: g}
+	cmd.Stdout, cmd.Stderr, cmd.WaitDelay = stdout, stderr, exitGrace
+	err := r.runGroup(guarded, cmd)
+	keep := ""
+	if err == nil && step.KeepUntil != "" {
+		keep = strings.TrimSuffix(sr.Path, step.ID) + step.KeepUntil
+	}
+	why := g.finish(keep)
 	call.finish(cmd, err, stdout.String(), stderr.String())
 
 	out := map[string]any{"output": strings.TrimSpace(stdout.String())}
 	var fields map[string]any
 	if json.Unmarshal(stdout.Bytes(), &fields) == nil {
 		maps.Copy(out, fields)
+	}
+	if why != "" {
+		return out, errors.New(why + ", so swarm stopped it")
 	}
 	if err != nil {
 		reason := lastLines(stderr.String(), 3)
@@ -117,28 +123,6 @@ func kindOf(path string) string {
 	default:
 		return "text"
 	}
-}
-
-func runGroup(ctx context.Context, cmd *exec.Cmd) error {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-			select {
-			case <-finished:
-			case <-time.After(5 * time.Second):
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
-		case <-finished:
-		}
-	}()
-	return cmd.Wait()
 }
 
 func stepScope(step Step, sc *scope, out map[string]any) *scope {

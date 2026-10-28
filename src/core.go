@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,13 +42,30 @@ func splitItem(path string) (kind, name string, err error) {
 	if path == "settings.json" || path == "settings" {
 		return "settings", "settings", nil
 	}
+	if chain, file, nested := strings.Cut(strings.TrimPrefix(path, "chains/"), "/"); strings.HasPrefix(path, "chains/") && nested {
+		prompt := strings.TrimSuffix(file, ".md")
+		if !strings.HasSuffix(file, ".md") || !fileName.MatchString(chain) || !fileName.MatchString(prompt) {
+			return "", "", fmt.Errorf("%q is not chains/<chain>/<prompt>.md", path)
+		}
+		return "prompts", chain + "/" + prompt, nil
+	}
 	kind, file, found := strings.Cut(path, "/")
 	ext, known := itemExt[kind]
 	name = strings.TrimSuffix(file, ext)
-	if !found || !known || !fileName.MatchString(name) {
-		return "", "", fmt.Errorf("%q is not chains/<name>.json, tools/<name>.json or prompts/<name>.md", path)
+	if !found || !known || kind == "prompts" || !fileName.MatchString(name) {
+		return "", "", fmt.Errorf("%q is not chains/<name>.json, tools/<name>.json or chains/<chain>/<prompt>.md (a prompt lives with its chain)", path)
 	}
 	return kind, name, nil
+}
+
+func itemRel(kind, name string) string {
+	switch kind {
+	case "settings":
+		return "settings.json"
+	case "prompts":
+		return "chains/" + name + ".md"
+	}
+	return kind + "/" + name + itemExt[kind]
 }
 
 func (c *Core) Library(project string) (*Library, error) {
@@ -59,10 +77,7 @@ func (c *Core) GetItem(project, path string, below bool) ([]byte, string, error)
 	if err != nil {
 		return nil, "", err
 	}
-	rel := kind + "/" + name + itemExt[kind]
-	if kind == "settings" {
-		rel = "settings.json"
-	}
+	rel := itemRel(kind, name)
 	if !below {
 		if raw, err := os.ReadFile(filepath.Join(project, ".swarm", rel)); err == nil {
 			return raw, "project", nil
@@ -95,16 +110,7 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 	}
 	switch kind {
 	case "chains":
-		chain := &Chain{}
-		if err := strictJSON(content, chain); err != nil {
-			return &RefusedError{[]string{"not a valid chain: " + err.Error()}}
-		}
-		chain.Name = name
-		lib.Chains[name] = chain
-		if problems := lib.check(chain); len(problems) > 0 {
-			return &RefusedError{problems}
-		}
-		return saveChain(dir, name, chain)
+		return c.putChain(lib, project, dir, name, content)
 	case "tools":
 		var tool Tool
 		if err := strictJSON(content, &tool); err != nil {
@@ -128,7 +134,8 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 		if problems := newPrompt(string(content), "").Problems; len(problems) > 0 {
 			return &RefusedError{problems}
 		}
-		return savePrompt(dir, name, string(content))
+		chain, prompt, _ := strings.Cut(name, "/")
+		return savePrompt(dir, chain, prompt, string(content))
 	}
 }
 
@@ -153,14 +160,19 @@ func (c *Core) DeleteItem(project, path string) error {
 	case "tools":
 		source = lib.Tools[name].Source
 	case "prompts":
-		source = lib.Prompts[name].Source
+		owner, prompt, _ := strings.Cut(name, "/")
+		if chain := lib.Chains[owner]; chain != nil {
+			if _, has := chain.Prompts[prompt]; has {
+				source = chain.Source
+			}
+		}
 	}
 	if source == "" {
 		return fmt.Errorf("nothing at %s", path)
 	}
-	rel := kind + "/" + name + itemExt[kind]
+	rel := itemRel(kind, name)
 	sharedRemains := false
-	if source == "project" {
+	if source == "project" && kind != "prompts" {
 		_, _, err := readShared(c.home, rel)
 		sharedRemains = err == nil
 	}
@@ -169,15 +181,29 @@ func (c *Core) DeleteItem(project, path string) error {
 			return &RefusedError{[]string{fmt.Sprintf("%s is still used by %s", path, strings.Join(users, ", "))}}
 		}
 	}
-	return os.Remove(filepath.Join(sourceDir(c.home, project, source), rel))
+	return removeItem(sourceDir(c.home, project, source), kind, name)
+}
+
+func removeItem(dir, kind, name string) error {
+	if err := os.Remove(filepath.Join(dir, itemRel(kind, name))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if kind == "chains" {
+		return os.RemoveAll(filepath.Join(dir, "chains", name))
+	}
+	return nil
 }
 
 func (lib *Library) usersOf(kind, name string) []string {
+	owner, prompt, _ := strings.Cut(name, "/")
 	var users []string
 	for _, chain := range lib.sortedChains() {
 		for _, step := range chain.Steps {
-			uses := map[string]string{"chains": step.Chain, "tools": step.Tool, "prompts": step.Agent}[kind]
-			if uses == name {
+			uses := map[string]string{"chains": step.Chain, "tools": step.Tool}[kind] == name
+			if kind == "prompts" {
+				uses = chain.Name == owner && step.Agent == prompt
+			}
+			if uses {
 				users = append(users, chain.Name+"."+step.ID)
 			}
 		}
@@ -223,7 +249,11 @@ func (c *Core) SetMemory(project, text string) error {
 func (c *Core) RememberNotes(project, about string, notes []string) (int, error) {
 	var kept []string
 	for _, note := range notes {
-		if note = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(note), "- ")); note != "" {
+		note = strings.TrimSpace(note)
+		if note == "-" {
+			continue
+		}
+		if note = strings.TrimSpace(strings.TrimPrefix(note, "- ")); note != "" {
 			kept = append(kept, "- "+note)
 		}
 	}
@@ -288,6 +318,33 @@ func (c *Core) Stop(id string) error {
 	return c.store.signal(id, cancelFile, nil)
 }
 
+func (c *Core) putChain(lib *Library, project, dir, name string, content []byte) error {
+	chain := &Chain{}
+	if err := strictJSON(content, chain); err != nil {
+		return &RefusedError{[]string{"not a valid chain: " + err.Error()}}
+	}
+	chain.Name = name
+	chain.Prompts = promptsIn(os.DirFS(dir), name, "")
+	inherited := map[string]Prompt{}
+	if old := lib.Chains[name]; old != nil && sourceDir(c.home, project, old.Source) != dir {
+		for prompt, p := range old.Prompts {
+			if _, has := chain.Prompts[prompt]; !has {
+				inherited[prompt], chain.Prompts[prompt] = p, p
+			}
+		}
+	}
+	lib.Chains[name] = chain
+	if problems := lib.check(chain); len(problems) > 0 {
+		return &RefusedError{problems}
+	}
+	for prompt, p := range inherited {
+		if err := savePrompt(dir, name, prompt, p.Text); err != nil {
+			return err
+		}
+	}
+	return saveChain(dir, name, chain)
+}
+
 func (c *Core) target(lib *Library, kind, name, scope string) (string, error) {
 	if scope == "" {
 		switch kind {
@@ -298,7 +355,10 @@ func (c *Core) target(lib *Library, kind, name, scope string) (string, error) {
 		case "tools":
 			scope = lib.Tools[name].Source
 		case "prompts":
-			scope = lib.Prompts[name].Source
+			owner, _, _ := strings.Cut(name, "/")
+			if chain := lib.Chains[owner]; chain != nil {
+				scope = chain.Source
+			}
 		}
 	}
 	switch scope {

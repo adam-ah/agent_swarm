@@ -1,93 +1,64 @@
 SWARM GUIDE
 
-swarm runs chains: ordered steps that each do one thing. A step runs a tool
-(a named shell command), an agent (Claude Code, Codex or another agent CLI,
-given a prompt and returning named fields), a user step (waits for a
-person to approve), or another chain. A person can watch every run on a
-page, step by step, and answer user steps there, with the diffs, videos and
-drafts each one asks about. The page is optional: every command below works
-without it.
+swarm runs chains: ordered steps, each a tool (a shell command), an agent
+(Claude Code, Codex or another CLI given a prompt, returning named fields),
+a user step (waits for a person's decision) or a sub-chain. The page shows
+runs live and takes answers to user steps; every command works without it.
 
-Chains, tools and prompts are plain JSON and text files, but change them only
-through the swarm command, which checks every file before it saves it and
-refuses a broken one with the reasons. The page saves through the same checks.
-Do not write into .swarm/ or ~/.swarm/ yourself.
+Change chains, tools, prompts and settings only with the swarm command: it
+validates before saving and refuses with reasons. Never write into .swarm/
+or ~/.swarm/ directly. Never run "swarm serve" or "swarm stop"; the page
+belongs to the person.
 
 
-WHERE THINGS LIVE
+FILES
 
-There are two layers. A project's copy overrides the shared one with the same
-name.
+~/.swarm/ is shared across projects; <project>/.swarm/ overrides it by name.
 
-    ~/.swarm/             shared: the person's own, for all their projects
-    <project>/.swarm/     project: committed with the project
+    chains/<chain>.json           a chain
+    chains/<chain>/<prompt>.md    its prompts; a prompt belongs to one chain
+    tools/<tool>.json             a tool
+    settings.json                 agents and input defaults
+    memory.md                     project only
 
-Each layer has chains/<name>.json, tools/<name>.json, prompts/<name>.md and
-settings.json. A project also has .swarm/memory.md. "swarm samples" writes
-the sample chains, tools, prompts and this guide into ~/.swarm; after that
-they are ordinary files.
+"swarm samples" writes the samples and this guide into ~/.swarm.
 
 
 COMMANDS
 
-Every command works on the project in the current folder; -project DIR picks
-another. None of them needs the page. Never start or stop the page ("swarm
-serve", "swarm stop") yourself; it belongs to the person.
+All act on the current folder's project; -project DIR picks another.
 
-    swarm guide                     this text
-    swarm init [DIR]                make a folder a swarm project
-    swarm settings                  which agent runs agent steps, and which
-                                    agent CLIs are installed
+    swarm list                    chains (with steps), tools, prompts, layers
+    swarm get PATH [-below]       print one; -below: the shared one it overrides
+    swarm put PATH [-file F] [-scope project|shared]
+                                  validate and save F or stdin; default: where
+                                  it lives, else the project; shared only
+                                  when the person asks
+    swarm rm PATH                 delete; refused while a chain uses it
+    swarm check                   validate all; warn on unfilled placeholders
+                                  and on inputs, vars and fields nothing reads
+    swarm settings                configured and installed agents
+    swarm init [DIR]              make a folder a project
+    swarm snapshot DIR            copy .swarm into DIR
+    swarm diff DIR [FILE]         .swarm changes since that copy
+    swarm restore DIR             put that copy back
+    swarm memory                  print memory.md
+    swarm memory add [-about TEXT] NOTE...
+    swarm memory set [-file F]
+    swarm run CHAIN [-input name=value]... [-detach]
+    swarm runs                    recent runs
+    swarm show RUN                a run's steps
+    swarm cancel RUN              stop a run; "always" steps still run
+    swarm approve RUN [-note T]   answer the user step a run waits on, only
+    swarm revise RUN -note T      when the person tells you to
+    swarm reject RUN [-note T]
 
-    swarm list                      every chain, tool and prompt the project
-                                    can use, with its layer and steps
-    swarm get PATH                  print one, e.g. chains/make-change.json
-    swarm get PATH -below           the shared version a project copy
-                                    overrides
-    swarm put PATH -file F          save one from file F (or stdin) where it
-                                    already lives, else in this project;
-                                    refused with reasons if invalid
-    swarm put PATH -file F -scope project
-                                    save into this project, so a copy of a
-                                    shared one overrides it here only
-    swarm put PATH -file F -scope shared
-                                    save to ~/.swarm for every project; only
-                                    when the person asks
-    swarm rm PATH                   delete one; refused while a chain uses it
-    swarm check                     confirm every chain loads, and list
-                                    warnings: placeholders nothing fills,
-                                    and inputs, vars, values or agent fields
-                                    nothing reads
-
-    swarm snapshot DIR              save a copy of this project's .swarm
-    swarm diff DIR [FILE]           what changed in .swarm since that copy,
-                                    into FILE if given
-    swarm restore DIR               put .swarm back as it was in that copy
-
-    swarm memory                    what the project has learned
-    swarm memory add -about TEXT NOTE...
-                                    add notes
-
-    swarm run CHAIN -input name=value
-                                    start a run, print each step as it ends
-    swarm run CHAIN -detach         start it and return at once
-    swarm runs                      recent runs
-    swarm show RUN                  a run's steps
-    swarm approve RUN               answer the user step a run waits on;
-    swarm revise RUN -note TEXT     only when the person told you to
-    swarm reject RUN
-    swarm cancel RUN                stop one run; its cleanup steps still run
-
-A run works in the background in its own process. "swarm run" only watches
-it, so if your command times out or is stopped, the run keeps going; check it
-with "swarm show RUN". For a long chain, start it with -detach and check it
-with "swarm show RUN" now and then.
-
-When a run reaches a user step, it waits and "swarm run" prints the question.
-The person answers on the page, or tells you to run "swarm approve".
+A run has its own process; "swarm run" only follows it, so your command
+timing out leaves the run going. For long chains use -detach and poll
+"swarm show RUN". At a user step, "swarm run" prints the question and waits.
 
 
-A CHAIN: chains/<name>.json
+CHAIN: chains/<chain>.json
 
     {
       "title": "Lint and report",
@@ -95,185 +66,152 @@ A CHAIN: chains/<name>.json
       "subject": "Lint {{target}}",
       "inputs": [
         { "name": "target", "label": "Folder to lint", "default": "." },
-        { "name": "note", "label": "Anything to watch for",
-          "optional": true }
+        { "name": "note", "label": "Anything to watch for", "optional": true }
       ],
-      "vars": [
-        { "name": "report", "value": "{{run_folder}}/lint-report.md" }
-      ],
+      "vars": [{ "name": "report", "value": "{{run_folder}}/report.md" }],
       "steps": [
-        {
-          "id": "lint",
-          "title": "Run the linter",
-          "tool": "run_linter",
-          "with": { "path": "{{target}}" }
-        },
-        {
-          "id": "explain",
-          "title": "Explain the findings",
-          "agent": "explain-lint",
-          "tools": ["Read", "Grep", "Glob", "Write"],
-          "stop_if": "severity == none",
-          "stop": "Nothing to fix. {{summary}}"
-        },
-        {
-          "id": "approve",
-          "title": "Your approval to open an issue",
-          "user": "Open an issue with this report?",
-          "show": ["{{report}}"]
-        }
+        { "id": "lint", "title": "Run the linter", "tool": "run_linter",
+          "with": { "path": "{{target}}" } },
+        { "id": "explain", "title": "Explain the findings",
+          "agent": "explain-lint", "tools": ["Read", "Grep", "Glob", "Write"],
+          "stop_if": "severity == none", "stop": "Nothing to fix. {{summary}}" },
+        { "id": "approve", "title": "Your approval to open an issue",
+          "user": "Open an issue with this report?", "show": ["{{report}}"] }
       ]
     }
 
-The explain step's fields, summary and severity, come from the "## Return"
-section of prompts/explain-lint.md (see A PROMPT).
-
-title        names the chain on the page
-description  what it does and when to use it
-subject      the run's heading, once its placeholders can be filled
-link         makes the heading a link
-inputs       asked for when a run starts; each needs a name (lowercase,
-             digits, _) and a label, and may have a default or
-             "optional": true
-vars         computed once at the start, in order; can use inputs and
-             earlier vars
+title, description: shown on the page. subject: the run's heading, once
+its placeholders fill; link: makes it a link. inputs: asked at start.
+vars: computed at start, in order, from inputs and earlier vars. explain's
+fields (summary, severity) come from chains/lint-and-report/explain-lint.md.
+Names and ids: lowercase letters, digits, _; ids start with a letter.
 
 
 STEPS
 
-Every step has an id (lowercase letters, digits and _, starting with a
-letter) and a title that says what it does, like "Record the before video".
-It has exactly one of these:
+Each step has an id, a title saying what it does, and exactly one of:
 
-  "tool": "<name>"
-      Runs that tool. "with": { "name": "value" } fills the {{name}}
-      placeholders in its command that the chain does not already fill.
+"tool": "<tool>"
+    "with" fills the tool's placeholders the chain doesn't.
 
-  "agent": "<prompt name>"
-      Runs an agent CLI headless in the project folder with
-      prompts/<name>.md. Which one is set in settings (see AGENTS below);
-      "runner": "codex" (or "claude", or a custom name) overrides it for
-      this step.
-      "tools" lists what a Claude step may use: Bash, Read, Grep, Glob,
-      Write, Edit, WebFetch, WebSearch. Give it only what it needs; a
-      reviewer gets no Write or Edit. Codex ignores this list and runs with
-      the person's own Codex config, sandbox and approval settings.
-      The fields it must return are the ones listed in the prompt's
-      "## Return" section. A field named summary becomes the line under
-      the step's title on the page. A prompt without that section returns
-      free text, read as {{step_id.output}}.
+"agent": "<prompt>"
+    Runs an agent CLI headless in the project folder with
+    chains/<chain>/<prompt>.md. It cannot ask questions. "runner" overrides
+    the default agent. "tools" limits a claude step (Bash, Read, Grep, Glob,
+    Write, Edit, WebFetch, WebSearch): grant the minimum, reviewers get no
+    Write or Edit. Codex ignores "tools" and uses the person's Codex config.
+    Returns the fields in the prompt's "## Return"; without one, free text
+    as {{<id>.output}}. A "summary" field shows under the step's title.
+    Each step starts a new session. "resume": "<earlier agent step>"
+    continues the newest session in that line, so change, review, fix stays
+    one conversation and its prompt is just the follow-up. Both steps must
+    use the same CLI. Keep reviewers in a new session so they stay blind.
 
-  "user": "<question>"
-      Pauses until the person approves or rejects. Rejecting ends the run.
-      Its fields are decision (approve, revise or reject) and note.
-      "show": ["<file>", ...] lists the files they need to decide, such as
-      the diff an earlier step wrote: videos play, images form a filmstrip,
-      .md renders, .diff is coloured, anything else shows as text. Globs
-      work; relative paths start at the project. Only user steps take
-      "show".
-      "revise": "<earlier step id>" adds a third answer: the person writes
-      what to change and the run goes back to that step, in the same
-      chain, and runs everything from there again, this user step
-      included. swarm adds the notes to the prompt of every agent step
-      that runs after that, and tools can read them as {{feedback}}. Use
-      this whenever a person checks a plan or a draft, instead of asking
-      them to reject and start over.
+"user": "<question>"
+    Waits for approve or reject (reject ends the run); returns decision and
+    note. "show" lists files to decide on (globs, relative to the project):
+    videos play, images form a filmstrip, .md renders, .diff is coloured,
+    the rest is text. "revise": "<earlier step>" adds a third answer: the
+    note sends the run back to that step and reruns everything from there;
+    a claude or codex step resumes its session with the note, other agent
+    steps get all notes appended to their prompt, tools read {{feedback}}.
+    Use it for reviewing any plan or draft.
 
-  "chain": "<name>"
-      Runs another chain as a nested step. It sees everything the calling
-      chain sees, plus its "with" values, which fill that chain's inputs;
-      an input neither gives gets its default. Afterwards its steps'
-      outputs can be read by their own ids.
-      To run it once per item of a list, give one input just the list,
-      e.g. "with": {"request": "{{split.changes}}"} where split returns
-      `changes` (list). The items run one after another, each with its
-      own {{run_folder}}. A rejection or stop ends only that item; a
-      failure fails the step once every item has run. Afterwards the
-      step returns only {{<id>.summary}}, such as "make-change ran 3
-      times: 2 done, 1 rejected". Never loop over a list in a tool.
+"chain": "<chain>"
+    Runs a sub-chain that sees the caller's values; "with" fills its
+    inputs, else their defaults. Its steps' fields are then readable by
+    their ids. To run it per list item, make one "with" value just the
+    list, e.g. {"request": "{{split.changes}}"}: items run in turn, each
+    with its own run_folder; a reject or stop ends only that item, a
+    failure fails the step after all items, and only {{<id>.summary}} is
+    set ("make-change ran 3 times: 2 done, 1 rejected"). Never loop in a
+    tool.
 
-Any step can also have:
+Any step may add:
+    "when": "name == value" (or !=)   skip unless true; a missing name is
+                                      empty, so "fix.summary != " means fix
+                                      returned a summary
+    "stop_if": "field == value", "stop": "<message>"
+                                      after the step, end the run; reads the
+                                      step's own fields
+    "always": true                    run even after a failure, stop or
+                                      reject; for cleanup and memory
 
-  "when": "name == value"   (or !=) run only if that holds, else skip. A
-                            missing name counts as empty, so
-                            "fix.summary != " means "only if fix returned a
-                            summary".
-  "stop_if": "field == value" with "stop": "<message>"
-                            after the step, end the run with that message;
-                            it reads the step's own fields by name.
-  "always": true            run even after a failure, a stop or a rejection;
-                            for cleanup and for saving what was learned.
-
-A failed step ends the run, apart from steps marked always.
+A failed step ends the run, apart from "always" steps.
 
 
-A TOOL: tools/<name>.json
+PROCESSES
 
-    {
-      "title": "Run the linter",
-      "run": "npx eslint {{path}} | tee {{run_folder}}/lint.txt | tail -1"
-    }
+Tool and agent steps cannot hang a run or leave processes behind:
+- When a step ends, everything it started is stopped, including background,
+  setsid, nohup and cleared-environment processes: SIGTERM, SIGKILL 3s later.
+- An agent step ends at the agent's answer, even if its CLI still waits on
+  something it started.
+- "stall": "<duration>" fails the step after that long idle: no new event
+  for agents (default 15m); no output and no CPU for tools (10m) and custom
+  agents (15m). Catches sleep and foreground servers.
+- "timeout": "<duration>" fails it after that long in all (default 2h).
+- Durations: 90s, 30m, 1h30m; "0" disables the limit.
+- "keep_until": "<later step>" (tools only) keeps what the step started,
+  such as a server, until that step ends or is skipped; the run's end stops
+  the rest. Redirect a kept server's output to a file.
+- git fails instead of prompting for credentials.
 
-- run is a bash script run in the project folder. A non-zero exit fails the
-  step, and its last lines of error output become the step's error.
-- Every value filled into run is already shell-quoted. Write {{path}}, never
-  "{{path}}".
-- If it prints a JSON object, each field becomes an output later steps can
-  read, and a field named summary becomes the line under the step's title.
-  Otherwise the whole output is the field "output", and its last line goes
-  under the title.
-- Make a tool for anything deterministic: running tests, recording a video,
-  committing, posting. Keep judgement for agents.
-- A tool does one thing. Put decisions in the chain's "when", not in the
-  script, so commit and push are two tools and the chain says when each
-  runs.
-- For a single command, use the run tool with "with": { "command": "..." }
-  instead of a new tool. Placeholders inside that command are filled as
-  they are, without quoting, so use them only for names and paths. Never
-  build a longer command around an agent's text, such as a commit message;
-  give it to a tool as its own value.
+
+TOOL: tools/<tool>.json
+
+    { "title": "Run the linter",
+      "run": "npx eslint {{path}} | tee {{run_folder}}/lint.txt | tail -1" }
+
+- run is bash, in the project folder. A non-zero exit fails the step, with
+  the last stderr lines as the error.
+- Filled values are already shell-quoted: write {{path}}, never "{{path}}".
+- A printed JSON object becomes fields ("summary" shows on the page); other
+  output becomes the field "output", its last line shown.
+- Tools do deterministic work (tests, videos, commits, posts); agents do
+  judgement. One job per tool; decisions go in the chain's "when", so
+  commit and push are separate tools.
+- For one command, use the run tool: "with": {"command": "..."}. Its
+  placeholders are not quoted, so use them only for names and paths; pass
+  agent text, such as a commit message, to a tool as its own value.
 
 
 AGENTS
 
-An agent step runs one of these:
+    claude   claude -p; fields through a JSON schema; honours "tools"
+    codex    codex exec; fields through --output-schema; the person's config
+    named    claude or codex with its own args, e.g. sonnet; acts as that one
+    custom   a command from settings, e.g. pi: prompt on stdin and in
+             $SWARM_PROMPT_FILE; prints the fields as one JSON object (the
+             last one holding every field counts); cannot resume
 
-  claude   Claude Code, as "claude -p". Returns its fields through a JSON
-           schema; the step's "tools" list limits what it may use.
-  codex    Codex, as "codex exec". Returns its fields through
-           --output-schema; runs with the person's own Codex config.
-  custom   a command added in settings, for example pi. It gets the prompt
-           on stdin and in $SWARM_PROMPT_FILE, and must print the prompt's
-           fields as one JSON object as the last thing it outputs.
+A claude or codex answer without its fields is asked for them once more in
+the same session.
 
-settings.json, in ~/.swarm for every project or in <project>/.swarm for one
-project, chooses the default agent, defines custom agents, and sets the
-values chain inputs start with:
+settings.json, in ~/.swarm, overridden key by key by the project's:
 
     {
       "agent": "codex",
       "agents": {
         "claude": { "args": ["--model", "opus"] },
+        "sonnet": { "runs": "claude", "args": ["--model", "sonnet"] },
         "pi": { "command": "pi -p" }
       },
       "inputs": { "test_command": "./test.sh" }
     }
 
-"agent" is the default for every agent step. "args" adds arguments to the
-claude or codex command line. "inputs" gives any chain's input of that name
-its starting value, over the chain's own default; this is how one project
-adapts a shared chain, such as its test command, without copying it. A
-project's settings override the shared ones key by key. Change settings with
-"swarm put settings.json -file F" (add -scope project for one project only);
-it is refused if a chain would then name an agent that does not exist.
+agent: the default for agent steps. args: extra CLI arguments. runs: the
+CLI a named agent runs. inputs: the starting value of any chain input with
+that name, over the chain's default; adapt a shared chain per project this
+way instead of copying it. Save with "swarm put settings.json -file F
+-scope project"; refused if a chain would name a missing agent.
 
 
-A PROMPT: prompts/<name>.md
+PROMPT: chains/<chain>/<prompt>.md
 
-The text an agent step gives the agent, with placeholders filled first. Say what
-the agent is given and what it must not do, then how to work. End with a
-"## Return" section that lists each field the agent must return, one per
-line:
+The agent's text, placeholders filled. Write it for its chain's step; it
+moves, copies and deletes with the chain. Say what the agent gets and must
+not do, then how to work, and end with:
 
     ## Return
 
@@ -282,78 +220,52 @@ line:
     - `files` (list): the files you changed
     - `score` (number): from 1 to 10
 
-swarm reads the fields from these lines. Names are lowercase letters, digits
-and _. A field is text unless its description is only choices in backticks,
-like verdict above, or the name is followed by (list), (number), (bool) or
-(A | B | C). Every agent step using the prompt returns these fields, and a
-prompt whose Return section cannot be read is refused. The agent runs
-headless in the project folder and cannot ask questions; it must finish with
-its fields.
+One field per line. A field is text unless its description is only
+backticked choices, like verdict, or its name has (list), (number), (bool)
+or (A | B | C). Every step using the prompt returns these; a Return section
+swarm cannot read is refused.
 
 
 PLACEHOLDERS
 
-{{name}} is replaced, in this order, by:
+{{name}} takes the first of:
+  1. the step's "with"; for stop and stop_if, its returned fields first
+  2. the inputs and vars of this chain and of every chain calling it
+  3. project, run_id, run_folder (this run's files), memory (memory.md),
+     home (~/.swarm), swarm (the binary), guide (this text), catalog
+     ("swarm list"), feedback (Revise notes, oldest first)
+  4. {{step_id.field}}: an earlier step's field, sub-chain steps included
 
-  1. the step's own "with" values; for stop and stop_if, the step's
-     returned fields come first
-  2. the chain's inputs and vars, and those of every chain that called it
-  3. values every run has:
-       project      the project folder
-       run_id       this run's id
-       run_folder   where this run keeps its files
-       memory       the project's memory.md
-       home         the shared library, ~/.swarm
-       swarm        the swarm binary
-       guide        this text
-       catalog      what "swarm list" prints
-       feedback     the notes a person sent back with Revise, oldest
-                    first; empty until then
-  4. {{step_id.field}}: a field an earlier step returned, including steps
-     inside a sub-chain, by their own id
-
-A lowercase name that cannot be filled is left as written, and "swarm check"
-warns about it. Uppercase names such as {{VIDEO_URL}} are never filled, so a
-draft can keep one for a later step to replace.
+An unfillable lowercase name stays as written and "swarm check" warns.
+Uppercase names such as {{VIDEO_URL}} are never filled, so later steps can
+replace them.
 
 
 MEMORY
 
-.swarm/memory.md holds facts a future run in this project would otherwise
-rediscover: how to run the tests, where things live, conventions, traps.
-Prompts read it as {{memory}}. The sample make-change chain ends with an
-agent that proposes notes and a remember tool that saves them with
-"swarm memory add". Keep notes short, true and specific to the project.
+.swarm/memory.md holds short, true, project-specific facts a run would
+otherwise rediscover: test commands, layout, conventions, traps. Prompts
+read {{memory}}. make-change ends with an agent proposing notes and the
+remember tool saving them.
 
 
-HOW TO CREATE OR CHANGE THINGS
+CREATING OR CHANGING
 
-  1. Run "swarm list" and reuse what exists. Do not write a second tool that
-     does what take_video already does.
-  2. Write a draft file, then save it with "swarm put PATH -scope project
-     -file DRAFT". swarm checks it before saving it. Invalid JSON, an
-     unknown field, a step without exactly one kind, a bad condition, or a
-     step naming a tool, prompt or chain that does not exist are refused
-     with the reason. Fix the draft and put it again. A saved file can
-     still print warnings, such as a placeholder nothing fills, or a value
-     or a field from a prompt's ## Return that nothing reads; fix those too.
-     summary and free-text output are exempt, since the page shows them.
-  3. Save tools and prompts before the chain that uses them.
-  4. To change a shared chain, tool or prompt for one project only, start
-     from "swarm get PATH > DRAFT", edit the draft, and put it with -scope
-     project. The project's copy overrides the shared one in that project
-     only. When only a value differs, such as the test command, set it
-     under "inputs" in the project's settings.json instead of copying the
-     chain. Use -scope shared only when the person asks for a change to
-     every project.
-  5. Finish with "swarm check", and fix what it warns about.
-  6. Anything that reaches outside the machine (pushing, posting, uploading,
-     messaging) goes after a user step.
-  7. Give each user step the files the person decides on: a diff, a video,
-     a report.
+1. Run "swarm list" and reuse its tools. Prompts are not shared: a new
+   chain gets its own, even when copied.
+2. Draft a file and save it with "swarm put PATH -scope project -file
+   DRAFT". Invalid JSON, unknown fields, steps without exactly one kind,
+   bad conditions and missing tools, prompts or chains are refused with
+   reasons; fix the draft and retry.
+3. Put tools and prompts before the chain that uses them.
+4. To change a shared item for one project, "swarm get PATH > DRAFT", edit,
+   and put it with -scope project. A project copy of a chain takes its
+   prompts and then reads only its own. If only a value differs, set it
+   under "inputs" in the project's settings.json instead.
+5. Finish with "swarm check" and fix its warnings; summary and free-text
+   output are exempt.
+6. Anything leaving the machine (push, post, upload, message) goes after a
+   user step that shows the files to decide on.
 
-The sample chain edit-chain does exactly this for a request in plain
-words: "swarm snapshot" saves the project's .swarm, an agent drafts and puts
-the files, "swarm check" runs, "swarm diff" shows the person the change, and
-a rejection runs "swarm restore". So changes to swarm go through the same
-kind of chain as any other work.
+The edit-chain sample does this from a plain request: snapshot, an agent
+edits, check, the diff for approval, restore on rejection.

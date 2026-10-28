@@ -2,7 +2,10 @@ const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an
 
 function fieldsOf(step) {
   const kind = kindOf(step);
-  if (kind === "agent") return (lib.prompts[step.agent]?.returns || []).map((f) => f.name).concat(lib.prompts[step.agent]?.returns?.length ? [] : ["output"]);
+  if (kind === "agent") {
+    const returns = promptOf(editor.name, step.agent)?.returns || [];
+    return returns.length ? returns.map((f) => f.name) : ["output"];
+  }
   if (kind === "user") return ["decision", "note"];
   if (kind === "tool") return ["output"];
   return [];
@@ -27,7 +30,7 @@ function stepInspector(step) {
     touch();
   };
   const setKind = (next) => {
-    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "tools", "with"]) delete step[key];
+    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "tools", "with", "resume", "stall", "timeout", "keep_until"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
     if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
     if (next === "user") step.user = "Continue?";
@@ -46,7 +49,24 @@ function stepInspector(step) {
     inspectorSection("What it does", "", kindFields(step, kind)),
     setsSection(step),
     flowFields(step),
+    kind === "tool" || kind === "agent" ? inspectorSection("When swarm stops it", "", limitFields(step, kind)) : null,
     h("details", { class: "advanced" }, h("summary", {}, "Change what kind of step this is"), selectBox(KIND_CHOICES, kind, setKind)));
+}
+
+const IDLE = { tool: ["10m", "no output and no CPU use"], agent: ["15m", "nothing new from the agent"] };
+
+function limitFields(step, kind) {
+  const [stall, quiet] = IDLE[kind];
+  const later = editor.draft.steps.slice(editor.draft.steps.indexOf(step) + 1);
+  return h("div", { class: "form" },
+    h("div", { class: "row2" },
+      field("Idle limit", textInput(step.stall, (v) => { step.stall = v.trim() || undefined; touch(); }, { placeholder: stall, class: "code" }),
+        `stopped after ${quiet} for this long; empty means ${stall}, 0 never`),
+      field("Time limit", textInput(step.timeout, (v) => { step.timeout = v.trim() || undefined; touch(); }, { placeholder: "2h", class: "code" }),
+        "stopped after this long in all; empty means 2h, 0 never")),
+    kind === "tool" ? field("What it leaves running", selectBox([["", "is stopped when this step ends"], ...later.map((s) => [s.id, `keeps running until ${s.title || s.id} ends`])], step.keep_until || "", (v) => { step.keep_until = v || undefined; touch(true); }),
+      "for a server that later steps need; whatever is left is stopped when the run ends") : null,
+    h("div", { class: "hint" }, "Every process the step starts is stopped when it ends, including ones it leaves in the background."));
 }
 
 function inspectorSection(title, hint, ...children) {
@@ -144,7 +164,7 @@ function kindFields(step, kind) {
   }
   if (kind === "chain") {
     const sub = lib.chains.find((c) => c.name === step.chain);
-    const lists = listsPassed(step, editor.draft.steps);
+    const lists = listsPassed(step, editor.draft.steps, editor.name);
     return h("div", { class: "form" },
       field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
       valuesGroup("Its inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
@@ -171,7 +191,8 @@ function kindFields(step, kind) {
 
 function agentFields(step) {
   const name = step.agent;
-  const returns = returnsText(lib.prompts[name]);
+  const returns = returnsText(promptOf(editor.name, name));
+  const path = `chains/${editor.name}/${name}.md`;
   const own = new Set(Object.keys(step.with || {}));
   const promptReads = readsStrip(() => placeholdersIn(editor.prompts[name]).filter((n) => !own.has(n)), "the prompt reads");
   const toolChecks = h("div", { class: "checks" }, lib.agent_tools.map((t) => {
@@ -187,12 +208,15 @@ function agentFields(step) {
   return h("div", { class: "form" },
     h("div", { class: "picked" }, field("Prompt", h("div", { class: "attached" }, promptPicker(step), promptReads)),
       name ? h("span", { class: "hint" }, returns ? `It returns ${returns}, from the prompt's ## Return section. ` : `It has no ## Return section, so it answers in free text, read as {{${step.id}.output}}. `,
-        h("a", { href: `#/prompt/${name}` }, `Open prompts/${name}.md`)) : null,
-      name ? sharedEditor(`prompts/${name}.md`, usesCount((s) => s.agent === name),
+        h("a", { href: `#/prompt/${editor.name}/${name}` }, `Open ${path}`)) : null,
+      name ? sharedEditor(path, editor.draft.steps.filter((s) => s.agent === name).length,
         textArea(editor.prompts[name], (v) => { editor.prompts[name] = v; editor.dirtyPrompts.add(name); touch(); promptReads.draw(); }, { class: "code prompt" })) : null),
     field("Runs with", selectBox([["", `the default (${lib.default_runner})`], ...lib.runners.map((n) => [n, n])], step.runner || "", (v) => { step.runner = v || undefined; touch(true); }),
       step.runner === "codex" || (!step.runner && lib.default_runner === "codex") ? "Codex uses your own Codex config and ignores the list below" : "change the default under Settings"),
-    field("What the agent may use", toolChecks));
+    field("Context", selectBox([["", "a new context"], ...editor.draft.steps.slice(0, editor.draft.steps.indexOf(step)).filter((s) => s.agent)
+      .map((s) => [s.id, `continue the session of ${s.title || s.id}`])], step.resume || "", (v) => { step.resume = v || undefined; touch(true); }),
+    "continuing keeps all that agent saw and did; a blind review needs a new context. Sent back to by a person, an agent step continues its own last attempt with the note either way (claude and codex)"),
+    h("div", { class: "field" }, h("span", {}, "What the agent may use"), toolChecks));
 }
 
 function toolValues(tool) {
@@ -237,13 +261,13 @@ function toolPicker(step) {
 
 function promptPicker(step) {
   const names = Object.keys(editor.prompts).sort();
-  return selectBox([...names.map((n) => [n, `prompts/${n}.md`]), ["__new", "+ New prompt…"]], step.agent, (v) => {
+  return selectBox([...names.map((n) => [n, `${n}.md`]), ["__new", "+ New prompt…"]], step.agent, (v) => {
     if (v === "__new") {
-      const name = prompt("Name for the new prompt");
+      const name = prompt("Name for the new prompt (lowercase letters, digits, - and _)", step.id);
       if (!name) { touch(true); return; }
       editor.prompts[name] = NEW_PROMPT;
       editor.dirtyPrompts.add(name);
-      editor.openShared.add(`prompts/${name}.md`);
+      editor.openShared.add(`chains/${editor.name}/${name}.md`);
       v = name;
     }
     step.agent = v;

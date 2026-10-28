@@ -23,7 +23,8 @@ function renderRun(run) {
       h("div", { class: "run-meta", id: "meta" }),
       h("div", { id: "banner" }),
       h("div", { id: "decision" }),
-      h("div", { class: "panel steps", id: "steps" }, skeleton(run.chain, "")));
+      h("div", { class: "panel steps", id: "steps" }, skeleton(run.chain, "")),
+      h("div", { id: "stopped" }));
     main.replaceChildren(page);
     Object.assign(runView, { entries: new Map(), decisionKey: null });
   }
@@ -31,23 +32,40 @@ function renderRun(run) {
   page.querySelector("#subject").replaceChildren(run.link ? h("a", { href: run.link, target: "_blank", rel: "noreferrer" }, label) : label);
 
   const live = run.status === "running" || run.status === "waiting";
+  const unfinished = !live && run.status !== "done";
+  const from = unfinished ? resumeStep(run.steps) : null;
   page.querySelector("#meta").replaceChildren(...[
     h("span", { class: "pill" }, h("span", { class: `dot ${run.status}` }), STATUS_LABEL[run.status] || run.status),
     h("span", {}, `started ${new Date(run.started_at).toLocaleTimeString()}`),
+    run.resumed_at ? h("span", {}, `rerun from its failed step at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),
     run.cost ? h("span", {}, money(run.cost)) : null,
-    live ? h("button", { class: "btn small danger push-right", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
+    h("span", { class: "row push-right" },
+      live ? h("button", { class: "btn small danger", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
+      unfinished ? h("button", { class: "btn small", type: "button", title: "Keeps every step that finished and starts again at the one that did not", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
+      unfinished ? h("button", { class: "btn small", type: "button", title: "Starts a new run of this chain with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Rerun from scratch") : null,
+      live ? null : h("button", { class: "btn small danger", type: "button", onclick: () => deleteRun(run.id).then((gone) => { if (gone) location.hash = "#/"; }) }, "Delete run")),
   ].filter(Boolean));
 
   page.querySelector("#banner").replaceChildren(outcomeBanner(run) || "");
   renderDecision(run, page.querySelector("#decision"));
   syncRows(page.querySelector("#steps"), run.steps, run, run.chain);
   markBlocks(run);
+  renderStopped(run, page.querySelector("#stopped"));
 
   if (runView.status !== run.status) {
     runView.status = run.status;
     loadRuns();
   }
+}
+
+function renderStopped(run, el) {
+  const stopped = run.stopped || [];
+  if (el.dataset.count === String(stopped.length)) return;
+  el.dataset.count = String(stopped.length);
+  el.replaceChildren(stopped.length ? h("details", { class: "output stopped-list", open: el.querySelector("details")?.open || false },
+    h("summary", {}, `Processes swarm stopped outside a step (${stopped.length})`),
+    h("pre", {}, stopped.join("\n"))) : "");
 }
 
 function outcomeBanner(run) {
@@ -152,6 +170,7 @@ function syncRows(container, steps, run, chain) {
       entry.artSig = artSig;
     }
     if (entry.call?.log !== step.log) entry.call = step.log ? callPanel(run.id, step.log) : null;
+    if (entry.askedAgain?.log !== step.asked_again) entry.askedAgain = step.asked_again ? callPanel(run.id, step.asked_again, ASKED_AGAIN_TITLE) : null;
     if (entry.earlierCount !== (step.earlier?.length || 0)) {
       entry.earlierCount = step.earlier?.length || 0;
       entry.earlier = entry.earlierCount ? earlierPanel(run, step.earlier) : null;
@@ -175,10 +194,12 @@ function redrawRow(entry) {
   entry.el.replaceWith(fresh);
   entry.el = fresh;
   if (entry.open && entry.call?.el.open) entry.call.load();
+  if (entry.open && entry.askedAgain?.el.open) entry.askedAgain.load();
 }
 
 function toggleRow(entry) {
   entry.open = !entry.open;
+  if (entry.open && entry.call && ["running", "waiting"].includes(entry.run.status)) entry.call.el.open = true;
   redrawRow(entry);
 }
 
@@ -200,6 +221,8 @@ function stepRow(entry) {
   h("span", { class: "srow-text" },
     h("span", { class: "srow-title" }, step.title,
       step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
+      step.resumed ? h("span", { class: "chip flag", title: `Continues the session of ${step.resumed}` }, "continues") : null,
+      step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "asked again") : null,
       step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Runs even after a failure, a stop or a rejection" }, "always") : null),
     summaryLine(step, open)),
   h("span", { class: "srow-stats" }, stats.join(" · ")),
@@ -224,11 +247,16 @@ function stepBody(run, step, entry) {
   return [
     step.error ? h("div", { class: "error-box" }, step.error) : null,
     step.ended ? h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended) : null,
+    step.sent_back ? h("div", { class: "hint" }, h("strong", {}, "Sent back with: "), step.sent_back) : null,
+    step.kind === "agent" && step.ended_at ? h("div", { class: "hint" }, step.resumed ? `Continued the session of ${step.resumed}` : "New context",
+      step.session ? ` · session ${step.session}` : " · no session id, so it cannot be continued") : null,
     step.kind === "user" && step.question ? h("div", { class: "question" }, step.question) : null,
     entry.arts,
     stepFields(step),
     readsPanel(run, step, entry.chain),
     entry.call?.el,
+    step.asked_again ? h("div", { class: "hint" }, ASKED_AGAIN) : null,
+    entry.askedAgain?.el,
     entry.earlier,
     h("div", { class: "srow-links" }, editLinks(step, entry.chain)),
   ];
@@ -236,8 +264,9 @@ function stepBody(run, step, entry) {
 
 function editLinks(step, chain) {
   const target = { tool: ["tool", `Open the tool ${step.uses}`], agent: ["prompt", `Open the prompt ${step.uses}`] }[step.kind];
+  const page = step.kind === "agent" ? `${encodeURIComponent(chain)}/${encodeURIComponent(step.uses)}` : encodeURIComponent(step.uses);
   return [
-    target && step.uses ? h("a", { href: `#/${target[0]}/${encodeURIComponent(step.uses)}` }, target[1]) : null,
+    target && step.uses ? h("a", { href: `#/${target[0]}/${page}` }, target[1]) : null,
     chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}` }, "Edit this step") : null,
   ];
 }
@@ -262,6 +291,33 @@ function decideForm(runID, step) {
 async function stopRun(id) {
   if (!confirm("Stop this run? Steps marked \"always\" still run.")) return;
   try { await api(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }); } catch (err) { alert(err.message); }
+}
+
+function resumeStep(steps) {
+  const step = (steps || []).find((s) => s.status !== "done" && s.status !== "skipped");
+  return step ? resumeStep(step.children) || step : null;
+}
+
+async function rerunRun(id, from) {
+  try {
+    const res = await send("POST", `/api/runs/${encodeURIComponent(id)}/rerun`, { from });
+    loadRuns().catch(() => {});
+    if (res.id !== id) location.hash = `#/run/${res.id}`;
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteRun(id) {
+  if (!confirm("Delete this run and everything it recorded?")) return false;
+  try {
+    await api(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (err) {
+    alert(err.message);
+    return false;
+  }
+  loadRuns().catch(() => {});
+  return true;
 }
 
 setInterval(() => {

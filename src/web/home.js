@@ -32,5 +32,9 @@ function runList(runs, empty) {
     h("span", { class: `dot ${r.status}` }),
     h("span", { class: "run-line-main" }, h("span", { class: "run-line-subject" }, r.subject || r.title), h("span", { class: "hint" }, r.title)),
     h("span", { class: `run-line-status ${r.status}` }, STATUS_LABEL[r.status] || r.status),
-    h("span", { class: "run-line-when" }, ago(r.started_at), r.ended_at ? ` · ${duration(r.started_at, r.ended_at)}` : ""))));
+    h("span", { class: "run-line-when" }, ago(r.started_at), r.ended_at ? ` · ${duration(r.started_at, r.ended_at)}` : ""),
+    r.status === "running" || r.status === "waiting" ? h("span", { class: "run-line-delete" }) : h("button", {
+      class: "linkish danger run-line-delete", type: "button", title: "Delete this run",
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); deleteRun(r.id); },
+    }, "Delete"))));
 }

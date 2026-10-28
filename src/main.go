@@ -10,77 +10,51 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-const usage = `swarm runs chains of agent, tool and user steps. Every command works on its own, straight
-on the files; swarm serve adds a page that does the same in a browser. Every change is checked
-before it is saved. Only the commands marked "writes" change anything on disk.
+const usage = `swarm runs chains of agent, tool and user steps. Read "swarm guide" first. Every change is
+validated before saving; * marks commands that write.
 
-  swarm guide                            how chains, tools, prompts and memory work; read it first
-  swarm samples                          writes the sample chains, tools, prompts and guide into ~/.swarm,
-                                         leaving any file you already have alone, apart from
-                                         GUIDE.txt, which always matches this version
-  swarm init [DIR]                       writes: makes a folder a swarm project
+  swarm guide                     how chains, tools, prompts, settings and memory work
+  swarm samples                 * write the samples and guide into ~/.swarm; keeps your files,
+                                  replaces GUIDE.txt
+  swarm init [DIR]              * make a folder a project
 
-  swarm list                             every chain, tool and prompt this project can use
-  swarm get PATH [-below]                print chains/<name>.json, tools/<name>.json or prompts/<name>.md;
-                                         -below gives the shared version a project copy overrides
+  swarm list                      chains, tools and prompts this project can use
+  swarm get PATH [-below]         print chains/<c>.json, chains/<c>/<prompt>.md, tools/<t>.json or
+                                  settings.json; -below: the shared one a project copy overrides
   swarm put PATH [-file F] [-scope project|shared]
-                                         writes: saves one, from F or stdin; refused with reasons if invalid
-  swarm rm PATH                          writes: deletes one; refused while a chain still uses it
-  swarm check                            confirm every chain loads, and list what looks wrong
+                                * save from F or stdin; refused with reasons if invalid
+  swarm rm PATH                 * delete; refused while a chain uses it
+  swarm check                     validate everything and list warnings
+  swarm settings                  configured and installed agents
 
-  swarm snapshot DIR                     writes: saves a copy of this project's .swarm into DIR
-  swarm diff DIR [FILE]                  what changed in .swarm since that copy; a new project copy
-                                         is compared with the shared file it overrides
-  swarm restore DIR                      writes: puts .swarm back as it was in that copy
+  swarm snapshot DIR            * copy .swarm into DIR
+  swarm diff DIR [FILE]           .swarm changes since that copy
+  swarm restore DIR             * put that copy back
 
-  swarm memory                           print what this project has learned
-  swarm memory add [-about TEXT] NOTE... writes: adds notes
-  swarm memory set [-file F]             writes: replaces it, from F or stdin
+  swarm memory                    print memory.md
+  swarm memory add [-about TEXT] NOTE...
+                                * add notes
+  swarm memory set [-file F]    * replace it
 
   swarm run CHAIN [-input name=value]... [-detach]
-                                         writes: starts a run in the background and prints each step
-                                         as it finishes; the run keeps going if you stop watching
-  swarm runs                             recent runs in this project
-  swarm show RUN                         a run's steps
-  swarm approve RUN [-note TEXT]         writes: answers the user step a run is waiting on
-  swarm revise RUN -note TEXT            writes: sends the run back to the user step's revise step,
-                                         with the note for the agents that run again
-  swarm reject RUN [-note TEXT]          writes
-  swarm cancel RUN                       writes: stops one run; its cleanup steps still run
+                                * start a run in the background and print steps as they end;
+                                  stopping the command leaves the run going
+  swarm runs                      recent runs
+  swarm show RUN                  a run's steps
+  swarm approve RUN [-note T]   * answer the user step a run waits on
+  swarm revise RUN -note T      * send the run back to the step's revise target with the note
+  swarm reject RUN [-note T]    *
+  swarm cancel RUN              * stop a run; "always" steps still run
 
-  swarm settings                         which agent CLI runs agent steps, and what is installed
-  swarm put settings.json [-scope project|shared] [-file F]
-                                         writes: changes them; refused if they would break a chain
+  swarm serve                     the page, on 0.0.0.0:7070
+  swarm stop                      close the page; runs keep going
 
-  swarm serve                            the page, on port 7070 of every interface
-  swarm stop                             closes the page; runs keep going
-
-Every command takes -project DIR (default: the current folder, or $SWARM_PROJECT). Shared files,
-run history and the project list live in ~/.swarm, or $SWARM_HOME. serve and stop take
--addr HOST:PORT (default: $SWARM_ADDR, or 0.0.0.0:7070 for serve and localhost:7070 for stop).
-
-Agents
-  An agent step runs one of these, in its own headless mode, in the project folder:
-    claude   Claude Code (claude -p). The step's "tools" list limits what it may use.
-    codex    Codex (codex exec). Runs with your own Codex config, sandbox and approval
-             settings, and ignores the step's "tools" list.
-    custom   any command you add in settings, for example pi. It gets the prompt on stdin
-             (and in $SWARM_PROMPT_FILE) and must print the prompt's fields as a JSON object last.
-  settings.json in ~/.swarm (every project) or <project>/.swarm (that project) chooses:
-    {
-      "agent": "codex",
-      "agents": {
-        "claude": { "args": ["--model", "opus"] },
-        "pi":     { "command": "pi -p" }
-      },
-      "inputs": { "test_command": "./test.sh" }
-    }
-  "agent" is the default for every agent step; a step overrides it with "runner": "claude".
-  "inputs" gives any chain's input of that name its starting value in this project.
-  "args" adds arguments to claude or codex. The page has the same choices under Settings.
+-project DIR: the project (default $SWARM_PROJECT, else the current folder). $SWARM_HOME
+replaces ~/.swarm. -addr HOST:PORT for serve and stop (default $SWARM_ADDR).
 `
 
 func main() {
@@ -89,32 +63,36 @@ func main() {
 	if len(args) > 0 {
 		command, args = args[0], args[1:]
 	}
-	var err error
-	switch command {
-	case "overview":
-		overview()
-	case "serve":
-		err = serve(args)
-	case "guide":
-		fmt.Print(guideText())
-	case "samples":
-		err = samples()
-	case "help", "-h", "--help":
-		fmt.Print(usage)
-	case "stop":
-		err = stopServer(args)
-	case "_run":
-		err = work(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel",
-		"snapshot", "diff", "restore":
-		err = runCommand(command, args)
-	default:
-		err = fmt.Errorf("no command %q\n\n%s", command, usage)
-	}
-	if err != nil {
+	if err := dispatch(command, args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func dispatch(command string, args []string) error {
+	switch command {
+	case "overview":
+		overview()
+		return nil
+	case "serve":
+		return serve(args)
+	case "guide":
+		fmt.Print(guideText())
+		return nil
+	case "samples":
+		return samples()
+	case "help", "-h", "--help":
+		fmt.Print(usage)
+		return nil
+	case "stop":
+		return stopServer(args)
+	case "_run":
+		return work(args)
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel",
+		"snapshot", "diff", "restore":
+		return runCommand(command, args)
+	}
+	return fmt.Errorf("no command %q\n\n%s", command, usage)
 }
 
 func defaultHome() string {
@@ -188,10 +166,15 @@ func overview() {
 	}
 	for _, name := range settings.runners() {
 		if !isBuiltinRunner(name) {
-			fmt.Printf("  ✓ %s is set up as a custom agent: %s\n", name, settings.Agents[name].Command)
+			cli := settings.Agents[name]
+			if cli.Runs != "" {
+				fmt.Printf("  ✓ %s runs %s %s\n", name, cli.Runs, strings.Join(cli.Args, " "))
+			} else {
+				fmt.Printf("  ✓ %s is set up as a custom agent: %s\n", name, cli.Command)
+			}
 		}
 	}
-	fmt.Printf("  agent steps run with %s unless a step says otherwise (see swarm help, \"Agents\")\n", settings.defaultRunner())
+	fmt.Printf("  agent steps run with %s unless a step says otherwise (see swarm guide, \"AGENTS\")\n", settings.defaultRunner())
 
 	fmt.Print("\nNothing has been written. Next:\n\n")
 	fmt.Println("  swarm guide       read how it works")
@@ -230,7 +213,7 @@ func serve(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := flags.String("addr", envOr("SWARM_ADDR", "0.0.0.0:7070"), "where to serve")
 	home := flags.String("home", defaultHome(), "the shared library, run history and project list")
-	project := flags.String("project", "", "a folder to open for this session, without adding it to the project list")
+	project := flags.String("project", envOr("SWARM_PROJECT", "."), "the folder the page opens on, kept for this session without adding it to the project list")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -247,12 +230,10 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 		return err
 	}
 	core := openCore(homeDir)
-	if *project != "" {
-		if err := core.openSession(*project); err != nil {
-			return err
-		}
+	if err := core.openSession(*project); err != nil {
+		return err
 	}
-	projects, _ := core.Projects()
+	projects, opened := core.Projects()
 	srv := &server{core: core, quit: make(chan struct{})}
 	httpServer := &http.Server{Addr: *addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -261,7 +242,8 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 		defer cancel()
 		_ = httpServer.Shutdown(ctx)
 	}()
-	log.Printf("swarm on http://%s, shared library %s, projects %v", *addr, homeDir, projects)
+	go reapOrphans(core.store, srv.quit, 30*time.Second)
+	log.Printf("swarm on http://%s, opens on %s, shared library %s, projects %v", *addr, opened, homeDir, projects)
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

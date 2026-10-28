@@ -20,14 +20,14 @@ const sharedFunctions = [
   "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "elapsed", "remembered", "block", "actionLabel", "callView", "callPanel",
   "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
   "showRun", "findStepIn", "renderRun", "outcomeBanner", "renderDecision", "focusRow", "syncRows", "redrawRow", "toggleRow",
-  "stepRow", "summaryLine", "stepBody", "editLinks", "decideForm", "stopRun",
+  "stepRow", "summaryLine", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
 ];
 
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
   "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
-  "holdsSteps", "asText", "LONE_PLACEHOLDER",
+  "holdsSteps", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE",
 ];
 
 const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];
@@ -87,6 +87,15 @@ export default [
       ecmaVersion: 2024,
       sourceType: "script",
       globals: { ...globals.browser, ...sharedGlobals },
+    },
+    rules: { ...js.configs.recommended.rules, ...strictRules },
+  },
+  {
+    files: ["test/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: "module",
+      globals: globals.node,
     },
     rules: { ...js.configs.recommended.rules, ...strictRules },
   },

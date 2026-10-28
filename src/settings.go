@@ -14,7 +14,12 @@ var builtinRunners = []string{"claude", "codex"}
 
 type AgentCLI struct {
 	Command string   `json:"command,omitempty"`
+	Runs    string   `json:"runs,omitempty"`
 	Args    []string `json:"args,omitempty"`
+}
+
+func (cli AgentCLI) defined() bool {
+	return cli.Command != "" || cli.Runs != ""
 }
 
 type Settings struct {
@@ -80,14 +85,25 @@ func (s Settings) runnerFor(step Step) string {
 }
 
 func (s Settings) knows(name string) bool {
-	return isBuiltinRunner(name) || s.Agents[name].Command != ""
+	return isBuiltinRunner(name) || s.Agents[name].defined()
+}
+
+func (s Settings) builtinFor(runner string) string {
+	if isBuiltinRunner(runner) {
+		return runner
+	}
+	return s.Agents[runner].Runs
+}
+
+func (s Settings) canResume(runner string) bool {
+	return s.builtinFor(runner) != ""
 }
 
 func (s Settings) runners() []string {
 	names := append([]string{}, builtinRunners...)
 	var custom []string
 	for name, cli := range s.Agents {
-		if !isBuiltinRunner(name) && cli.Command != "" {
+		if !isBuiltinRunner(name) && cli.defined() {
 			custom = append(custom, name)
 		}
 	}
@@ -101,11 +117,17 @@ func (s Settings) problems() []string {
 		if !fileName.MatchString(name) {
 			problems = append(problems, fmt.Sprintf("agent %q: names are lowercase letters, digits, - and _", name))
 		}
-		if isBuiltinRunner(name) && cli.Command != "" {
+		switch {
+		case isBuiltinRunner(name) && cli.Command != "":
 			problems = append(problems, fmt.Sprintf("agent %q is built in; give it args, not a command", name))
-		}
-		if !isBuiltinRunner(name) && cli.Command == "" {
-			problems = append(problems, fmt.Sprintf("agent %q needs a command", name))
+		case isBuiltinRunner(name) && cli.Runs != "":
+			problems = append(problems, fmt.Sprintf("agent %q is built in; give it args, not runs", name))
+		case !isBuiltinRunner(name) && !cli.defined():
+			problems = append(problems, fmt.Sprintf("agent %q needs a command, or runs set to claude or codex", name))
+		case cli.Command != "" && cli.Runs != "":
+			problems = append(problems, fmt.Sprintf("agent %q has both a command and runs; keep one", name))
+		case cli.Runs != "" && !isBuiltinRunner(cli.Runs):
+			problems = append(problems, fmt.Sprintf("agent %q: runs must be claude or codex, not %q", name, cli.Runs))
 		}
 	}
 	for _, name := range sortedKeys(s.Inputs) {

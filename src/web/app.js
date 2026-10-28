@@ -1,6 +1,6 @@
 const main = document.getElementById("main");
 const lightbox = document.getElementById("lightbox");
-let lib = { chains: [], tools: {}, prompts: {}, agent_tools: [] };
+let lib = { chains: [], tools: {}, agent_tools: [] };
 let projects = [];
 let project = "";
 let runsCache = [];
@@ -44,7 +44,8 @@ async function api(path, options = {}) {
 
 const send = (method, path, body) => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const EXT = { chains: ".json", tools: ".json", prompts: ".md" };
-const itemURL = (kind, name, scope = "") => `/api/items/${kind}/${name}${EXT[kind]}${scope ? `?scope=${scope}` : ""}`;
+const itemURL = (kind, name, scope = "") => `/api/items/${kind === "prompts" ? "chains" : kind}/${name}${EXT[kind]}${scope ? `?scope=${scope}` : ""}`;
+const promptOf = (chainName, name) => lib.chains.find((c) => c.name === chainName)?.prompts?.[name];
 const putItem = (kind, name, value, scope = "") =>
   api(itemURL(kind, name, scope), { method: "PUT", body: kind === "prompts" ? value : JSON.stringify(value, null, 2) });
 const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" });
@@ -56,11 +57,11 @@ const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
 const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
 
-function listsPassed(step, steps) {
+function listsPassed(step, steps, chainName) {
   return Object.values(step.with || {}).map((v) => LONE_PLACEHOLDER.exec(v)?.[1]).filter((name) => {
     const [id, field] = (name || "").split(".");
     const source = steps.find((s) => s.id === id);
-    return !!source?.agent && (lib.prompts[source.agent]?.returns || []).some((f) => f.name === field && f.value === "list");
+    return !!source?.agent && (promptOf(chainName, source.agent)?.returns || []).some((f) => f.name === field && f.value === "list");
   });
 }
 const STATE_ICON = { done: "✓", failed: "!", rejected: "✕", stopped: "■" };
@@ -107,14 +108,16 @@ async function loadProjects() {
   const res = await api("/api/projects");
   projects = res.projects || [];
   let saved = "";
-  try { saved = localStorage.getItem("swarm.project") || ""; } catch {}
+  try { saved = sessionStorage.getItem("swarm.project") || ""; } catch {}
   project = projects.includes(saved) ? saved : res.default;
   renderProjects();
 }
 
+const folderName = (path) => path.split("/").filter(Boolean).pop() || path;
+
 function renderProjects() {
   const select = document.getElementById("project-select");
-  select.replaceChildren(...projects.map((p) => h("option", { value: p, selected: p === project, title: p }, p.split("/").filter(Boolean).pop() || p)));
+  select.replaceChildren(...projects.map((p) => h("option", { value: p, selected: p === project, title: p }, folderName(p))));
 }
 
 document.getElementById("project-select").addEventListener("change", (e) => switchProject(e.target.value));
@@ -134,18 +137,18 @@ document.getElementById("menu-btn").addEventListener("click", () => {
   document.getElementById("menu-btn").setAttribute("aria-expanded", String(open));
 });
 
-function switchProject(next) {
+function switchProject(next, page = "#/") {
   if (editor?.dirty && !confirm("You have unsaved changes. Switch projects without saving?")) {
     renderProjects();
     return;
   }
   if (editor) editor.dirty = false;
   project = next;
-  try { localStorage.setItem("swarm.project", next); } catch {}
+  try { sessionStorage.setItem("swarm.project", next); } catch {}
   renderProjects();
   loadRuns().catch(() => {});
-  if (location.hash === "#/") refresh();
-  else location.hash = "#/";
+  if (location.hash === page) refresh();
+  else location.hash = page;
 }
 
 const FROM = { shared: "shared by every project", project: "only in this project" };
@@ -176,7 +179,6 @@ function renderSide() {
   list("chains", lib.chains.map((c) => item("chain", c.name, c.title, c.problems?.length ? "!" : c.warnings?.length ? "⚠" : `${c.steps?.length ?? 0}`, c.source)), "No chains");
   list("runs", [...recent.map(runItem), ...more], "No runs yet");
   list("tools", Object.keys(lib.tools).sort().map((n) => item("tool", n, n, null, lib.tools[n].source)), "No tools");
-  list("prompts", Object.keys(lib.prompts).sort().map((n) => item("prompt", n, n, null, lib.prompts[n].source)), "No prompts");
 }
 
 for (const button of document.querySelectorAll("[data-new]")) {
@@ -202,7 +204,6 @@ async function createItem(kind) {
   try {
     if (kind === "chain") await putItem("chains", name, { title: name, steps: [] }, "project");
     if (kind === "tool") await putItem("tools", name, { title: name, run: "echo hello" }, "project");
-    if (kind === "prompt") await putItem("prompts", name, NEW_PROMPT, "project");
     await loadLibrary();
     location.hash = `#/${kind}/${name}`;
   } catch (err) {
@@ -238,7 +239,7 @@ async function refresh() {
   else if (kind === "memory") showMemory();
   else if (kind === "settings") showSettings();
   else if (kind === "tool") showTool(name);
-  else if (kind === "prompt") showPrompt(name);
+  else if (kind === "prompt") showPrompt(name, stepID);
   else if ((kind === "chain" || kind === "edit") && name) {
     current = { kind: "chain", name };
     showEditor(name, stepID);
@@ -292,7 +293,7 @@ const mapToRows = (m) => Object.entries(m || {}).map(([key, value]) => ({ key, v
 const rowsToMap = (rows) => Object.fromEntries(rows.filter((r) => r.key).map((r) => [r.key, r.value]));
 
 function usedBy(match) {
-  const groups = lib.chains.map((chain) => [chain, (chain.steps || []).filter(match)]).filter(([, steps]) => steps.length);
+  const groups = lib.chains.map((chain) => [chain, (chain.steps || []).filter((s) => match(s, chain))]).filter(([, steps]) => steps.length);
   if (!groups.length) return [h("span", { class: "hint" }, "Not used by any chain yet")];
   return groups.map(([chain, steps]) => h("div", { class: "use" },
     h("a", { class: "use-chain", href: `#/chain/${chain.name}` }, chain.title),

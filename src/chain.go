@@ -42,21 +42,25 @@ type Input struct {
 }
 
 type Step struct {
-	ID     string            `json:"id"`
-	Title  string            `json:"title"`
-	Tool   string            `json:"tool,omitempty"`
-	Agent  string            `json:"agent,omitempty"`
-	Runner string            `json:"runner,omitempty"`
-	Chain  string            `json:"chain,omitempty"`
-	User   string            `json:"user,omitempty"`
-	Revise string            `json:"revise,omitempty"`
-	With   map[string]string `json:"with,omitempty"`
-	Tools  []string          `json:"tools,omitempty"`
-	Show   []string          `json:"show,omitempty"`
-	When   string            `json:"when,omitempty"`
-	StopIf string            `json:"stop_if,omitempty"`
-	Stop   string            `json:"stop,omitempty"`
-	Always bool              `json:"always,omitempty"`
+	ID        string            `json:"id"`
+	Title     string            `json:"title"`
+	Tool      string            `json:"tool,omitempty"`
+	Agent     string            `json:"agent,omitempty"`
+	Runner    string            `json:"runner,omitempty"`
+	Chain     string            `json:"chain,omitempty"`
+	User      string            `json:"user,omitempty"`
+	Revise    string            `json:"revise,omitempty"`
+	Resume    string            `json:"resume,omitempty"`
+	Stall     string            `json:"stall,omitempty"`
+	Timeout   string            `json:"timeout,omitempty"`
+	KeepUntil string            `json:"keep_until,omitempty"`
+	With      map[string]string `json:"with,omitempty"`
+	Tools     []string          `json:"tools,omitempty"`
+	Show      []string          `json:"show,omitempty"`
+	When      string            `json:"when,omitempty"`
+	StopIf    string            `json:"stop_if,omitempty"`
+	Stop      string            `json:"stop,omitempty"`
+	Always    bool              `json:"always,omitempty"`
 }
 
 func (s Step) Kind() string {
@@ -77,17 +81,18 @@ func (s Step) Uses() string {
 }
 
 type Chain struct {
-	Name        string   `json:"name,omitempty"`
-	Title       string   `json:"title"`
-	Description string   `json:"description,omitempty"`
-	Subject     string   `json:"subject,omitempty"`
-	Link        string   `json:"link,omitempty"`
-	Inputs      []Input  `json:"inputs,omitempty"`
-	Vars        Fields   `json:"vars,omitempty"`
-	Steps       []Step   `json:"steps"`
-	Problems    []string `json:"problems,omitempty"`
-	Warnings    []string `json:"warnings,omitempty"`
-	Source      string   `json:"source,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Title       string            `json:"title"`
+	Description string            `json:"description,omitempty"`
+	Subject     string            `json:"subject,omitempty"`
+	Link        string            `json:"link,omitempty"`
+	Inputs      []Input           `json:"inputs,omitempty"`
+	Vars        Fields            `json:"vars,omitempty"`
+	Steps       []Step            `json:"steps"`
+	Prompts     map[string]Prompt `json:"prompts,omitempty"`
+	Problems    []string          `json:"problems,omitempty"`
+	Warnings    []string          `json:"warnings,omitempty"`
+	Source      string            `json:"source,omitempty"`
 }
 
 type Library struct {
@@ -95,7 +100,6 @@ type Library struct {
 	Project  string
 	Tools    map[string]Tool
 	Chains   map[string]*Chain
-	Prompts  map[string]Prompt
 	Settings Settings
 }
 
@@ -139,7 +143,7 @@ var (
 )
 
 func loadLibrary(home, project string) (*Library, error) {
-	lib := &Library{Home: home, Project: project, Tools: map[string]Tool{}, Chains: map[string]*Chain{}, Prompts: map[string]Prompt{}}
+	lib := &Library{Home: home, Project: project, Tools: map[string]Tool{}, Chains: map[string]*Chain{}}
 	settings, err := loadSettings(home, project)
 	if err != nil {
 		return nil, err
@@ -156,13 +160,6 @@ func loadLibrary(home, project string) (*Library, error) {
 			tool.Source = source
 			lib.Tools[strings.TrimSuffix(path.Base(file), ".json")] = tool
 		}
-		prompts, _ := fs.Glob(layer.fsys, "prompts/*.md")
-		for _, file := range prompts {
-			text, err := fs.ReadFile(layer.fsys, file)
-			if err == nil {
-				lib.Prompts[strings.TrimSuffix(path.Base(file), ".md")] = newPrompt(string(text), source)
-			}
-		}
 		chains, _ := fs.Glob(layer.fsys, "chains/*.json")
 		for _, file := range chains {
 			name := strings.TrimSuffix(path.Base(file), ".json")
@@ -172,8 +169,12 @@ func loadLibrary(home, project string) (*Library, error) {
 			}
 			chain.Name = name
 			chain.Source = source
+			chain.Prompts = promptsIn(layer.fsys, name, source)
 			lib.Chains[name] = chain
 		}
+	}
+	for _, chain := range lib.Chains {
+		lib.adoptLegacyPrompts(chain)
 	}
 	for _, chain := range lib.Chains {
 		if len(chain.Problems) == 0 {
@@ -223,20 +224,14 @@ func (lib *Library) sortedChains() []*Chain {
 }
 
 func saveChain(dir, name string, chain *Chain) error {
-	chain.Name = ""
-	chain.Problems = nil
-	chain.Warnings = nil
-	chain.Source = ""
-	return saveJSON(filepath.Join(dir, "chains", name+".json"), chain)
+	saved := *chain
+	saved.Name, saved.Problems, saved.Warnings, saved.Source, saved.Prompts = "", nil, nil, "", nil
+	return saveJSON(filepath.Join(dir, "chains", name+".json"), &saved)
 }
 
 func saveTool(dir, name string, tool Tool) error {
 	tool.Source = ""
 	return saveJSON(filepath.Join(dir, "tools", name+".json"), tool)
-}
-
-func savePrompt(dir, name, text string) error {
-	return writeFile(filepath.Join(dir, "prompts", name+".md"), []byte(text))
 }
 
 func memoryPath(project string) string {
@@ -267,9 +262,11 @@ func (lib *Library) catalog() string {
 	for _, name := range sortedKeys(lib.Tools) {
 		fmt.Fprintf(&b, "- %s (%s): %s\n", name, lib.Tools[name].Source, lib.Tools[name].Title)
 	}
-	b.WriteString("Prompts:\n")
-	for _, name := range sortedKeys(lib.Prompts) {
-		fmt.Fprintf(&b, "- %s (%s): %s\n", name, lib.Prompts[name].Source, firstLine(lib.Prompts[name].Text))
+	b.WriteString("Prompts, each kept with its chain:\n")
+	for _, c := range lib.sortedChains() {
+		for _, name := range sortedKeys(c.Prompts) {
+			fmt.Fprintf(&b, "- chains/%s/%s.md: %s\n", c.Name, name, firstLine(c.Prompts[name].Text))
+		}
 	}
 	return b.String()
 }

@@ -26,12 +26,13 @@ func (e *runEnd) finish(status, reason string) {
 }
 
 type pass struct {
-	lib   *Library
-	run   *Run
-	chain *Chain
-	steps []*StepRun
-	sc    *scope
-	end   *runEnd
+	lib      *Library
+	run      *Run
+	chain    *Chain
+	steps    []*StepRun
+	sc       *scope
+	end      *runEnd
+	feedback *string
 }
 
 func expand(lib *Library, chain *Chain, prefix string) []*StepRun {
@@ -51,7 +52,10 @@ func expand(lib *Library, chain *Chain, prefix string) []*StepRun {
 
 func (r *Runner) execute(ctx context.Context, lib *Library, chain *Chain, run *Run, sc *scope) {
 	end := &runEnd{status: "done"}
-	r.runSteps(ctx, pass{lib: lib, run: run, chain: chain, steps: run.Steps, sc: sc, end: end})
+	r.runSteps(ctx, pass{lib: lib, run: run, chain: chain, steps: run.Steps, sc: sc, end: end, feedback: &run.Feedback})
+	r.ending.Lock()
+	defer r.ending.Unlock()
+	r.noteStopped(run, "when the run ended", r.endRun(run))
 	finished := time.Now()
 	r.store.update(run, func() {
 		run.EndedAt = &finished
@@ -64,6 +68,9 @@ func (r *Runner) runSteps(ctx context.Context, p pass) {
 	for _, v := range p.chain.Vars {
 		p.sc.values[v.Name] = p.sc.fill(v.Value, false)
 	}
+	if *p.feedback != "" {
+		p.sc.values["feedback"] = *p.feedback
+	}
 	for i := 0; i < len(p.chain.Steps); i++ {
 		i = r.runOne(ctx, p, i)
 	}
@@ -71,8 +78,13 @@ func (r *Runner) runSteps(ctx context.Context, p pass) {
 
 func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	step, sr := p.chain.Steps[i], p.steps[i]
+	defer func() { r.noteStopped(p.run, "after "+step.Title, r.release(sr.Path)) }()
 	if runCtx.Err() != nil {
 		p.end.finish("stopped", "You stopped the run before: "+step.Title)
+	}
+	if sr.Status == "done" {
+		restore(p.lib, p.sc, step, sr)
+		return i
 	}
 	if r.skip(p, step, sr) {
 		return i
@@ -93,7 +105,7 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	if step.Kind() == "chain" {
 		out, err = r.runChain(ctx, p, sr, step)
 	} else {
-		out, err = r.runStep(ctx, p.lib, p.run, sr, step, p.sc)
+		out, err = r.runStep(ctx, p.lib, p.chain, p.run, sr, step, p.sc)
 	}
 	p.sc.outputs[step.ID] = out
 	r.record(runCtx, p, step, sr, out, err)
@@ -170,13 +182,16 @@ func (p pass) settle(step Step, sr *StepRun, out map[string]any, local *scope) {
 
 func (r *Runner) sendBack(p pass, step Step, i int, note string) int {
 	target := p.chain.stepIndex(step.Revise)
+	earlier, _ := p.sc.lookup("feedback")
+	feedback := strings.TrimSpace(earlier + "\n\n" + note)
 	r.store.update(p.run, func() {
 		for j := target; j <= i; j++ {
 			p.steps[j] = again(p.steps[j])
 		}
+		p.steps[target].SentBack = note
+		*p.feedback = feedback
 	})
-	earlier, _ := p.sc.lookup("feedback")
-	p.sc.values["feedback"] = strings.TrimSpace(earlier + "\n\n" + note)
+	p.sc.values["feedback"] = feedback
 	return target - 1
 }
 
@@ -209,14 +224,10 @@ func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (
 		r.store.update(p.run, func() { sr.Children = expand(p.lib, sub, sr.Path+".") })
 	}
 	child := p.sc.child(values)
-	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: child, end: p.end})
+	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: child, end: p.end, feedback: &sr.Feedback})
 
 	out := child.flatten()
-	for id, fields := range child.outputs {
-		if _, taken := p.sc.outputs[id]; !taken {
-			p.sc.outputs[id] = fields
-		}
-	}
+	p.sc.adopt(child)
 	var failed []string
 	for _, c := range sr.Children {
 		if c.Status == "failed" {
@@ -255,10 +266,12 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 	sub := p.lib.Chains[step.Chain]
 	source, _ := lonePlaceholder(step.With[key])
 	r.store.update(p.run, func() {
-		sr.Children = make([]*StepRun, len(items))
-		for i, item := range items {
-			path := fmt.Sprintf("%s.%d", sr.Path, i+1)
-			sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
+		if !sameItems(sr.Children, items, sub) {
+			sr.Children = make([]*StepRun, len(items))
+			for i, item := range items {
+				path := fmt.Sprintf("%s.%d", sr.Path, i+1)
+				sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
+			}
 		}
 		sr.Headline = fmt.Sprintf("Runs %s %s, once per item of %s", step.Chain, times(len(items)), source)
 	})
@@ -267,6 +280,11 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 	ran := 0
 	for i, item := range items {
 		group := sr.Children[i]
+		if group.Status == "done" {
+			ran++
+			ended["done"]++
+			continue
+		}
 		if ctx.Err() != nil {
 			r.store.update(p.run, func() { skipAll(group) })
 			continue
@@ -283,7 +301,7 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 				return nil, err
 			}
 		}
-		r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: group.Children, sc: p.sc.child(own), end: end})
+		r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: group.Children, sc: p.sc.child(own), end: end, feedback: &group.Feedback})
 		finished := time.Now()
 		r.store.update(p.run, func() {
 			group.Status, group.Headline, group.EndedAt = end.status, end.reason, &finished

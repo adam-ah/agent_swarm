@@ -139,20 +139,26 @@ func TestSettingsKnows(t *testing.T) {
 		"pi":     {Command: "pi -p"},
 		"claude": {Args: []string{"--model", "opus"}},
 		"argsel": {Args: []string{"-x"}},
+		"sonnet": {Runs: "claude", Args: []string{"--model", "sonnet"}},
 	}}
 	tests := []struct {
-		name string
-		want bool
+		name    string
+		want    bool
+		builtin string
 	}{
-		{name: "claude", want: true},
-		{name: "codex", want: true},
+		{name: "claude", want: true, builtin: "claude"},
+		{name: "codex", want: true, builtin: "codex"},
 		{name: "pi", want: true},
+		{name: "sonnet", want: true, builtin: "claude"},
 		{name: "argsel", want: false},
 		{name: "ghost", want: false},
 	}
 	for _, tt := range tests {
 		if got := s.knows(tt.name); got != tt.want {
 			t.Errorf("knows(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+		if got := s.builtinFor(tt.name); got != tt.builtin {
+			t.Errorf("builtinFor(%q) = %q, want %q", tt.name, got, tt.builtin)
 		}
 	}
 }
@@ -163,8 +169,9 @@ func TestSettingsRunners(t *testing.T) {
 		"alpha":  {Command: "alpha"},
 		"claude": {Args: []string{"--model", "opus"}},
 		"noargs": {Args: []string{"-x"}},
+		"sonnet": {Runs: "claude"},
 	}}
-	want := []string{"claude", "codex", "alpha", "zeta"}
+	want := []string{"claude", "codex", "alpha", "sonnet", "zeta"}
 	if got := s.runners(); !reflect.DeepEqual(got, want) {
 		t.Errorf("runners() = %v, want %v", got, want)
 	}
@@ -183,7 +190,11 @@ func TestSettingsProblems(t *testing.T) {
 		{name: "valid custom agent", settings: Settings{Agent: "pi", Agents: map[string]AgentCLI{"pi": {Command: "pi -p"}}}},
 		{name: "bad name", settings: Settings{Agents: map[string]AgentCLI{"Pi": {Command: "pi"}}}, want: []string{`agent "Pi": names are lowercase letters, digits, - and _`}},
 		{name: "builtin with command", settings: Settings{Agents: map[string]AgentCLI{"claude": {Command: "claude"}}}, want: []string{`agent "claude" is built in; give it args, not a command`}},
-		{name: "custom without command", settings: Settings{Agents: map[string]AgentCLI{"pi": {Args: []string{"-p"}}}}, want: []string{`agent "pi" needs a command`}},
+		{name: "custom without command", settings: Settings{Agents: map[string]AgentCLI{"pi": {Args: []string{"-p"}}}}, want: []string{`agent "pi" needs a command, or runs set to claude or codex`}},
+		{name: "runs claude", settings: Settings{Agents: map[string]AgentCLI{"sonnet": {Runs: "claude", Args: []string{"--model", "sonnet"}}}}},
+		{name: "builtin with runs", settings: Settings{Agents: map[string]AgentCLI{"codex": {Runs: "claude"}}}, want: []string{`agent "codex" is built in; give it args, not runs`}},
+		{name: "runs something else", settings: Settings{Agents: map[string]AgentCLI{"pi": {Runs: "pi"}}}, want: []string{`agent "pi": runs must be claude or codex, not "pi"`}},
+		{name: "command and runs", settings: Settings{Agents: map[string]AgentCLI{"pi": {Command: "pi", Runs: "claude"}}}, want: []string{`agent "pi" has both a command and runs; keep one`}},
 		{name: "unknown default", settings: Settings{Agent: "pi"}, want: []string{`the default agent "pi" is neither claude, codex nor one defined under agents`}},
 	}
 	for _, tt := range tests {

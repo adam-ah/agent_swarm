@@ -23,22 +23,31 @@ func placeholders(template string) []string {
 }
 
 type scope struct {
-	parent  *scope
-	local   map[string]any
-	values  map[string]string
-	outputs map[string]map[string]any
+	parent   *scope
+	local    map[string]any
+	values   map[string]string
+	outputs  map[string]map[string]any
+	sessions map[string]agentSession
 }
 
 func newScope(values map[string]string) *scope {
-	return &scope{values: values, outputs: map[string]map[string]any{}}
+	return &scope{values: values, outputs: map[string]map[string]any{}, sessions: map[string]agentSession{}}
 }
 
 func (s *scope) with(local map[string]any) *scope {
-	return &scope{parent: s.parent, local: local, values: s.values, outputs: s.outputs}
+	return &scope{parent: s.parent, local: local, values: s.values, outputs: s.outputs, sessions: s.sessions}
 }
 
 func (s *scope) child(values map[string]string) *scope {
-	return &scope{parent: s, values: values, outputs: map[string]map[string]any{}}
+	return &scope{parent: s, values: values, outputs: map[string]map[string]any{}, sessions: map[string]agentSession{}}
+}
+
+func (s *scope) adopt(child *scope) {
+	for id, fields := range child.outputs {
+		if _, taken := s.outputs[id]; !taken {
+			s.outputs[id] = fields
+		}
+	}
 }
 
 func (s *scope) lookup(name string) (string, bool) {

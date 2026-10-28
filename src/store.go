@@ -21,30 +21,35 @@ type Artifact struct {
 }
 
 type StepRun struct {
-	ID        string         `json:"id"`
-	Path      string         `json:"path"`
-	Title     string         `json:"title"`
-	Kind      string         `json:"kind"`
-	Uses      string         `json:"uses"`
-	Always    bool           `json:"always,omitempty"`
-	Status    string         `json:"status"`
-	Headline  string         `json:"headline,omitempty"`
-	Output    map[string]any `json:"output,omitempty"`
-	Artifacts []Artifact     `json:"artifacts,omitempty"`
-	StartedAt *time.Time     `json:"started_at,omitempty"`
-	EndedAt   *time.Time     `json:"ended_at,omitempty"`
-	Cost      float64        `json:"cost,omitempty"`
-	Tokens    int            `json:"tokens,omitempty"`
-	Runner    string         `json:"runner,omitempty"`
-	Actions   int            `json:"actions,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	Ended     string         `json:"ended,omitempty"`
-	Question  string         `json:"question,omitempty"`
-	Revise    string         `json:"revise,omitempty"`
-	Round     int            `json:"round,omitempty"`
-	Log       string         `json:"log,omitempty"`
-	Children  []*StepRun     `json:"children,omitempty"`
-	Earlier   []*StepRun     `json:"earlier,omitempty"`
+	ID         string         `json:"id"`
+	Path       string         `json:"path"`
+	Title      string         `json:"title"`
+	Kind       string         `json:"kind"`
+	Uses       string         `json:"uses"`
+	Always     bool           `json:"always,omitempty"`
+	Status     string         `json:"status"`
+	Headline   string         `json:"headline,omitempty"`
+	Output     map[string]any `json:"output,omitempty"`
+	Artifacts  []Artifact     `json:"artifacts,omitempty"`
+	StartedAt  *time.Time     `json:"started_at,omitempty"`
+	EndedAt    *time.Time     `json:"ended_at,omitempty"`
+	Cost       float64        `json:"cost,omitempty"`
+	Tokens     int            `json:"tokens,omitempty"`
+	Runner     string         `json:"runner,omitempty"`
+	Actions    int            `json:"actions,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	Ended      string         `json:"ended,omitempty"`
+	Question   string         `json:"question,omitempty"`
+	Revise     string         `json:"revise,omitempty"`
+	Round      int            `json:"round,omitempty"`
+	SentBack   string         `json:"sent_back,omitempty"`
+	Feedback   string         `json:"feedback,omitempty"`
+	Session    string         `json:"session,omitempty"`
+	Resumed    string         `json:"resumed,omitempty"`
+	Log        string         `json:"log,omitempty"`
+	AskedAgain string         `json:"asked_again,omitempty"`
+	Children   []*StepRun     `json:"children,omitempty"`
+	Earlier    []*StepRun     `json:"earlier,omitempty"`
 }
 
 func (sr *StepRun) logName() string {
@@ -77,9 +82,12 @@ type Run struct {
 	Status    string            `json:"status"`
 	Reason    string            `json:"reason,omitempty"`
 	StartedAt time.Time         `json:"started_at"`
+	ResumedAt *time.Time        `json:"resumed_at,omitempty"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Cost      float64           `json:"cost"`
 	PID       int               `json:"pid,omitempty"`
+	Feedback  string            `json:"feedback,omitempty"`
+	Stopped   []string          `json:"stopped,omitempty"`
 	Steps     []*StepRun        `json:"steps"`
 
 	decisions chan decision
@@ -193,7 +201,11 @@ func (s *Store) load(id string) *Run {
 }
 
 func settle(run *Run) *Run {
-	if !run.going() || processAlive(run.PID) || (run.PID == 0 && time.Since(run.StartedAt) < startGrace) {
+	started := run.StartedAt
+	if run.ResumedAt != nil {
+		started = *run.ResumedAt
+	}
+	if !run.going() || processAlive(run.PID) || (run.PID == 0 && time.Since(started) < startGrace) {
 		return run
 	}
 	ended := *run
@@ -270,7 +282,7 @@ func (s *Store) hasArtifact(id, path string) bool {
 
 func (s *Store) hasLog(id, log string) bool {
 	run := s.load(id)
-	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log }) != nil
+	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log || step.AskedAgain == log }) != nil
 }
 
 func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {
@@ -290,6 +302,25 @@ func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {
 
 func (s *Store) signal(id, name string, raw []byte) error {
 	return writeFile(filepath.Join(s.runDir(id), name), raw)
+}
+
+func (s *Store) clearSignals(id string) error {
+	for _, name := range []string{decisionFile, cancelFile} {
+		if err := os.Remove(filepath.Join(s.runDir(id), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) remove(id string) error {
+	if !runID.MatchString(id) {
+		return fmt.Errorf("%q is not a run id", id)
+	}
+	s.mu.Lock()
+	delete(s.cache, id)
+	s.mu.Unlock()
+	return os.RemoveAll(s.runDir(id))
 }
 
 func (s *Store) hasSignal(id, name string) bool {

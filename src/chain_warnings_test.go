@@ -8,13 +8,16 @@ import (
 
 func warningLibrary() *Library {
 	return &Library{
-		Tools: map[string]Tool{"commit": {Title: "Commit", Run: "git commit -m {{message}}"}},
-		Prompts: map[string]Prompt{
-			"fix":  newPrompt("Fix {{request}}.\n\n## Return\n\n- `summary`: one line\n- `commit_message`: one line\n", "shared"),
-			"free": newPrompt("Say something.", "shared"),
-		},
+		Tools:    map[string]Tool{"commit": {Title: "Commit", Run: "git commit -m {{message}}"}},
 		Chains:   map[string]*Chain{},
 		Settings: Settings{Agents: map[string]AgentCLI{}},
+	}
+}
+
+func warningPrompts() map[string]Prompt {
+	return map[string]Prompt{
+		"fix":  newPrompt("Fix {{request}}.\n\n## Return\n\n- `summary`: one line\n- `commit_message`: one line\n", "shared"),
+		"free": newPrompt("Say something.", "shared"),
 	}
 }
 
@@ -67,6 +70,7 @@ func TestLibraryWarnings(t *testing.T) {
 			}
 			chain := tt.chain
 			chain.Name = "main"
+			chain.Prompts = warningPrompts()
 			lib.Chains["main"] = &chain
 			if got := lib.warnings(&chain); !sameProblems(got, tt.want) {
 				t.Errorf("warnings() = %q, want %q", got, tt.want)

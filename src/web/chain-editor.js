@@ -1,3 +1,5 @@
+let nextNotice = "";
+
 function showEditor(name, stepID = "") {
   const chain = lib.chains.find((c) => c.name === name);
   if (!chain) {
@@ -5,14 +7,15 @@ function showEditor(name, stepID = "") {
     return;
   }
   const draft = clone(chain);
-  for (const key of ["name", "problems", "warnings", "source"]) delete draft[key];
+  for (const key of ["name", "problems", "warnings", "source", "prompts"]) delete draft[key];
   draft.steps = draft.steps || [];
-  const prompts = Object.fromEntries(Object.entries(lib.prompts).map(([k, v]) => [k, v.text]));
+  const prompts = Object.fromEntries(Object.entries(chain.prompts || {}).map(([k, v]) => [k, v.text]));
   const at = draft.steps.findIndex((s) => s.id === stepID);
   editor = {
     name, source: chain.source, draft, selected: at >= 0 ? at : "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(),
-    fresh: new Set(), openShared: new Set(), dirty: false, problems: chain.problems || [], warnings: chain.warnings || [], message: "",
+    fresh: new Set(), openShared: new Set(), dirty: false, problems: chain.problems || [], warnings: chain.warnings || [], message: nextNotice,
   };
+  nextNotice = "";
   main.replaceChildren(h("div", { class: "page" },
     h("div", { class: "eyebrow" }, `Chain · chains/${name}.json · ${FROM[chain.source]}`),
     h("h1", { id: "chain-title" }, draft.title),
@@ -53,9 +56,50 @@ function renderSaveBar() {
     h("details", { class: "more" }, h("summary", { class: "btn small" }, "More"),
       h("div", { class: "more-menu" },
         shared ? h("button", { class: "linkish", type: "button", onclick: () => saveChain("project") }, "Save as a copy for this project only") : null,
+        transferControls(),
         h("button", { class: "linkish danger", type: "button", onclick: removeChain }, shared ? "Delete this chain for every project" : "Delete this project's copy"))),
     h("button", { class: "btn small", disabled: !editor.dirty, onclick: () => showEditor(editor.name, editor.draft.steps[editor.selected]?.id) }, "Discard"),
     h("button", { class: "btn small primary", disabled: !editor.dirty, onclick: () => saveChain() }, "Save"));
+}
+
+function transferControls() {
+  const others = projects.filter((p) => p !== project);
+  if (!others.length) return h("span", { class: "hint" }, "Add another project to copy or move this chain to it.");
+  const target = selectBox(others.map((p) => [p, folderName(p)]), others[0], () => {});
+  target.title = "The project to copy or move it to";
+  return h("div", { class: "more-transfer" },
+    h("span", { class: "hint" }, "To another project, with the tools, prompts and chains it uses from this one:"),
+    target,
+    h("div", { class: "row" },
+      h("button", { class: "linkish", type: "button", onclick: () => transferChain(target.value, false) }, "Copy to project"),
+      h("button", { class: "linkish", type: "button", onclick: () => transferChain(target.value, true) }, "Move to project")));
+}
+
+async function transferChain(to, move) {
+  if (editor.dirty) {
+    alert("Save or discard your changes first.");
+    return;
+  }
+  const there = folderName(to);
+  const leaves = editor.source === "project" ? "this project" : "the shared library, so every other project loses it too";
+  if (move && !confirm(`Move "${editor.draft.title || editor.name}" to ${there}? It leaves ${leaves}.`)) return;
+  let done;
+  try {
+    done = await send("POST", `/api/chains/${encodeURIComponent(editor.name)}/transfer`, { to, move });
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  const said = (label, paths) => (paths.length ? `${label}: ${paths.join(", ")}` : "");
+  const report = [said(`Copied to ${there}`, done.copied), said(`Already the same in ${there}`, done.same),
+    said("Removed from here", done.removed), said("Left here because other chains use them", done.kept)].filter(Boolean).join(". ");
+  if (!move) {
+    editor.message = report;
+    renderSaveBar();
+    return;
+  }
+  nextNotice = report;
+  switchProject(to, `#/chain/${encodeURIComponent(editor.name)}`);
 }
 
 async function removeChain() {
@@ -81,7 +125,7 @@ async function saveChain(scope = "") {
       editor.dirtyTools.delete(name);
     }
     for (const name of editor.dirtyPrompts) {
-      await putItem("prompts", name, editor.prompts[name]);
+      await putItem("prompts", `${editor.name}/${name}`, editor.prompts[name], scope);
       editor.dirtyPrompts.delete(name);
     }
     const draft = clone(editor.draft);
@@ -135,11 +179,12 @@ function renderEditorTree() {
       go: editorGo,
       step: (step) => {
         const i = d.steps.indexOf(step);
-        const lists = step.chain ? listsPassed(step, d.steps) : [];
+        const lists = step.chain ? listsPassed(step, d.steps, editor.name) : [];
         return [
           treeRow({ kind: kindOf(step), title: step.title, id: step.id, selected: editor.selected === i, onclick: () => select(i) }),
           step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
           lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}`) : null,
+          step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${d.steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
           step.chain ? subchainRows(step.chain, 1) : null,
         ];
       },

@@ -232,7 +232,7 @@ func (c *cli) check(project string) error {
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "\n"))
 	}
-	fmt.Printf("ok: %d chains, %d tools, %d prompts\n", len(lib.Chains), len(lib.Tools), len(lib.Prompts))
+	fmt.Printf("ok: %d chains, %d tools, %d prompts\n", len(lib.Chains), len(lib.Tools), lib.promptCount())
 	printWarnings(lib.allWarnings())
 	return nil
 }

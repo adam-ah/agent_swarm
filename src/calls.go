@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,10 @@ type Call struct {
 	Stderr    string     `json:"stderr,omitempty"`
 	Result    string     `json:"result,omitempty"`
 	Stream    bool       `json:"stream,omitempty"`
+	Limits    string     `json:"limits,omitempty"`
+	Stopped   []string   `json:"stopped,omitempty"`
+	KeptUntil string     `json:"kept_until,omitempty"`
+	Kept      []string   `json:"kept,omitempty"`
 	Actions   []*Action  `json:"actions,omitempty"`
 }
 
@@ -83,6 +88,36 @@ func (c *callLog) end(id, tool, input, output string, failed bool) {
 		}
 		action.Output, action.Failed, action.EndedAt = output, failed, &now
 	})
+}
+
+func (c *callLog) stopped(processes []string) {
+	if len(processes) == 0 {
+		return
+	}
+	c.edit(func(call *Call) {
+		for _, p := range processes {
+			if !slices.Contains(call.Stopped, p) {
+				call.Stopped = append(call.Stopped, p)
+			}
+		}
+	})
+}
+
+func (c *callLog) kept(until string, processes []string) {
+	if len(processes) == 0 {
+		return
+	}
+	c.edit(func(call *Call) { call.KeptUntil, call.Kept = until, processes })
+}
+
+func (c *callLog) lastAction() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.call.Actions) == 0 {
+		return "none yet"
+	}
+	last := c.call.Actions[len(c.call.Actions)-1]
+	return last.Tool + ": " + actionLabel(last.Input)
 }
 
 func (c *callLog) finish(cmd *exec.Cmd, err error, stdout, stderr string) {

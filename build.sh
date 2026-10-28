@@ -2,8 +2,10 @@
 set -uo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
 
+min_coverage=80
+
 check_comments() {
-  ast-grep scan -r "$root/lint/no-comments.yml" "$root/src"
+  ast-grep scan -r "$root/lint/no-comments.yml" "$root/src" "$root/test"
 }
 
 check_lengths() {
@@ -42,11 +44,28 @@ check_lint() {
 
 check_tests() {
   cd "$root/src" || return 1
+  local profile race=() total
+  profile=$(mktemp)
   if [ "$(go env CGO_ENABLED)" = 1 ] && command -v gcc >/dev/null; then
-    go test -race -count=1 ./...
-  else
-    go test -count=1 ./...
+    race=(-race)
   fi
+  if ! go test "${race[@]}" -count=1 -coverprofile="$profile" ./...; then
+    rm -f "$profile"
+    return 1
+  fi
+  total=$(go tool cover -func="$profile" | awk '/^total:/ { sub("%", "", $NF); print $NF }')
+  rm -f "$profile"
+  echo "go coverage: $total% (minimum $min_coverage%)"
+  awk -v total="$total" -v min="$min_coverage" 'BEGIN { exit !(total >= min) }'
+}
+
+check_web_tests() {
+  if [ ! -d "$root/node_modules/happy-dom" ]; then
+    echo "run npm install in $root first" >&2
+    return 1
+  fi
+  cd "$root" && node --test --experimental-test-coverage --test-coverage-include='src/web/*.js' \
+    --test-coverage-lines="$min_coverage" 'test/web/*.test.mjs'
 }
 
 check_eslint() {
@@ -54,7 +73,7 @@ check_eslint() {
     echo "run npm install in $root first" >&2
     return 1
   fi
-  cd "$root" && node_modules/.bin/eslint src/web
+  cd "$root" && node_modules/.bin/eslint src/web test
 }
 
 check_js_syntax() {
@@ -91,6 +110,7 @@ run "gofmt" check_gofmt
 run "go vet" check_vet
 run "golangci-lint" check_lint
 run "go test" check_tests
+run "web test" check_web_tests
 run "eslint" check_eslint
 run "node --check" check_js_syntax
 

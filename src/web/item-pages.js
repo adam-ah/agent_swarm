@@ -28,8 +28,9 @@ function itemButtons(kind, name, source, status, payload, onSaved) {
   return h("div", { class: "savebar" }, status,
     h("details", { class: "more" }, h("summary", { class: "btn small" }, "More"),
       h("div", { class: "more-menu" },
-        source !== "project" ? h("button", { class: "linkish", type: "button", onclick: () => save("project") }, "Save as a copy for this project only") : null,
-        h("button", { class: "linkish danger", type: "button", onclick: remove }, source === "project" ? "Delete this project's copy" : "Delete it for every project"))),
+        source !== "project" && kind !== "prompts" ? h("button", { class: "linkish", type: "button", onclick: () => save("project") }, "Save as a copy for this project only") : null,
+        kind === "prompts" ? h("span", { class: "hint" }, "To change it for this project only, save a project copy of its chain; the copy takes the prompts along.") : null,
+        h("button", { class: "linkish danger", type: "button", onclick: remove }, kind === "prompts" ? "Delete this prompt" : source === "project" ? "Delete this project's copy" : "Delete it for every project"))),
     h("button", { class: "btn small primary", type: "button", onclick: () => save() }, "Save"));
 }
 
@@ -42,7 +43,7 @@ function showTool(name) {
   const status = h("span", { class: "status" });
   const dirty = unsaved(status);
   main.replaceChildren(h("div", { class: "page" },
-    h("div", { class: "eyebrow" }, `Tool · tools/${name}.json · ${FROM[source]}`),
+    h("div", { class: "eyebrow" }, `Tool · tools/${name}.json · ${FROM[source] || "not saved yet"}`),
     h("h1", {}, name),
     h("p", { class: "lead" }, "A named action a chain can call. It runs as a bash script in the project folder. {{name}} is filled from the chain's inputs and values, the step's values, or an earlier step's output ({{step_id.field}}), already shell-quoted. If it prints a JSON object, its fields become the step's output."),
     h("div", { class: "split" },
@@ -76,7 +77,9 @@ async function showSettings() {
         scope = value;
         draw();
       } }, label)));
-    const custom = Object.entries(layer.agents).filter(([n]) => n !== "claude" && n !== "codex").map(([name, cli]) => ({ name, command: cli.command || "" }));
+    const custom = Object.entries(layer.agents).filter(([n]) => n !== "claude" && n !== "codex")
+      .map(([name, cli]) => ({ name, runs: cli.runs || "", command: cli.runs ? (cli.args || []).join(" ") : cli.command || "" }));
+    const agentOf = (row) => (row.runs ? { runs: row.runs, args: row.command.split(" ").filter(Boolean) } : { command: row.command });
     const argsField = (name) => textInput((layer.agents[name]?.args || []).join(" "), (v) => {
       const args = v.split(" ").filter(Boolean);
       if (args.length) layer.agents[name] = { args };
@@ -96,10 +99,14 @@ async function showSettings() {
         field("Extra arguments for codex", argsField("codex"), "added to codex exec; otherwise Codex uses your own config, sandbox and approvals")),
       h("div", { class: "subpanel" },
         h("h3", {}, "Your own agents"),
-        h("span", { class: "hint" }, "A shell command run in the project folder. It gets the prompt on stdin (and in $SWARM_PROMPT_FILE) and must print the prompt's fields as one JSON object last."),
-        rowsEditor(custom, [{ key: "name", label: "name, e.g. pi", mono: true }, { key: "command", label: "command, e.g. pi -p", mono: true }], (rows) => {
+        h("span", { class: "hint" }, "Either claude or codex under another name with its own arguments, such as sonnet running claude with --model sonnet; it returns fields and continues sessions like the built-in one. Or a shell command run in the project folder: it gets the prompt on stdin (and in $SWARM_PROMPT_FILE), must print the prompt's fields as one JSON object, and cannot continue a session."),
+        rowsEditor(custom, [
+          { key: "name", label: "name, e.g. sonnet", mono: true },
+          { key: "runs", label: "runs claude or codex, or blank for a command", mono: true },
+          { key: "command", label: "args, e.g. --model sonnet, or a command, e.g. pi -p", mono: true },
+        ], (rows) => {
           for (const n of Object.keys(layer.agents)) if (n !== "claude" && n !== "codex") delete layer.agents[n];
-          for (const row of rows) if (row.name) layer.agents[row.name] = { command: row.command };
+          for (const row of rows) if (row.name) layer.agents[row.name] = agentOf(row);
           dirty();
         })),
       h("div", { class: "subpanel" },
@@ -170,16 +177,17 @@ function returnsList(prompt) {
 
 const RETURN_EXAMPLE = "## Return\n\n- `verdict`: `APPROVE` or `CHANGES`\n- `summary`: one plain sentence\n- `files` (list): the files you changed";
 
-function showPrompt(name) {
-  let text = lib.prompts[name]?.text ?? "";
-  const source = lib.prompts[name]?.source;
+function showPrompt(chainName, name) {
+  const chain = lib.chains.find((c) => c.name === chainName);
+  let text = promptOf(chainName, name)?.text ?? "";
+  const source = chain?.source;
   const status = h("span", { class: "status" });
   const facts = h("div", { class: "panel" });
   const drawFacts = () => {
-    const saved = lib.prompts[name] || {};
+    const saved = promptOf(chainName, name) || {};
     const placeholders = placeholdersIn(saved.text);
     facts.replaceChildren(
-      h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s) => s.agent === name)),
+      h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s, c) => c.name === chainName && s.agent === name)),
       h("div", { class: "panel-head" }, "Fields it returns"), h("div", { class: "panel-body used-by" }, returnsList(saved)),
       h("div", { class: "panel-head" }, "Placeholders it reads"), h("div", { class: "panel-body used-by" }, placeholders.length ? placeholders.map((p) => h("code", {}, `{{${p}}}`)) : h("span", { class: "hint" }, "none")),
       h("div", { class: "panel-head" }, "How to list the fields"), h("div", { class: "panel-body" }, h("pre", { class: "example" }, RETURN_EXAMPLE),
@@ -187,12 +195,12 @@ function showPrompt(name) {
   };
   drawFacts();
   main.replaceChildren(h("div", { class: "page" },
-    h("div", { class: "eyebrow" }, `Prompt · prompts/${name}.md · ${FROM[source]}`),
+    h("div", { class: "eyebrow" }, "Prompt of the chain ", h("a", { href: `#/chain/${chainName}` }, chain?.title || chainName), ` · chains/${chainName}/${name}.md · ${FROM[source] || "not saved yet"}`),
     h("h1", {}, name),
-    h("p", { class: "lead" }, "What an agent step tells the agent. {{placeholders}} are filled from the chain before it starts. The fields listed under a ## Return heading are what the agent must answer with."),
+    h("p", { class: "lead" }, "What an agent step of this chain tells the agent. {{placeholders}} are filled from the chain before it starts. The fields listed under a ## Return heading are what the agent must answer with."),
     h("div", { class: "split" },
       facts,
       h("div", { class: "panel" },
-        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", name, source, status, () => text, drawFacts)),
+        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", `${chainName}/${name}`, source, status, () => text, drawFacts)),
         h("div", { class: "panel-body" }, textArea(text, (v) => { text = v; unsaved(status)(); }, { class: "code prompt" }))))));
 }

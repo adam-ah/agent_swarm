@@ -19,16 +19,17 @@ type template struct {
 
 type warner struct {
 	lib      *Library
+	chain    *Chain
 	names    map[string]bool
 	earlier  map[string]outputs
 	all      map[string]outputs
 	warnings []string
 }
 
-func (lib *Library) outputsOf(step Step) outputs {
+func outputsOf(chain *Chain, step Step) outputs {
 	switch step.Kind() {
 	case "agent":
-		returns := lib.Prompts[step.Agent].Returns
+		returns := chain.Prompts[step.Agent].Returns
 		if len(returns) == 0 {
 			return outputs{fields: []string{"output"}}
 		}
@@ -43,12 +44,12 @@ func (lib *Library) outputsOf(step Step) outputs {
 	return outputs{any: true}
 }
 
-func (lib *Library) stepTemplates(step Step) []template {
+func (lib *Library) stepTemplates(chain *Chain, step Step) []template {
 	switch step.Kind() {
 	case "tool":
 		return []template{{"tools/" + step.Tool + ".json", lib.Tools[step.Tool].Run}}
 	case "agent":
-		return []template{{"prompts/" + step.Agent + ".md", lib.Prompts[step.Agent].Text}}
+		return []template{{"chains/" + chain.Name + "/" + step.Agent + ".md", chain.Prompts[step.Agent].Text}}
 	case "user":
 		return []template{{"the question", step.User}, {"the files to show", strings.Join(step.Show, "\n")}}
 	}
@@ -56,7 +57,7 @@ func (lib *Library) stepTemplates(step Step) []template {
 }
 
 func (lib *Library) produced(chain *Chain, step Step, into map[string]outputs, depth int) {
-	into[step.ID] = lib.outputsOf(step)
+	into[step.ID] = outputsOf(chain, step)
 	if len(lib.listsPassed(chain, step)) > 0 {
 		into[step.ID] = outputs{fields: []string{"summary"}}
 		return
@@ -79,7 +80,7 @@ func (lib *Library) listsPassed(chain *Chain, step Step) []string {
 			continue
 		}
 		if i := chain.stepIndex(id); i >= 0 && chain.Steps[i].Agent != "" {
-			for _, f := range lib.Prompts[chain.Steps[i].Agent].Returns {
+			for _, f := range chain.Prompts[chain.Steps[i].Agent].Returns {
 				if f.Name == field && f.Value == "list" {
 					lists = append(lists, name)
 				}
@@ -90,7 +91,7 @@ func (lib *Library) listsPassed(chain *Chain, step Step) []string {
 }
 
 func (lib *Library) warnings(chain *Chain) []string {
-	w := &warner{lib: lib, names: map[string]bool{}, earlier: map[string]outputs{}, all: map[string]outputs{}}
+	w := &warner{lib: lib, chain: chain, names: map[string]bool{}, earlier: map[string]outputs{}, all: map[string]outputs{}}
 	for _, step := range chain.Steps {
 		lib.produced(chain, step, w.all, 0)
 	}
@@ -143,7 +144,7 @@ func (w *warner) unread(step Step, reads map[string]bool) {
 	for _, name := range placeholders(step.Stop) {
 		own[name] = true
 	}
-	for _, field := range w.lib.outputsOf(step).fields {
+	for _, field := range outputsOf(w.chain, step).fields {
 		if field == "summary" || field == "output" || own[field] || reads[step.ID+"."+field] {
 			continue
 		}
@@ -189,13 +190,13 @@ func (w *warner) step(step Step) {
 		w.read(where+": run only if", "{{"+name+"}}", nil, false, w.earlier)
 	}
 	reads := map[string]bool{}
-	for _, t := range w.lib.stepTemplates(step) {
+	for _, t := range w.lib.stepTemplates(w.chain, step) {
 		w.read(where+": "+t.where, t.text, with, false, w.earlier)
 		for _, name := range placeholders(t.text) {
 			reads[name] = true
 		}
 	}
-	own := w.lib.outputsOf(step)
+	own := outputsOf(w.chain, step)
 	local := maps.Clone(with)
 	for _, f := range own.fields {
 		local[f] = true
@@ -214,7 +215,7 @@ func (w *warner) step(step Step) {
 	}
 	for _, k := range sortedKeys(step.With) {
 		if !reads[k] {
-			w.warnf("%s: passes %s, but %s does not read {{%s}}", where, k, w.lib.stepTemplates(step)[0].where, k)
+			w.warnf("%s: passes %s, but %s does not read {{%s}}", where, k, w.lib.stepTemplates(w.chain, step)[0].where, k)
 		}
 	}
 }
@@ -254,7 +255,7 @@ func (lib *Library) reads(chain *Chain, depth int) map[string]bool {
 		for _, v := range step.With {
 			add(v)
 		}
-		for _, t := range lib.stepTemplates(step) {
+		for _, t := range lib.stepTemplates(chain, step) {
 			add(t.text)
 		}
 		add(step.Stop)
