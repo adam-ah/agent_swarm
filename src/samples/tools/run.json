@@ -1,0 +1,4 @@
+{
+  "title": "Run a command",
+  "run": "set -o pipefail\n[ -n {{command}} ] || { echo \"no command, so nothing ran\"; exit 0; }\nbash -c {{command}} 2>&1 | tail -40\n"
+}

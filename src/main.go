@@ -31,6 +31,11 @@ before it is saved. Only the commands marked "writes" change anything on disk.
   swarm rm PATH                          writes: deletes one; refused while a chain still uses it
   swarm check                            confirm every chain loads, and list what looks wrong
 
+  swarm snapshot DIR                     writes: saves a copy of this project's .swarm into DIR
+  swarm diff DIR [FILE]                  what changed in .swarm since that copy; a new project copy
+                                         is compared with the shared file it overrides
+  swarm restore DIR                      writes: puts .swarm back as it was in that copy
+
   swarm memory                           print what this project has learned
   swarm memory add [-about TEXT] NOTE... writes: adds notes
   swarm memory set [-file F]             writes: replaces it, from F or stdin
@@ -50,12 +55,12 @@ before it is saved. Only the commands marked "writes" change anything on disk.
   swarm put settings.json [-scope project|shared] [-file F]
                                          writes: changes them; refused if they would break a chain
 
-  swarm serve                            the page, on http://localhost:7070
+  swarm serve                            the page, on port 7070 of every interface
   swarm stop                             closes the page; runs keep going
 
 Every command takes -project DIR (default: the current folder, or $SWARM_PROJECT). Shared files,
 run history and the project list live in ~/.swarm, or $SWARM_HOME. serve and stop take
--addr HOST:PORT (default: $SWARM_ADDR or localhost:7070).
+-addr HOST:PORT (default: $SWARM_ADDR, or 0.0.0.0:7070 for serve and localhost:7070 for stop).
 
 Agents
   An agent step runs one of these, in its own headless mode, in the project folder:
@@ -70,9 +75,11 @@ Agents
       "agents": {
         "claude": { "args": ["--model", "opus"] },
         "pi":     { "command": "pi -p" }
-      }
+      },
+      "inputs": { "test_command": "./test.sh" }
     }
   "agent" is the default for every agent step; a step overrides it with "runner": "claude".
+  "inputs" gives any chain's input of that name its starting value in this project.
   "args" adds arguments to claude or codex. The page has the same choices under Settings.
 `
 
@@ -98,7 +105,8 @@ func main() {
 		err = stopServer(args)
 	case "_run":
 		err = work(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel":
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel",
+		"snapshot", "diff", "restore":
 		err = runCommand(command, args)
 	default:
 		err = fmt.Errorf("no command %q\n\n%s", command, usage)
@@ -220,7 +228,7 @@ func samples() error {
 
 func serve(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := flags.String("addr", envOr("SWARM_ADDR", "localhost:7070"), "where to serve")
+	addr := flags.String("addr", envOr("SWARM_ADDR", "0.0.0.0:7070"), "where to serve")
 	home := flags.String("home", defaultHome(), "the shared library, run history and project list")
 	project := flags.String("project", "", "a folder to open for this session, without adding it to the project list")
 	if err := flags.Parse(args); err != nil {

@@ -1,0 +1,49 @@
+{
+  "title": "Edit a chain by describing it",
+  "description": "Describe a change to how this folder's chains, tools, prompts, settings or memory work, such as \"in make-change, add a lint step before the tests\". An agent edits this folder's .swarm files, swarm checks they still load, and you see the diff: approve it, or send it back with a note. If you reject it or anything fails, the files are put back. It never changes the shared library in ~/.swarm.",
+  "subject": "{{request}}",
+  "inputs": [
+    { "name": "request", "label": "What to change" }
+  ],
+  "steps": [
+    {
+      "id": "snapshot",
+      "title": "Save the current .swarm files",
+      "tool": "run",
+      "with": { "command": "{{swarm}} snapshot {{run_folder}}/swarm-before" }
+    },
+    {
+      "id": "edit",
+      "title": "Edit the swarm files",
+      "agent": "edit-chain",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"]
+    },
+    {
+      "id": "check",
+      "title": "Check every chain still loads",
+      "tool": "run",
+      "with": { "command": "{{swarm}} check" }
+    },
+    {
+      "id": "diff",
+      "title": "Collect the change",
+      "tool": "run",
+      "with": { "command": "{{swarm}} diff {{run_folder}}/swarm-before {{run_folder}}/swarm-change.diff" }
+    },
+    {
+      "id": "approve",
+      "title": "Your approval to keep it",
+      "user": "{{edit.summary}}\nFiles: {{edit.files}}\n\nKeep this change to swarm?",
+      "show": ["{{run_folder}}/swarm-change.diff"],
+      "revise": "edit"
+    },
+    {
+      "id": "restore",
+      "title": "Put the files back",
+      "tool": "run",
+      "with": { "command": "{{swarm}} restore {{run_folder}}/swarm-before" },
+      "always": true,
+      "when": "approve.decision != approve"
+    }
+  ]
+}

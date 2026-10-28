@@ -129,6 +129,24 @@ func TestScopeHolds(t *testing.T) {
 	}
 }
 
+func TestUnmet(t *testing.T) {
+	tests := []struct {
+		cond string
+		want string
+	}{
+		{cond: "learn.notes != ", want: "learn.notes is empty"},
+		{cond: "summary == ", want: "summary is not empty"},
+		{cond: "approve.decision != approve", want: "approve.decision is approve"},
+		{cond: `verdict == "bug"`, want: "verdict is not bug"},
+		{cond: "verdict bug", want: "verdict bug is not true"},
+	}
+	for _, tt := range tests {
+		if got := unmet(tt.cond); got != tt.want {
+			t.Errorf("unmet(%q) = %q, want %q", tt.cond, got, tt.want)
+		}
+	}
+}
+
 func TestScopeFlatten(t *testing.T) {
 	s := newScope(nil)
 	s.outputs["read"] = map[string]any{"title": "T", "n": 2.0}

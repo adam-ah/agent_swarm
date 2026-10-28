@@ -1,23 +1,31 @@
 function showRun(id) {
   main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" }, "Loading…")));
-  runView = { id, entries: new Map(), status: null };
+  runView = { id, entries: new Map(), status: null, decisionKey: null, slots: new Map(), blocks: [], grouped: new Set(), values: [] };
   stream = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
   stream.onmessage = (event) => renderRun(JSON.parse(event.data));
+}
+
+function findStepIn(steps, match) {
+  for (const step of steps || []) {
+    if (match(step)) return step;
+    const inner = findStepIn(step.children, match);
+    if (inner) return inner;
+  }
+  return null;
 }
 
 function renderRun(run) {
   let page = main.querySelector(".page[data-run]");
   if (!page || page.dataset.run !== run.id) {
-    page = h("div", { class: "page", "data-run": run.id },
-      h("div", { class: "eyebrow" }, h("a", { href: `#/chain/${run.chain}` }, run.title)),
+    page = h("div", { class: "page narrow", "data-run": run.id },
+      h("div", { class: "eyebrow" }, "Run of ", h("a", { href: `#/chain/${run.chain}` }, run.title)),
       h("h1", { id: "subject" }),
       h("div", { class: "run-meta", id: "meta" }),
       h("div", { id: "banner" }),
-      h("div", { class: "split" },
-        h("div", { class: "panel sticky" }, h("div", { class: "panel-head" }, "Tree"), h("div", { class: "tree", id: "run-tree" })),
-        h("div", { class: "timeline", id: "steps" })));
+      h("div", { id: "decision" }),
+      h("div", { class: "panel steps", id: "steps" }, skeleton(run.chain, "")));
     main.replaceChildren(page);
-    runView.entries = new Map();
+    Object.assign(runView, { entries: new Map(), decisionKey: null });
   }
   const label = run.subject || Object.entries(run.inputs || {}).map(([k, v]) => `${k} ${v}`).join(", ") || run.title;
   page.querySelector("#subject").replaceChildren(run.link ? h("a", { href: run.link, target: "_blank", rel: "noreferrer" }, label) : label);
@@ -26,22 +34,15 @@ function renderRun(run) {
   page.querySelector("#meta").replaceChildren(...[
     h("span", { class: "pill" }, h("span", { class: `dot ${run.status}` }), STATUS_LABEL[run.status] || run.status),
     h("span", {}, `started ${new Date(run.started_at).toLocaleTimeString()}`),
-    h("span", { class: "sep" }, "·"),
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),
-    run.cost ? h("span", { class: "sep" }, "·") : null,
     run.cost ? h("span", {}, money(run.cost)) : null,
-    live ? h("button", { class: "btn danger", style: "margin-left:auto", onclick: () => stopRun(run.id) }, "Stop run") : null,
+    live ? h("button", { class: "btn small danger push-right", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
   ].filter(Boolean));
 
-  const banner = page.querySelector("#banner");
-  if (!live && run.reason) banner.replaceChildren(h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status] || run.status), run.reason));
-  else if (!live && run.status === "done") banner.replaceChildren(h("div", { class: "banner done" }, h("strong", {}, "Done"), "Every step finished."));
-  else banner.replaceChildren();
-
-  page.querySelector("#run-tree").replaceChildren(
-    treeRow({ kind: "root", title: run.title, state: run.status, time: duration(run.started_at, run.ended_at), onclick: () => window.scrollTo({ top: 0, behavior: "smooth" }) }),
-    runTreeRows(run.steps));
-  syncCards(page.querySelector("#steps"), run.steps, run, run.chain);
+  page.querySelector("#banner").replaceChildren(outcomeBanner(run) || "");
+  renderDecision(run, page.querySelector("#decision"));
+  syncRows(page.querySelector("#steps"), run.steps, run, run.chain);
+  markBlocks(run);
 
   if (runView.status !== run.status) {
     runView.status = run.status;
@@ -49,35 +50,102 @@ function renderRun(run) {
   }
 }
 
-function runTreeRows(steps) {
-  return h("div", { class: "tree-kids" }, steps.map((step) => [
-    treeRow({
-      kind: step.kind, title: step.title, state: step.status,
-      time: step.status === "running" ? "" : step.started_at ? duration(step.started_at, step.ended_at) : "",
-      onclick: () => focusCard(keyOf(step)),
-    }),
-    step.children?.length ? runTreeRows(step.children) : null,
-  ]));
+function outcomeBanner(run) {
+  if (["running", "waiting", "done"].includes(run.status)) return null;
+  const step = findStepIn(run.steps, (s) => s.status === run.status);
+  if (!step) return h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status] || run.status), run.reason ? ` ${run.reason}` : "");
+  const at = h("a", { href: `#/run/${run.id}`, onclick: (e) => { e.preventDefault(); focusRow(keyOf(step)); } }, step.title);
+  const said = run.status === "stopped" ? step.ended : run.status === "rejected" ? step.output?.note : "";
+  return h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status]), " at ", at, said ? `: ${said}` : "");
+}
+
+function renderDecision(run, el) {
+  const step = run.status === "waiting" ? findStepIn(run.steps, (s) => s.status === "waiting") : null;
+  const key = step ? `${keyOf(step)}:${step.round || 0}:${JSON.stringify(step.artifacts || [])}` : "";
+  if (key === runView.decisionKey) return;
+  runView.decisionKey = key;
+  el.replaceChildren(step ? h("section", { class: "decision" },
+    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), step.title),
+    h("div", { class: "question" }, step.question),
+    h("div", { class: "artifacts" }, renderArtifacts(run.id, step.artifacts || [])),
+    decideForm(run.id, step)) : "");
 }
 
 const keyOf = (step) => step.path || step.id;
 
-function focusCard(path) {
-  const card = document.getElementById(`card-${path}`);
-  if (!card) return;
-  card.scrollIntoView({ behavior: "smooth", block: "start" });
-  card.classList.add("flash");
-  setTimeout(() => card.classList.remove("flash"), 1200);
+function focusRow(key) {
+  const entry = runView.entries.get(key);
+  if (!entry) return;
+  if (!entry.open) toggleRow(entry);
+  entry.el.scrollIntoView({ behavior: "smooth", block: "start" });
+  entry.el.classList.add("flash");
+  setTimeout(() => entry.el.classList.remove("flash"), 1200);
 }
 
-function syncCards(container, steps, run, chain) {
-  steps.forEach((step, i) => {
+function skeleton(chainName, prefix) {
+  const chain = lib.chains.find((c) => c.name === chainName);
+  if (!chain?.steps?.length) return null;
+  const blocks = [];
+  const value = (name, from) => {
+    const span = h("span", { class: "ol-value" });
+    runView.values.push({ span, name, from, prefix });
+    return span;
+  };
+  const el = renderOutline(outlineOf(chain.steps), {
+    chain,
+    value,
+    go: runGo(chainName, prefix),
+    step: (s, inAlways) => {
+      const slot = h("div", { class: "slot" });
+      runView.slots.set(prefix + s.id, slot);
+      if (inAlways) runView.grouped.add(prefix + s.id);
+      return slot;
+    },
+  }, blocks);
+  runView.blocks.push(...blocks.map((b) => ({ el: b.el, paths: b.steps.map((s) => prefix + s.id) })));
+  return el;
+}
+
+const runGo = (chainName, prefix) => (from) => {
+  if (from.kind === "step") focusRow(prefix + from.step.id);
+  else location.hash = `#/chain/${chainName}`;
+};
+
+const RAN = new Set(["done", "failed", "running", "waiting", "stopped", "rejected"]);
+
+function valueNow({ name, from, prefix }, run) {
+  if (from.kind === "input") return prefix ? undefined : run.inputs?.[name] ?? "";
+  if (from.kind !== "step") return undefined;
+  const entry = runView.entries.get(prefix + from.step.id);
+  if (!entry || !RAN.has(entry.step.status)) return undefined;
+  return asText(entry.step.output?.[from.field]);
+}
+
+function markBlocks(run) {
+  for (const block of runView.blocks) {
+    const states = block.paths.map((p) => runView.entries.get(p)?.step.status).filter(Boolean);
+    const ran = states.some((s) => RAN.has(s));
+    block.el.classList.toggle("ol-skipped", !ran && states.length > 0 && states.every((s) => s === "skipped"));
+    block.el.classList.toggle("ol-ran", ran);
+  }
+  for (const value of runView.values) {
+    const now = valueNow(value, run);
+    const text = String(now ?? "");
+    value.span.textContent = now === undefined ? "" : text ? `value “${text.length > 60 ? `${text.slice(0, 60)}…` : text}”` : "value empty";
+    value.span.title = text;
+  }
+}
+
+function syncRows(container, steps, run, chain) {
+  for (const step of steps) {
     let entry = runView.entries.get(keyOf(step));
     if (!entry) {
-      entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "timeline" }), chain };
+      const nested = holdsSteps(step) ? skeleton(step.uses, `${keyOf(step)}.`) : null;
+      entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "kids" }, nested), chain, open: false };
       runView.entries.set(keyOf(step), entry);
-      container.append(entry.el);
+      (runView.slots.get(keyOf(step)) || container).append(entry.el);
     }
+    Object.assign(entry, { run, step });
     const artSig = JSON.stringify(step.artifacts || []);
     if (entry.artSig !== artSig) {
       entry.arts.replaceChildren(...renderArtifacts(run.id, step.artifacts || []));
@@ -88,170 +156,94 @@ function syncCards(container, steps, run, chain) {
       entry.earlierCount = step.earlier?.length || 0;
       entry.earlier = entry.earlierCount ? earlierPanel(run, step.earlier) : null;
     }
-    if (step.children?.length) syncCards(entry.kids, step.children, run, step.uses);
-    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: step.kind === "chain" ? undefined : step.cost });
+    if (step.children?.[0]?.kind === "item" && !entry.perItem) {
+      entry.perItem = true;
+      entry.kids.replaceChildren();
+    }
+    if (step.children?.length) syncRows(entry.kids, step.children, run, step.uses);
+    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: holdsSteps(step) ? undefined : step.cost });
     if (entry.sig !== sig) {
-      const fresh = stepCard(run, step, i, entry);
-      entry.el.replaceWith(fresh);
-      entry.el = fresh;
-      entry.sig = sig;
-      if (entry.call?.el.open) entry.call.load();
+      if (step.status === "failed" && entry.status !== "failed") entry.open = true;
+      Object.assign(entry, { sig, status: step.status });
+      redrawRow(entry);
     }
-  });
-}
-
-function stepFields(step) {
-  const fields = Object.entries(step.output || {}).filter(([k, v]) => k !== "summary" && v !== "" && !(step.kind === "tool" && k === "output" && Object.keys(step.output).length > 1));
-  if (!fields.length || step.kind === "user") return null;
-  return h("details", { class: "output" }, h("summary", {}, step.kind === "agent" ? "What the agent returned" : "Output"),
-    h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
-}
-
-function earlierPanel(run, earlier) {
-  return h("details", { class: "output earlier" }, h("summary", {}, `Earlier attempts (${earlier.length})`),
-    earlier.map((step, n) => h("div", { class: "attempt" },
-      h("div", { class: "attempt-head" }, `Attempt ${n + 1}`, h("span", { class: "card-stats" }, step.started_at ? duration(step.started_at, step.ended_at) : step.status)),
-      step.headline ? h("div", { class: "headline" }, step.headline) : null,
-      step.error ? h("div", { class: "error-box" }, step.error) : null,
-      stepFields(step),
-      step.log ? callPanel(run.id, step.log).el : null)));
-}
-
-const sizeOf = (text) => (text.length < 1024 ? `${text.length} chars` : `${(text.length / 1024).toFixed(1)} KB`);
-const shellWord = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
-
-function elapsed(from, to) {
-  if (!from) return "";
-  const ms = (to ? new Date(to) : new Date()) - new Date(from);
-  if (ms < 1000) return `${Math.max(0, ms)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return duration(from, to);
-}
-
-function remembered(el, key, opened) {
-  el.open = opened.get(key) ?? el.open;
-  el.addEventListener("toggle", () => opened.set(key, el.open));
-  return el;
-}
-
-function block(label, text, opened, always = false) {
-  if (!text && !always) return null;
-  if (!text) return h("div", { class: "block-empty" }, label, h("span", { class: "hint" }, " printed nothing"));
-  return remembered(h("details", { class: "block", open: text.length < 600 },
-    h("summary", {}, label, h("span", { class: "hint" }, ` ${sizeOf(text)}`)), h("pre", {}, text)), label, opened);
-}
-
-function actionLabel(action) {
-  let input = action.input;
-  try {
-    const parsed = JSON.parse(input);
-    input = ["command", "file_path", "path", "pattern", "url", "query", "description", "prompt"].map((k) => parsed?.[k]).find((v) => typeof v === "string") ?? JSON.stringify(parsed);
-  } catch {}
-  return input.split("\n").find((line) => line.trim()) || "";
-}
-
-function callView(runID, log, call, opened) {
-  const ended = call.ended_at;
-  const exit = call.exit_code === undefined ? null : call.exit_code === 0 ? "exit 0" : call.exit_code === -1 ? "killed" : `exit ${call.exit_code}`;
-  const long = [];
-  const words = call.command.map((arg, i) => {
-    if (arg.length <= 160 && !arg.includes("\n")) return shellWord(arg);
-    long.push([i, arg]);
-    return `<argument ${i}>`;
-  });
-  const out = [
-    h("div", { class: "call-meta" },
-      h("span", {}, `started ${new Date(call.started_at).toLocaleTimeString()}`),
-      h("span", {}, ended ? `ran ${elapsed(call.started_at, ended)}` : "still running"),
-      exit ? h("span", { class: call.exit_code === 0 ? "good" : "bad" }, exit) : null,
-      h("span", { class: "hint" }, `in ${call.dir}`)),
-    h("pre", { class: "command" }, `$ ${words.join(" ")}${call.stdin ? " < stdin" : ""}`),
-    long.map(([i, arg]) => block(`argument ${i}`, arg, opened)),
-    block("stdin", call.stdin, opened),
-  ];
-  if (call.error) out.push(h("div", { class: "error-box" }, call.error));
-  if (call.actions?.length) {
-    out.push(h("div", { class: "actions-head" }, `Tool calls (${call.actions.length})`),
-      h("div", { class: "actions" }, call.actions.map((a, n) => remembered(
-        h("details", { class: `action ${a.failed ? "failed" : ""}` },
-          h("summary", {},
-            h("span", { class: "action-tool" }, a.tool),
-            h("span", { class: "action-input" }, actionLabel(a)),
-            h("span", { class: "action-time" }, a.ended_at ? elapsed(a.started_at, a.ended_at) : "running")),
-          h("div", { class: "action-body" }, h("div", { class: "hint" }, "input"), h("pre", {}, a.input),
-            a.ended_at ? [h("div", { class: "hint" }, a.failed ? "output (failed)" : "output"), h("pre", {}, a.output || "(empty)")] : null)),
-        `action ${a.id || n}`, opened))));
   }
-  out.push(block("result", call.result, opened), block("stdout", call.stdout, opened, !call.stream && !!ended), block("stderr", call.stderr, opened, !!ended));
-  if (call.stream) {
-    const pre = h("pre", {}, "Loading…");
-    const el = remembered(h("details", { class: "block" }, h("summary", {}, call.result ? "full output stream" : "stdout"), pre), "stream", opened);
-    const fill = () => fetch(`/api/runs/${encodeURIComponent(runID)}/call?log=${encodeURIComponent(log)}&part=stream`).then((r) => r.text()).then((t) => { pre.textContent = t || "(empty)"; });
-    el.addEventListener("toggle", () => { if (el.open) fill(); });
-    if (el.open) fill();
-    out.push(el);
-  }
-  return out;
 }
 
-function callPanel(runID, log) {
-  const opened = new Map();
-  const body = h("div", { class: "call-body" }, "Loading…");
-  const el = h("details", { class: "output call" }, h("summary", {}, "How it was called"), body);
-  const load = async () => {
-    try {
-      body.replaceChildren(...callView(runID, log, await api(`/api/runs/${encodeURIComponent(runID)}/call?log=${encodeURIComponent(log)}`), opened).flat().filter(Boolean));
-    } catch (err) {
-      body.replaceChildren(h("p", { class: "hint" }, err.message));
-    }
-  };
-  el.addEventListener("toggle", () => { if (el.open) load(); });
-  return { log, el, load };
+function redrawRow(entry) {
+  const fresh = stepRow(entry);
+  entry.el.replaceWith(fresh);
+  entry.el = fresh;
+  if (entry.open && entry.call?.el.open) entry.call.load();
 }
 
-function stepCard(run, step, i, entry) {
+function toggleRow(entry) {
+  entry.open = !entry.open;
+  redrawRow(entry);
+}
+
+function stepRow(entry) {
+  const { run, step } = entry;
   const stats = [];
   if (step.started_at && step.status !== "running") stats.push(duration(step.started_at, step.ended_at));
-  if (step.cost && step.kind !== "chain") stats.push(money(step.cost));
+  if (step.cost && !holdsSteps(step)) stats.push(money(step.cost));
   else if (step.tokens) stats.push(`${(step.tokens / 1000).toFixed(step.tokens < 10000 ? 1 : 0)}k tokens`);
-  const body = [];
-  if (step.headline) body.push(h("div", { class: "headline" }, step.headline));
-  else if (step.status === "pending" && step.kind !== "user" && step.kind !== "chain") body.push(h("div", { class: "rule" }, step.kind === "agent" ? `prompt prompts/${step.uses}.md` : `tool ${step.uses}`));
-  if (step.status === "running" && step.kind !== "chain") {
-    body.push(h("div", { class: "working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
-      `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at))));
-  }
-  if (step.error) body.push(h("div", { class: "error-box" }, step.error));
-  if (step.ended) body.push(h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended));
-  if (step.status === "waiting") body.push(h("div", { class: "decide" }, h("div", { class: "question" }, step.question)));
-  body.push(entry.arts);
-  if (step.status === "waiting") body.push(decideForm(run.id, step));
-  body.push(stepFields(step));
-  if (entry.call) body.push(entry.call.el);
-  if (entry.earlier) body.push(entry.earlier);
-  if (step.kind === "chain") body.push(entry.kids);
-  return h("div", { class: `card ${step.status} ${step.kind}`, id: `card-${keyOf(step)}` },
-    h("div", { class: "card-head" },
-      h("span", { class: `state ${step.status}` }, STATE_ICON[step.status] || ""),
-      h("span", { class: "card-title" }, step.title),
-      h("span", { class: `chip ${step.kind}` }, step.runner ? `${KIND_NAME[step.kind]} · ${step.runner}` : KIND_NAME[step.kind] || step.kind),
+  const expandable = !["pending", "skipped"].includes(step.status) && !holdsSteps(step);
+  const open = expandable && entry.open;
+  const toggle = () => toggleRow(entry);
+  const head = h("div", {
+    class: "srow-head", role: expandable ? "button" : null, tabindex: expandable ? "0" : null, "aria-expanded": expandable ? String(open) : null,
+    onclick: expandable ? toggle : null, onkeydown: expandable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } } : null,
+  },
+  h("span", { class: `state ${step.status}` }, STATE_ICON[step.status] || ""),
+  h("span", { class: `kind ${step.kind}`, title: KIND_NAME[step.kind] }, step.kind === "item" ? step.id : KIND_LETTER[step.kind]),
+  h("span", { class: "srow-text" },
+    h("span", { class: "srow-title" }, step.title,
       step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
-      step.always ? h("span", { class: "chip flag" }, "always runs") : null,
-      h("span", { class: "card-stats" }, stats.join(" · ")),
-      h("span", { class: "card-edit" }, editLinks(step, entry.chain))),
-    ...body);
+      step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Runs even after a failure, a stop or a rejection" }, "always") : null),
+    summaryLine(step, open)),
+  h("span", { class: "srow-stats" }, stats.join(" · ")),
+  h("span", { class: "srow-caret" }, expandable ? (open ? "▾" : "▸") : ""));
+  return h("div", { class: `srow ${step.status} ${step.kind} ${open ? "open" : ""}`, id: `row-${keyOf(step)}` },
+    head,
+    open ? h("div", { class: "srow-body" }, stepBody(run, step, entry)) : null,
+    holdsSteps(step) ? entry.kids : null);
+}
+
+function summaryLine(step, open) {
+  if (step.status === "running" && !holdsSteps(step)) {
+    return h("span", { class: "srow-line working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
+      `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at)));
+  }
+  if (step.status === "waiting") return h("span", { class: "srow-line" }, "Waiting for your answer above");
+  const text = step.headline || (open ? "" : firstLine(step.error) || step.ended);
+  return text ? h("span", { class: "srow-line" }, text) : null;
+}
+
+function stepBody(run, step, entry) {
+  return [
+    step.error ? h("div", { class: "error-box" }, step.error) : null,
+    step.ended ? h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended) : null,
+    step.kind === "user" && step.question ? h("div", { class: "question" }, step.question) : null,
+    entry.arts,
+    stepFields(step),
+    readsPanel(run, step, entry.chain),
+    entry.call?.el,
+    entry.earlier,
+    h("div", { class: "srow-links" }, editLinks(step, entry.chain)),
+  ];
 }
 
 function editLinks(step, chain) {
-  const target = { tool: ["tool", "Edit tool"], agent: ["prompt", "Edit prompt"], chain: ["chain", "Edit chain"] }[step.kind];
+  const target = { tool: ["tool", `Open the tool ${step.uses}`], agent: ["prompt", `Open the prompt ${step.uses}`] }[step.kind];
   return [
-    target && step.uses ? h("a", { href: `#/${target[0]}/${encodeURIComponent(step.uses)}`, title: `Open ${step.uses}` }, target[1]) : null,
-    chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}`, title: `Open this step in the ${chain} chain` }, "Edit step") : null,
+    target && step.uses ? h("a", { href: `#/${target[0]}/${encodeURIComponent(step.uses)}` }, target[1]) : null,
+    chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}` }, "Edit this step") : null,
   ];
 }
 
 function decideForm(runID, step) {
-  const note = h("textarea", { placeholder: step.revise ? "Note: what to change, if you send it back" : "Optional note" });
+  const note = h("textarea", { rows: 2, placeholder: step.revise ? `Note: what to change. Needed to send it back to ${step.revise}.` : "Optional note" });
   const decide = async (choice, button) => {
     if (choice === "revise" && !note.value.trim()) {
       note.placeholder = "Say what to change, then send it back";
@@ -262,72 +254,13 @@ function decideForm(runID, step) {
     try { await send("POST", `/api/runs/${encodeURIComponent(runID)}/decide`, { choice, note: note.value }); } catch (err) { alert(err.message); button.disabled = false; }
   };
   return h("div", { class: "decide" }, note, h("div", { class: "row" },
-    h("button", { class: "btn approve", onclick: (e) => decide("approve", e.target) }, "Approve"),
-    step.revise ? h("button", { class: "btn", onclick: (e) => decide("revise", e.target) }, `Revise: back to ${step.revise}`) : null,
-    h("button", { class: "btn", onclick: (e) => decide("reject", e.target) }, "Reject")));
+    h("button", { class: "btn approve", type: "button", onclick: (e) => decide("approve", e.target) }, "Approve"),
+    step.revise ? h("button", { class: "btn", type: "button", onclick: (e) => decide("revise", e.target) }, `Send back to ${step.revise}`) : null,
+    h("button", { class: "btn danger", type: "button", onclick: (e) => decide("reject", e.target) }, "Reject")));
 }
-
-function renderArtifacts(runID, artifacts) {
-  const out = [];
-  for (const a of artifacts.filter((x) => x.kind === "video")) {
-    out.push(h("figure", { class: "video" },
-      h("video", { src: `${fileURL(runID, a.path)}#t=1`, controls: true, preload: "metadata", playsinline: true }),
-      h("figcaption", { class: "caption" }, a.name)));
-  }
-  const images = artifacts.filter((x) => x.kind === "image");
-  if (images.length) {
-    const urls = images.map((a) => fileURL(runID, a.path));
-    out.push(h("div", { class: "stills" }, images.map((a, i) =>
-      h("figure", { class: "still", onclick: () => openLightbox(urls, i) }, h("img", { src: urls[i], loading: "lazy", alt: a.name }), h("figcaption", {}, a.name)))));
-  }
-  for (const a of artifacts.filter((x) => x.kind !== "video" && x.kind !== "image")) {
-    const body = h("div", { class: "doc-body" }, "Loading…");
-    const doc = h("div", { class: "doc" }, h("div", { class: "doc-head" }, a.name), body);
-    const more = h("button", { class: "doc-more", onclick: () => { doc.classList.toggle("open"); more.textContent = doc.classList.contains("open") ? "Show less" : "Show all"; } }, "Show all");
-    doc.append(more);
-    fetch(fileURL(runID, a.path, a.kind === "markdown" ? "doc" : "file")).then((r) => r.text()).then((text) => {
-      if (a.kind === "markdown") body.innerHTML = text;
-      else if (a.kind === "diff") body.replaceChildren(diffView(text));
-      else body.replaceChildren(h("pre", { class: "plain" }, a.kind === "json" ? prettyJSON(text) : text));
-      requestAnimationFrame(() => { if (body.scrollHeight <= body.clientHeight + 4) more.remove(); });
-    });
-    out.push(doc);
-  }
-  return out;
-}
-
-function diffView(text) {
-  if (!text.trim()) return h("p", { class: "hint" }, "No changes.");
-  return h("pre", { class: "diff" }, text.split("\n").map((line) => {
-    const kind = line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ") ? "meta"
-      : line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "";
-    return h("span", { class: kind }, `${line}\n`);
-  }));
-}
-
-function prettyJSON(text) {
-  try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
-}
-
-let lightboxState = null;
-function openLightbox(urls, index) {
-  lightboxState = { urls, index };
-  lightbox.querySelector("img").src = urls[index];
-  lightbox.hidden = false;
-}
-lightbox.addEventListener("click", () => { lightbox.hidden = true; });
-document.addEventListener("keydown", (e) => {
-  if (lightbox.hidden || !lightboxState) return;
-  if (e.key === "Escape") lightbox.hidden = true;
-  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-    const n = lightboxState.urls.length;
-    lightboxState.index = (lightboxState.index + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
-    lightbox.querySelector("img").src = lightboxState.urls[lightboxState.index];
-  }
-});
 
 async function stopRun(id) {
-  if (!confirm("Stop this run? Steps marked \"always runs\" still run.")) return;
+  if (!confirm("Stop this run? Steps marked \"always\" still run.")) return;
   try { await api(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }); } catch (err) { alert(err.message); }
 }
 

@@ -51,7 +51,18 @@ const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" }
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", root: "≡" };
-const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain" };
+const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", item: "one run of the chain, for this item" };
+const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
+const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
+const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
+
+function listsPassed(step, steps) {
+  return Object.values(step.with || {}).map((v) => LONE_PLACEHOLDER.exec(v)?.[1]).filter((name) => {
+    const [id, field] = (name || "").split(".");
+    const source = steps.find((s) => s.id === id);
+    return !!source?.agent && (lib.prompts[source.agent]?.returns || []).some((f) => f.name === field && f.value === "list");
+  });
+}
 const STATE_ICON = { done: "✓", failed: "!", rejected: "✕", stopped: "■" };
 const STATUS_LABEL = { running: "Running", waiting: "Waiting for you", done: "Done", failed: "Failed", stopped: "Stopped", rejected: "Rejected", interrupted: "Interrupted" };
 
@@ -89,6 +100,7 @@ async function loadLibrary() {
 async function loadRuns() {
   runsCache = await api("/api/runs");
   renderSide();
+  if (current.kind === "home") showHome();
 }
 
 async function loadProjects() {
@@ -117,9 +129,13 @@ document.getElementById("add-project").addEventListener("click", async () => {
     alert(err.message);
   }
 });
+document.getElementById("menu-btn").addEventListener("click", () => {
+  const open = document.body.classList.toggle("menu-open");
+  document.getElementById("menu-btn").setAttribute("aria-expanded", String(open));
+});
 
 function switchProject(next) {
-  if (editor?.dirty && !confirm("You have unsaved changes. Switch folders without saving?")) {
+  if (editor?.dirty && !confirm("You have unsaved changes. Switch projects without saving?")) {
     renderProjects();
     return;
   }
@@ -128,30 +144,39 @@ function switchProject(next) {
   try { localStorage.setItem("swarm.project", next); } catch {}
   renderProjects();
   loadRuns().catch(() => {});
-  if (location.hash === "#/chain/") refresh();
-  else location.hash = "#/chain/";
+  if (location.hash === "#/") refresh();
+  else location.hash = "#/";
 }
 
-const FROM = { shared: "your shared library (~/.swarm)", project: "this folder's .swarm" };
-const TAG = { project: ["folder", "Lives in this folder's .swarm"] };
+const FROM = { shared: "shared by every project", project: "only in this project" };
+const TAG = { project: ["project", "Lives in this project's .swarm and only applies here"] };
 
 function renderSide() {
+  const active = (kind, name) => current.kind === kind && current.name === name;
   const item = (kind, name, label, meta, source) =>
-    h("a", { class: `side-item ${current.kind === kind && current.name === name ? "active" : ""}`, href: `#/${kind}/${encodeURIComponent(name)}` },
+    h("a", { class: `side-item ${active(kind, name) ? "active" : ""}`, href: `#/${kind}/${encodeURIComponent(name)}` },
       h("span", { class: "text" }, label), TAG[source] ? h("span", { class: `tag ${source}`, title: TAG[source][1] }, TAG[source][0]) : null,
       meta ? h("span", { class: "meta" }, meta) : null);
+  const runItem = (r) =>
+    h("a", { class: `side-item ${active("run", r.id) ? "active" : ""}`, href: `#/run/${r.id}` },
+      h("span", { class: `dot ${r.status}` }),
+      h("span", { class: "text" }, r.subject || r.title, h("span", { class: "sub" }, `${r.title} · ${ago(r.started_at)}`)));
   const list = (id, items, empty) => document.getElementById(id).replaceChildren(...(items.length ? items : [h("div", { class: "side-empty" }, empty)]));
+  const waiting = runsCache.filter((r) => r.status === "waiting");
+  const recent = runsCache.filter((r) => r.status !== "waiting").slice(0, 6);
+  const more = runsCache.length > waiting.length + recent.length ? [h("a", { class: "side-more", href: "#/" }, `All ${runsCache.length} runs`)] : [];
 
+  document.getElementById("home-link").classList.toggle("active", current.kind === "home");
+  document.getElementById("home-meta").textContent = waiting.length ? `${waiting.length} waiting` : "";
   document.getElementById("memory-link").classList.toggle("active", current.kind === "memory");
   document.getElementById("settings-link").classList.toggle("active", current.kind === "settings");
   document.getElementById("settings-meta").textContent = lib.default_runner ? `agents: ${lib.default_runner}` : "";
+  document.getElementById("waiting-section").hidden = !waiting.length;
+  document.getElementById("waiting").replaceChildren(...waiting.map(runItem));
   list("chains", lib.chains.map((c) => item("chain", c.name, c.title, c.problems?.length ? "!" : c.warnings?.length ? "⚠" : `${c.steps?.length ?? 0}`, c.source)), "No chains");
+  list("runs", [...recent.map(runItem), ...more], "No runs yet");
   list("tools", Object.keys(lib.tools).sort().map((n) => item("tool", n, n, null, lib.tools[n].source)), "No tools");
   list("prompts", Object.keys(lib.prompts).sort().map((n) => item("prompt", n, n, null, lib.prompts[n].source)), "No prompts");
-  list("runs", runsCache.map((r) =>
-    h("a", { class: `side-item ${current.kind === "run" && current.name === r.id ? "active" : ""}`, href: `#/run/${r.id}` },
-      h("span", { class: `dot ${r.status}` }),
-      h("span", { class: "text" }, r.subject || r.title, h("span", { class: "sub" }, `${r.title} · ${ago(r.started_at)}`)))), "No runs yet");
 }
 
 for (const button of document.querySelectorAll("[data-new]")) {
@@ -196,15 +221,16 @@ async function refresh() {
   }
   lastHash = location.hash;
   closeStream();
+  document.body.classList.remove("menu-open");
   try {
     await loadLibrary();
   } catch (err) {
     main.replaceChildren(h("div", { class: "page" }, h("div", { class: "eyebrow" }, "Cannot read the chains"), h("div", { class: "error-box" }, err.message)));
     return;
   }
-  const [, kind = "chain", ...rest] = location.hash.split("/");
-  const stepID = kind === "chain" && rest.length > 1 ? rest.pop() : "";
-  const name = decodeURIComponent(rest.join("/"));
+  const [, kind = "", ...rest] = location.hash.split("/");
+  const name = decodeURIComponent(rest[0] || "");
+  const stepID = decodeURIComponent(rest[1] || "");
   current = { kind, name };
   editor = null;
   runView = null;
@@ -213,9 +239,12 @@ async function refresh() {
   else if (kind === "settings") showSettings();
   else if (kind === "tool") showTool(name);
   else if (kind === "prompt") showPrompt(name);
-  else {
-    current = { kind: "chain", name: name || lib.chains[0]?.name };
-    showChain(current.name, stepID);
+  else if ((kind === "chain" || kind === "edit") && name) {
+    current = { kind: "chain", name };
+    showEditor(name, stepID);
+  } else {
+    current = { kind: "home", name: "" };
+    showHome();
   }
   renderSide();
 }
@@ -249,7 +278,7 @@ function rowsEditor(rows, columns, onChange) {
         columns.map((col) => (col.check
           ? h("label", { class: `check ${row[col.key] ? "on" : ""}` },
             h("input", { type: "checkbox", checked: !!row[col.key], onchange: (e) => { row[col.key] = e.target.checked || undefined; onChange(rows); draw(); } }), col.label)
-          : textInput(row[col.key], (v) => { row[col.key] = v; onChange(rows); }, { placeholder: col.label, class: col.mono ? "code" : "" }))),
+          : textInput(row[col.key], (v) => { row[col.key] = v; onChange(rows); }, { placeholder: col.label, title: col.label, class: col.mono ? "code" : "" }))),
         h("button", { class: "icon-btn", type: "button", title: "Remove", onclick: () => { rows.splice(i, 1); onChange(rows); draw(); } }, "×"))),
       h("button", { class: "linkish", type: "button", onclick: () => { rows.push(Object.fromEntries(columns.filter((c) => !c.check).map((c) => [c.key, ""]))); onChange(rows); draw(); } }, "+ add"));
   };
@@ -263,11 +292,9 @@ const mapToRows = (m) => Object.entries(m || {}).map(([key, value]) => ({ key, v
 const rowsToMap = (rows) => Object.fromEntries(rows.filter((r) => r.key).map((r) => [r.key, r.value]));
 
 function usedBy(match) {
-  const uses = [];
-  for (const chain of lib.chains) {
-    for (const step of chain.steps || []) {
-      if (match(step)) uses.push(h("a", { href: `#/chain/${chain.name}/${step.id}` }, `${chain.title} → ${step.title}`));
-    }
-  }
-  return uses.length ? uses : [h("span", { class: "hint" }, "Not used by any chain yet")];
+  const groups = lib.chains.map((chain) => [chain, (chain.steps || []).filter(match)]).filter(([, steps]) => steps.length);
+  if (!groups.length) return [h("span", { class: "hint" }, "Not used by any chain yet")];
+  return groups.map(([chain, steps]) => h("div", { class: "use" },
+    h("a", { class: "use-chain", href: `#/chain/${chain.name}` }, chain.title),
+    h("span", { class: "use-steps" }, steps.map((s, i) => [i ? ", " : "", h("a", { href: `#/chain/${chain.name}/${s.id}` }, s.title)]))));
 }

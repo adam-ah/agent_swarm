@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (lib *Library) check(chain *Chain) []string {
 	problems := []string{}
@@ -67,6 +70,9 @@ func (lib *Library) referenceProblems(chain *Chain, step Step, where string) []s
 			problems = append(problems, fmt.Sprintf("%s: no chain named %q", where, step.Chain))
 		} else if lib.calls(step.Chain, chain.Name, 0) {
 			problems = append(problems, fmt.Sprintf("%s: %q calls back into %q", where, step.Chain, chain.Name))
+		}
+		if lists := lib.listsPassed(chain, step); len(lists) > 1 {
+			problems = append(problems, fmt.Sprintf("%s: passes %d lists (%s); it can run %s once per item of only one", where, len(lists), strings.Join(lists, ", "), step.Chain))
 		}
 	}
 	return problems

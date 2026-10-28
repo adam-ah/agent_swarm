@@ -1,4 +1,4 @@
 {
   "title": "Add notes to this folder's memory",
-  "run": "set -euo pipefail\nnotes=()\nwhile IFS= read -r line; do\n  line=$(printf '%s' \"$line\" | sed 's/^[-* ]*//')\n  [ -n \"$line\" ] && notes+=(\"$line\")\ndone <<< {{notes}}\nif [ ${#notes[@]} -eq 0 ]; then echo \"nothing new to remember\"; exit 0; fi\n{{swarm}} memory add -project {{project}} -about {{about}} \"${notes[@]}\"\n"
+  "run": "set -euo pipefail\nreadarray -t notes <<< {{notes}}\n{{swarm}} memory add -about {{about}} \"${notes[@]}\"\n"
 }

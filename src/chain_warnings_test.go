@@ -18,6 +18,8 @@ func warningLibrary() *Library {
 	}
 }
 
+const unreadMessage = `step "fix" returns commit_message, but nothing reads {{fix.commit_message}}`
+
 func TestLibraryWarnings(t *testing.T) {
 	fix := Step{ID: "fix", Title: "Fix", Agent: "fix"}
 	commit := func(message string) Step {
@@ -32,23 +34,27 @@ func TestLibraryWarnings(t *testing.T) {
 	}{
 		{name: "everything filled and used", chain: Chain{Inputs: request, Subject: "{{commit.output}}", Steps: []Step{fix, commit("{{fix.commit_message}}")}}},
 		{name: "field the prompt does not return", chain: Chain{Inputs: request, Steps: []Step{fix, commit("{{fix.comit_message}}")}},
-			want: []string{`step "commit": the value for message reads {{fix.comit_message}}, but fix returns only summary, commit_message`}},
+			want: []string{`step "commit": the value for message reads {{fix.comit_message}}, but fix returns only summary, commit_message`, unreadMessage}},
 		{name: "value nothing fills", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit"}}},
-			want: []string{`step "commit": tools/commit.json reads {{message}}, which nothing fills`}},
-		{name: "value the tool does not read", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.summary}}", "extra": "x"}}}},
+			want: []string{`step "commit": tools/commit.json reads {{message}}, which nothing fills`, unreadMessage}},
+		{name: "value the tool does not read", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.commit_message}}", "extra": "x"}}}},
 			want: []string{`step "commit": passes extra, but tools/commit.json does not read {{extra}}`}},
-		{name: "step that has not run yet", chain: Chain{Inputs: request, Steps: []Step{commit("{{fix.summary}}"), fix}},
-			want: []string{`step "commit": the value for message reads {{fix.summary}} before fix runs`}},
+		{name: "step that has not run yet", chain: Chain{Inputs: request, Steps: []Step{commit("{{fix.commit_message}}"), fix}},
+			want: []string{`step "commit": the value for message reads {{fix.commit_message}} before fix runs`}},
 		{name: "step that does not exist", chain: Chain{Inputs: request, Steps: []Step{fix, commit("{{ghost.summary}}")}},
-			want: []string{`step "commit": the value for message reads {{ghost.summary}}, but there is no step ghost`}},
+			want: []string{`step "commit": the value for message reads {{ghost.summary}}, but there is no step ghost`, unreadMessage}},
 		{name: "free text is output", chain: Chain{Steps: []Step{{ID: "say", Title: "Say", Agent: "free"}, commit("{{say.result}}")}},
 			want: []string{`step "commit": the value for message reads {{say.result}}, but say returns only output`}},
-		{name: "unused input and var", chain: Chain{Inputs: []Input{{Name: "request", Label: "Request"}, {Name: "spare", Label: "Spare"}}, Vars: Fields{{Name: "dir", Value: "{{run_folder}}/x"}}, Steps: []Step{fix, commit("{{fix.summary}}")}},
+		{name: "unused input and var", chain: Chain{Inputs: []Input{{Name: "request", Label: "Request"}, {Name: "spare", Label: "Spare"}}, Vars: Fields{{Name: "dir", Value: "{{run_folder}}/x"}}, Steps: []Step{fix, commit("{{fix.commit_message}}")}},
 			want: []string{`input "spare" is not used by any step`, `var "dir" is not used`}},
-		{name: "user step reads earlier fields and stops on its own", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "ok", Title: "OK", User: "Keep {{fix.summary}}?", Show: []string{"{{run_folder}}/change.diff"}, StopIf: "decision == reject", Stop: "{{note}}"}}}},
-		{name: "a tool's own fields are not known", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.summary}}"}, StopIf: "sha == ", Stop: "no {{sha}}"}}}},
-		{name: "condition on a step that does not exist", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.summary}}"}, When: "review.verdict == APPROVE"}}},
+		{name: "user step reads earlier fields and stops on its own", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "ok", Title: "OK", User: "Keep {{fix.commit_message}}?", Show: []string{"{{run_folder}}/change.diff"}, StopIf: "decision == reject", Stop: "{{note}}"}}}},
+		{name: "a tool's own fields are not known", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.commit_message}}"}, StopIf: "sha == ", Stop: "no {{sha}}"}}}},
+		{name: "condition on a step that does not exist", chain: Chain{Inputs: request, Steps: []Step{fix, {ID: "commit", Title: "Commit", Tool: "commit", With: map[string]string{"message": "{{fix.commit_message}}"}, When: "review.verdict == APPROVE"}}},
 			want: []string{`step "commit": run only if reads {{review.verdict}}, but there is no step review`}},
+		{name: "a field read only by the step's own stop", chain: Chain{Inputs: request, Steps: []Step{{ID: "fix", Title: "Fix", Agent: "fix", StopIf: "commit_message == "}}}},
+		{name: "a field only the calling chain reads", chain: Chain{Inputs: request, Steps: []Step{fix}}, setup: func(lib *Library) {
+			lib.Chains["parent"] = &Chain{Name: "parent", Steps: []Step{{ID: "sub", Title: "Sub", Chain: "main", With: map[string]string{"request": "x"}}, commit("{{fix.commit_message}}")}}
+		}},
 		{name: "sub-chain values", chain: Chain{Inputs: request, Steps: []Step{{ID: "sub", Title: "Sub", Chain: "child", With: map[string]string{"extra": "x"}}}}, setup: func(lib *Library) {
 			lib.Chains["child"] = &Chain{Name: "child", Inputs: []Input{{Name: "request"}, {Name: "branch"}, {Name: "note", Optional: true}}, Steps: []Step{{ID: "c", Title: "C", Tool: "commit", With: map[string]string{"message": "{{request}} {{branch}} {{note}}"}}}}
 		}, want: []string{`step "sub": nothing passes branch, which child needs`, `step "sub": passes extra, but child has no input extra`}},

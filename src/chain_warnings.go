@@ -55,21 +55,44 @@ func (lib *Library) stepTemplates(step Step) []template {
 	return nil
 }
 
-func (lib *Library) produced(step Step, into map[string]outputs, depth int) {
+func (lib *Library) produced(chain *Chain, step Step, into map[string]outputs, depth int) {
 	into[step.ID] = lib.outputsOf(step)
+	if len(lib.listsPassed(chain, step)) > 0 {
+		into[step.ID] = outputs{fields: []string{"summary"}}
+		return
+	}
 	if sub := lib.Chains[step.Chain]; sub != nil && depth < 8 {
 		for _, s := range sub.Steps {
 			if _, taken := into[s.ID]; !taken {
-				lib.produced(s, into, depth+1)
+				lib.produced(sub, s, into, depth+1)
 			}
 		}
 	}
 }
 
+func (lib *Library) listsPassed(chain *Chain, step Step) []string {
+	var lists []string
+	for _, k := range sortedKeys(step.With) {
+		name, lone := lonePlaceholder(step.With[k])
+		id, field, dotted := strings.Cut(name, ".")
+		if !lone || !dotted || step.Chain == "" {
+			continue
+		}
+		if i := chain.stepIndex(id); i >= 0 && chain.Steps[i].Agent != "" {
+			for _, f := range lib.Prompts[chain.Steps[i].Agent].Returns {
+				if f.Name == field && f.Value == "list" {
+					lists = append(lists, name)
+				}
+			}
+		}
+	}
+	return lists
+}
+
 func (lib *Library) warnings(chain *Chain) []string {
 	w := &warner{lib: lib, names: map[string]bool{}, earlier: map[string]outputs{}, all: map[string]outputs{}}
 	for _, step := range chain.Steps {
-		lib.produced(step, w.all, 0)
+		lib.produced(chain, step, w.all, 0)
 	}
 	for _, name := range builtinNames {
 		w.names[name] = true
@@ -83,7 +106,7 @@ func (lib *Library) warnings(chain *Chain) []string {
 	}
 	for _, step := range chain.Steps {
 		w.step(step)
-		lib.produced(step, w.earlier, 0)
+		lib.produced(chain, step, w.earlier, 0)
 	}
 	w.read("the run heading", chain.Subject, nil, false, w.all)
 	w.read("the run link", chain.Link, nil, false, w.all)
@@ -98,7 +121,34 @@ func (lib *Library) warnings(chain *Chain) []string {
 			w.warnf("var %q is not used", v.Name)
 		}
 	}
+	for _, parent := range lib.Chains {
+		if slices.ContainsFunc(parent.Steps, func(s Step) bool { return s.Chain == chain.Name }) {
+			maps.Copy(reads, lib.reads(parent, 0))
+		}
+	}
+	for _, step := range chain.Steps {
+		w.unread(step, reads)
+	}
 	return w.warnings
+}
+
+func (w *warner) unread(step Step, reads map[string]bool) {
+	if step.Kind() != "agent" {
+		return
+	}
+	own := map[string]bool{}
+	if name, _, _, err := parseCondition(step.StopIf); err == nil {
+		own[name] = true
+	}
+	for _, name := range placeholders(step.Stop) {
+		own[name] = true
+	}
+	for _, field := range w.lib.outputsOf(step).fields {
+		if field == "summary" || field == "output" || own[field] || reads[step.ID+"."+field] {
+			continue
+		}
+		w.warnf("step %q returns %s, but nothing reads {{%s.%s}}", step.ID, field, step.ID, field)
+	}
 }
 
 func (w *warner) warnf(format string, args ...any) {

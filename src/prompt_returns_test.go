@@ -54,10 +54,10 @@ func TestSamplePromptReturns(t *testing.T) {
 		prompt string
 		want   Fields
 	}{
-		{prompt: "fix", want: Fields{{"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
+		{prompt: "change", want: Fields{{"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
 		{prompt: "review-change", want: Fields{{"verdict", "APPROVE | CHANGES"}, {"summary", "text"}, {"findings", "text"}}},
 		{prompt: "learn", want: Fields{{"summary", "text"}, {"notes", "list"}}},
-		{prompt: "edit-swarm", want: Fields{{"summary", "text"}, {"files", "list"}}},
+		{prompt: "edit-chain", want: Fields{{"summary", "text"}, {"files", "list"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.prompt, func(t *testing.T) {

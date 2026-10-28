@@ -20,14 +20,27 @@ type AgentCLI struct {
 type Settings struct {
 	Agent  string              `json:"agent,omitempty"`
 	Agents map[string]AgentCLI `json:"agents,omitempty"`
+	Inputs map[string]string   `json:"inputs,omitempty"`
 }
 
 func settingsPath(dir string) string {
 	return filepath.Join(dir, "settings.json")
 }
 
+func newSettings() Settings {
+	return Settings{Agents: map[string]AgentCLI{}, Inputs: map[string]string{}}
+}
+
+func addLayer(merged *Settings, layer Settings) {
+	if layer.Agent != "" {
+		merged.Agent = layer.Agent
+	}
+	maps.Copy(merged.Agents, layer.Agents)
+	maps.Copy(merged.Inputs, layer.Inputs)
+}
+
 func loadSettings(home, project string) (Settings, error) {
-	merged := Settings{Agents: map[string]AgentCLI{}}
+	merged := newSettings()
 	for _, dir := range []string{home, filepath.Join(project, ".swarm")} {
 		var layer Settings
 		if err := readJSON(settingsPath(dir), &layer); err != nil {
@@ -36,12 +49,16 @@ func loadSettings(home, project string) (Settings, error) {
 			}
 			return merged, err
 		}
-		if layer.Agent != "" {
-			merged.Agent = layer.Agent
-		}
-		maps.Copy(merged.Agents, layer.Agents)
+		addLayer(&merged, layer)
 	}
 	return merged, nil
+}
+
+func (s Settings) inputValue(in Input) string {
+	if v := s.Inputs[in.Name]; v != "" {
+		return v
+	}
+	return in.Default
 }
 
 func isBuiltinRunner(name string) bool {
@@ -89,6 +106,11 @@ func (s Settings) problems() []string {
 		}
 		if !isBuiltinRunner(name) && cli.Command == "" {
 			problems = append(problems, fmt.Sprintf("agent %q needs a command", name))
+		}
+	}
+	for _, name := range sortedKeys(s.Inputs) {
+		if !stepID.MatchString(name) {
+			problems = append(problems, fmt.Sprintf("input %q: names are lowercase letters, digits and underscores", name))
 		}
 	}
 	if s.Agent != "" && !s.knows(s.Agent) {

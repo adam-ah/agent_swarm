@@ -1,22 +1,34 @@
-function showChain(name, stepID = "") {
+function showEditor(name, stepID = "") {
   const chain = lib.chains.find((c) => c.name === name);
   if (!chain) {
-    main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" },
-      "No chains yet. Use + next to Chains to make one, or run ", h("code", {}, "swarm samples"), " in a terminal to add the sample chains.")));
+    main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" }, `There is no chain named ${name} in this project.`)));
     return;
   }
   const draft = clone(chain);
-  delete draft.name;
-  delete draft.problems;
+  for (const key of ["name", "problems", "warnings", "source"]) delete draft[key];
   draft.steps = draft.steps || [];
-  delete draft.source;
   const prompts = Object.fromEntries(Object.entries(lib.prompts).map(([k, v]) => [k, v.text]));
   const at = draft.steps.findIndex((s) => s.id === stepID);
   editor = {
     name, source: chain.source, draft, selected: at >= 0 ? at : "root", tools: clone(lib.tools), prompts, dirtyTools: new Set(), dirtyPrompts: new Set(),
-    fresh: new Set(), dirty: false, problems: chain.problems || [], warnings: chain.warnings || [], message: "",
+    fresh: new Set(), openShared: new Set(), dirty: false, problems: chain.problems || [], warnings: chain.warnings || [], message: "",
   };
-  renderChainPage();
+  main.replaceChildren(h("div", { class: "page" },
+    h("div", { class: "eyebrow" }, `Chain · chains/${name}.json · ${FROM[chain.source]}`),
+    h("h1", { id: "chain-title" }, draft.title),
+    chain.description ? h("p", { class: "lead" }, chain.description) : null,
+    startForm(chain),
+    h("div", { class: "editbar", id: "savebar" }),
+    h("div", { id: "problems" }),
+    h("div", { class: "split" },
+      h("div", { class: "panel sticky" },
+        h("div", { class: "panel-head" }, "Steps"),
+        h("div", { class: "tree", id: "tree" }),
+        h("div", { class: "tree-actions", id: "tree-actions" })),
+      h("div", { class: "panel" }, h("div", { class: "panel-body", id: "inspector" })))));
+  renderEditorTree();
+  renderSaveBar();
+  renderInspector();
 }
 
 function touch(redrawInspector = false) {
@@ -27,59 +39,23 @@ function touch(redrawInspector = false) {
   if (redrawInspector) renderInspector();
 }
 
-function renderChainPage() {
-  const saved = lib.chains.find((c) => c.name === editor.name);
-  const inputs = Object.fromEntries((saved.inputs || []).map((i) => [i.name, i.name === "request"
-    ? h("textarea", { rows: 3, placeholder: "Describe it in plain words" }, i.default || "")
-    : h("input", { value: i.default || "", placeholder: i.label, autocomplete: "off" })]));
-  const message = h("span", { class: "error-text" });
-  const start = h("form", {
-    class: "start",
-    onsubmit: async (e) => {
-      e.preventDefault();
-      if (editor.dirty) { message.textContent = "Save your changes first."; return; }
-      try {
-        const values = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value]));
-        const { id } = await send("POST", "/api/runs", { chain: editor.name, inputs: values });
-        await loadRuns();
-        location.hash = `#/run/${id}`;
-      } catch (err) {
-        message.textContent = err.message;
-      }
-    },
-  }, (saved.inputs || []).map((i) => h("label", { class: i.name === "request" ? "wide" : "" }, i.optional ? `${i.label || i.name} (optional)` : i.label || i.name, inputs[i.name])), h("button", { class: "btn primary", type: "submit" }, "Start run"), message);
-
-  main.replaceChildren(h("div", { class: "page" },
-    h("div", { class: "eyebrow" }, `Chain · ${FROM[editor.source]} · chains/${editor.name}.json`),
-    h("h1", { id: "chain-title" }, editor.draft.title),
-    editor.draft.description ? h("p", { class: "lead" }, editor.draft.description) : null,
-    start,
-    h("div", { id: "problems" }),
-    h("div", { class: "split" },
-      h("div", { class: "panel sticky" },
-        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Tree"), h("div", { class: "savebar", id: "savebar" })),
-        h("div", { class: "tree", id: "tree" }),
-        h("div", { class: "tree-actions", id: "tree-actions" })),
-      h("div", { class: "panel" }, h("div", { class: "panel-body", id: "inspector" })))));
-  renderEditorTree();
-  renderSaveBar();
-  renderInspector();
-}
-
 function renderSaveBar() {
-  const refused = editor.refused?.length
+  const shared = editor.source !== "project";
+  document.getElementById("problems").replaceChildren(editor.refused?.length
     ? h("div", { class: "problems" }, h("strong", {}, "Not saved. swarm refused it because:"), h("ul", {}, editor.refused.map((p) => h("li", {}, p))))
-    : editor.dirty ? ""
-      : editor.problems.length ? h("ul", { class: "problems" }, editor.problems.map((p) => h("li", {}, p)))
-        : editor.warnings.length ? h("div", { class: "problems warnings" }, h("strong", {}, "This chain runs, but these look wrong:"), h("ul", {}, editor.warnings.map((w) => h("li", {}, w)))) : "";
-  document.getElementById("problems").replaceChildren(refused);
-  document.getElementById("savebar").replaceChildren(...[
-    editor.message ? h("span", { class: "status ok-text" }, editor.message) : editor.dirty ? h("span", { class: "status" }, "Unsaved") : null,
-    editor.source !== "project" ? h("button", { class: "btn small", title: "Save this chain into this folder's .swarm, so changes stay in this project", onclick: () => saveChain("project") }, "Copy to this folder") : null,
-    h("button", { class: "btn small danger", onclick: removeChain }, "Delete chain"),
-    h("button", { class: "btn small", disabled: !editor.dirty, onclick: () => showChain(editor.name) }, "Discard"),
-    h("button", { class: "btn small primary", disabled: !editor.dirty, onclick: () => saveChain() }, "Save"),
-  ].filter(Boolean));
+    : editor.dirty ? "" : chainProblems(editor.problems, editor.warnings) || "");
+  const status = editor.message ? h("span", { class: "status ok-text" }, editor.message)
+    : editor.dirty ? h("span", { class: "status" }, shared ? "Unsaved. Saving changes it for every project." : "Unsaved changes") : null;
+  document.getElementById("savebar").replaceChildren(
+    h("span", { class: "editbar-title" }, "Edit the chain"),
+    h("span", { class: "grow" }),
+    status || "",
+    h("details", { class: "more" }, h("summary", { class: "btn small" }, "More"),
+      h("div", { class: "more-menu" },
+        shared ? h("button", { class: "linkish", type: "button", onclick: () => saveChain("project") }, "Save as a copy for this project only") : null,
+        h("button", { class: "linkish danger", type: "button", onclick: removeChain }, shared ? "Delete this chain for every project" : "Delete this project's copy"))),
+    h("button", { class: "btn small", disabled: !editor.dirty, onclick: () => showEditor(editor.name, editor.draft.steps[editor.selected]?.id) }, "Discard"),
+    h("button", { class: "btn small primary", disabled: !editor.dirty, onclick: () => saveChain() }, "Save"));
 }
 
 async function removeChain() {
@@ -94,8 +70,8 @@ async function removeChain() {
   editor.dirty = false;
   await loadLibrary();
   renderSide();
-  location.hash = "#/chain/";
-  if (location.hash === "#/chain/") refresh();
+  if (location.hash === "#/") refresh();
+  else location.hash = "#/";
 }
 
 async function saveChain(scope = "") {
@@ -124,22 +100,20 @@ async function saveChain(scope = "") {
     return;
   }
   await loadLibrary();
-  const selected = editor.selected;
-  showChain(editor.name);
-  editor.selected = selected;
-  editor.message = "Saved";
+  const { selected, openShared } = editor;
+  showEditor(editor.name);
+  Object.assign(editor, { selected, openShared, message: scope ? "Saved as this project's copy" : "Saved" });
   renderEditorTree();
   renderSaveBar();
   renderInspector();
   renderSide();
 }
 
-function treeRow({ kind, title, id, selected, readonly, onclick, state, time }) {
-  return h("div", { class: `tree-row ${selected ? "selected" : ""} ${readonly ? "readonly" : ""} ${state || ""} ${kind === "root" ? "tree-root" : ""}`, onclick },
-    state !== undefined ? h("span", { class: `state ${state}` }, STATE_ICON[state] || "") : null,
+function treeRow({ kind, title, id, selected, readonly, onclick }) {
+  return h("div", { class: `tree-row ${selected ? "selected" : ""} ${readonly ? "readonly" : ""} ${kind === "root" ? "tree-root" : ""}`, onclick },
     h("span", { class: `kind ${kind}`, title: KIND_NAME[kind] || "chain" }, KIND_LETTER[kind]),
     h("span", { class: "title" }, title || "(untitled)"),
-    time !== undefined ? h("span", { class: "time" }, time) : id ? h("span", { class: "id" }, id) : null);
+    id ? h("span", { class: "id" }, id) : null);
 }
 
 function subchainRows(chainName, depth) {
@@ -155,21 +129,28 @@ function renderEditorTree() {
   const d = editor.draft;
   document.getElementById("chain-title").textContent = d.title || editor.name;
   document.getElementById("tree").replaceChildren(
-    treeRow({ kind: "root", title: d.title || editor.name, id: editor.name, selected: editor.selected === "root", onclick: () => select("root") }),
-    h("div", { class: "tree-kids" }, d.steps.map((step, i) => [
-      treeRow({ kind: kindOf(step), title: step.title, id: step.id, selected: editor.selected === i, onclick: () => select(i) }),
-      step.chain ? subchainRows(step.chain, 1) : null,
-    ])));
-  const i = editor.selected;
-  const isStep = typeof i === "number";
+    treeRow({ kind: "root", title: "Title, inputs and values", selected: editor.selected === "root", onclick: () => select("root") }),
+    h("div", { class: "tree-kids" }, renderOutline(outlineOf(d.steps), {
+      chain: d,
+      go: editorGo,
+      step: (step) => {
+        const i = d.steps.indexOf(step);
+        const lists = step.chain ? listsPassed(step, d.steps) : [];
+        return [
+          treeRow({ kind: kindOf(step), title: step.title, id: step.id, selected: editor.selected === i, onclick: () => select(i) }),
+          step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
+          lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}`) : null,
+          step.chain ? subchainRows(step.chain, 1) : null,
+        ];
+      },
+    })));
   document.getElementById("tree-actions").replaceChildren(
-    ...[["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"]].map(([kind, label]) =>
-      h("button", { class: `btn small add-kind ${kind}`, onclick: () => addStep(kind) }, h("span", { class: `kind ${kind}` }, KIND_LETTER[kind]), `+ ${label}`)),
-    h("span", { style: "flex:1" }),
-    h("button", { class: "btn small", disabled: !isStep || i === 0, onclick: () => move(-1), title: "Move up" }, "↑"),
-    h("button", { class: "btn small", disabled: !isStep || i === d.steps.length - 1, onclick: () => move(1), title: "Move down" }, "↓"),
-    h("button", { class: "btn small danger", disabled: !isStep, onclick: removeStep }, "Delete step"));
+    h("span", { class: "hint" }, typeof editor.selected === "number" ? "Add a step after the selected one:" : "Add a step at the end:"),
+    h("div", { class: "row" }, [["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"]].map(([kind, label]) =>
+      h("button", { class: `btn small add-kind ${kind}`, type: "button", onclick: () => addStep(kind) }, `+ ${label}`))));
 }
+
+const editorGo = (from) => select(from.kind === "step" ? editor.draft.steps.indexOf(from.step) : "root");
 
 function select(i) {
   editor.selected = i;
@@ -227,8 +208,7 @@ function renderInspector() {
     panel.replaceChildren(rootInspector());
     return;
   }
-  const step = editor.draft.steps[editor.selected];
-  panel.replaceChildren(stepInspector(step));
+  panel.replaceChildren(stepInspector(editor.draft.steps[editor.selected]));
 }
 
 function rootInspector() {
@@ -238,11 +218,11 @@ function rootInspector() {
   return h("div", { class: "form" },
     h("h2", {}, "The chain"),
     field("Title", textInput(d.title, (v) => { d.title = v; touch(); })),
-    field("Description", textArea(d.description, (v) => { d.description = v; touch(); }, { rows: 2 })),
+    field("Description", textArea(d.description, (v) => { d.description = v; touch(); }, { rows: 5 }), "what it does and when to use it"),
+    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "question shown at the start" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
+      "asked for when a run starts"),
+    field("Values", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "worked out once at the start, for steps to read"),
     h("div", { class: "row2" },
-      field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. #{{issue}} {{read_issue.title}}" })),
-      field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }))),
-    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "label" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
-      "asked for when a run starts; a run needs every input that is not optional and has no default"),
-    field("Vars", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "computed once at the start"));
+      field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. {{request}}" }), "shown at the top of each run"),
+      field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }), "makes the heading a link")));
 }

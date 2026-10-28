@@ -42,8 +42,13 @@ func (s *scope) child(values map[string]string) *scope {
 }
 
 func (s *scope) lookup(name string) (string, bool) {
+	v, ok := s.value(name)
+	return text(v), ok
+}
+
+func (s *scope) value(name string) (any, bool) {
 	if v, ok := s.local[name]; ok {
-		return text(v), true
+		return v, true
 	}
 	if v, ok := s.values[name]; ok {
 		return v, true
@@ -51,14 +56,23 @@ func (s *scope) lookup(name string) (string, bool) {
 	if step, field, dotted := strings.Cut(name, "."); dotted {
 		if out, ok := s.outputs[step]; ok {
 			if v, ok := out[field]; ok {
-				return text(v), true
+				return v, true
 			}
 		}
 	}
 	if s.parent != nil {
-		return s.parent.lookup(name)
+		return s.parent.value(name)
 	}
-	return "", false
+	return nil, false
+}
+
+func lonePlaceholder(template string) (string, bool) {
+	trimmed := strings.TrimSpace(template)
+	m := placeholder.FindStringSubmatch(trimmed)
+	if m == nil || m[0] != trimmed {
+		return "", false
+	}
+	return m[1], true
 }
 
 func (s *scope) fill(template string, shell bool) string {
@@ -86,6 +100,23 @@ func (s *scope) holds(cond string) bool {
 	}
 	got, _ := s.lookup(name)
 	return (got == want) == (op == "==")
+}
+
+func unmet(cond string) string {
+	name, op, want, err := parseCondition(cond)
+	if err != nil {
+		return cond + " is not true"
+	}
+	switch {
+	case op == "!=" && want == "":
+		return name + " is empty"
+	case op == "==" && want == "":
+		return name + " is not empty"
+	case op == "!=":
+		return name + " is " + want
+	default:
+		return name + " is not " + want
+	}
 }
 
 func (s *scope) flatten() map[string]any {

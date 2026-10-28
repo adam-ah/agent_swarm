@@ -31,7 +31,7 @@ type agentCall struct {
 	cli        AgentCLI
 }
 
-func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
+func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	runner := lib.Settings.runnerFor(step)
 	r.store.update(run, func() { sr.Runner = runner })
 	transcript, err := os.Create(r.logFile(run, sr, ".jsonl"))
@@ -74,18 +74,21 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, run *Run, sr *StepR
 		return nil, err
 	}
 
-	out := map[string]string{}
+	out := map[string]any{}
 	if len(prompt.Returns) > 0 {
 		if result.structured == nil {
 			return nil, fmt.Errorf("%s did not return the fields in prompts/%s.md", runner, step.Agent)
 		}
 		for _, f := range prompt.Returns {
-			out[f.Name] = text(result.structured[f.Name])
+			out[f.Name] = result.structured[f.Name]
+			if out[f.Name] == nil {
+				out[f.Name] = ""
+			}
 		}
 	} else {
 		out["output"] = result.text
 	}
-	headline := out["summary"]
+	headline := text(out["summary"])
 	if headline == "" {
 		headline = firstLine(result.text)
 	}

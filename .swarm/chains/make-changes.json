@@ -1,0 +1,43 @@
+{
+  "title": "Make many changes",
+  "description": "Paste a long list of features to add and bugs to fix. An agent groups them into changes that belong together and can each be made on their own, and you check the plan. Then make-change runs once per change, one after another: each gets its own branch, tests, blind review and your approval to commit and push.",
+  "subject": "{{group.summary}}",
+  "inputs": [
+    {
+      "name": "requests",
+      "label": "Features and bugs, as many as you like"
+    }
+  ],
+  "steps": [
+    {
+      "id": "group",
+      "title": "Group them into changes",
+      "agent": "group-changes",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Write"
+      ],
+      "stop_if": "changes == ",
+      "stop": "Nothing to change. {{summary}}"
+    },
+    {
+      "id": "approve",
+      "title": "Your approval of the plan",
+      "user": "{{group.summary}}\n\nMake these changes one after another, each on its own branch?",
+      "revise": "group",
+      "show": [
+        "{{run_folder}}/plan.md"
+      ]
+    },
+    {
+      "id": "each",
+      "title": "Make each change",
+      "chain": "make-change",
+      "with": {
+        "request": "{{group.changes}}"
+      }
+    }
+  ]
+}

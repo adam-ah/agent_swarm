@@ -1,16 +1,16 @@
 # swarm
 
-Runs chains of agent, tool and user steps you design, and shows every run live as a tree on a page.
+Runs chains of agent, tool and user steps you design, and shows every run live on a page.
 
 ## Build, install, start
 
 ```bash
 ./build.sh install               # builds ./swarm and copies it to ~/.local/bin
 swarm init /path/to/project      # makes the folder a swarm project
-swarm serve                      # http://localhost:7070; the other commands talk to it
+swarm serve                      # port 7070 on every interface; the other commands talk to it
 ```
 
-The build packs `src/web/` and `src/samples/` into the single binary. Nothing is written until you ask: `swarm` on its own shows what is set up and what to run next, and `swarm samples` writes the samples into `~/.swarm` (the `change-swarm` and `fix-from-text` chains, their tools and prompts, and `GUIDE.txt`). After that they are ordinary files you own. Run history and the project list live in `~/.swarm` too. Each project's own chains, tools, prompts and memory go in its `.swarm/`, committed with the project.
+The build packs `src/web/` and `src/samples/` into the single binary. Nothing is written until you ask: `swarm` on its own shows what is set up and what to run next, and `swarm samples` writes the samples into `~/.swarm` (the `make-change` and `edit-chain` chains, their tools and prompts, and `GUIDE.txt`). After that they are ordinary files you own. Run history and the project list live in `~/.swarm` too. Each project's own chains, tools, prompts and memory go in its `.swarm/`, committed with the project.
 
 ## One server, two ways in
 
@@ -26,8 +26,9 @@ Agent steps run Claude Code (`claude -p`), Codex (`codex exec`, with your own Co
 
 ## Changing swarm
 
-- **On the page:** pick a chain to edit its tree, or open a tool, prompt or Memory. "Copy to this folder" makes a per-project copy.
-- **By an agent:** run `change-swarm` with the change in words. An agent drafts files and saves them with `swarm put`, using the guide and a list of everything that exists. `swarm check` confirms the chains load, and you approve the diff. A rejection puts the files back.
+- **On the page:** a chain's page starts a run and edits the chain; tools, prompts and Memory have their own pages. "Save as a copy for this project only", under More, makes a per-project copy.
+- **By an agent:** run the `edit-chain` chain with the change in words ("in make-change, add a lint step before the tests"). An agent drafts files and saves them into this project with `swarm put`, using the guide and a list of everything that exists. `swarm check` confirms the chains load, and you approve the diff or send it back with a note. A rejection puts the files back.
+- **Per project:** a value that differs between projects, such as the test command, goes under `inputs` in the project's `.swarm/settings.json` (or on the Settings page), so the shared chain stays as it is.
 
 ## Source layout
 

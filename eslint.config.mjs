@@ -6,19 +6,28 @@ const sharedFunctions = [
   "h", "withProject", "api", "send", "itemURL", "putItem", "deleteItem", "clone", "kindOf", "duration", "ago",
   "money", "fileURL", "loadLibrary", "loadRuns", "loadProjects", "renderProjects", "switchProject", "renderSide",
   "createItem", "closeStream", "refresh", "field", "textInput", "textArea", "selectBox", "linesInput", "rowsEditor",
-  "mapToRows", "rowsToMap", "usedBy", "showChain", "touch", "renderChainPage", "renderSaveBar", "removeChain",
-  "saveChain", "treeRow", "subchainRows", "renderEditorTree", "select", "slugOf", "uniqueID", "addStep", "move", "removeStep",
-  "renderInspector", "rootInspector", "stepInspector", "kindFields", "toolValues", "valuesEditor", "picked", "toolPicker",
-  "promptPicker", "itemButtons",
-  "showTool", "showSettings", "showMemory", "returnsList", "showPrompt", "showRun", "renderRun", "runTreeRows", "keyOf", "focusCard",
-  "syncCards", "stepFields", "earlierPanel", "sizeOf", "shellWord", "elapsed", "remembered", "block", "actionLabel",
-  "callView", "callPanel", "stepCard", "editLinks", "decideForm", "renderArtifacts", "diffView", "prettyJSON",
-  "openLightbox", "stopRun",
+  "mapToRows", "rowsToMap", "usedBy", "listsPassed",
+  "showHome", "waitingCard", "chainCard", "runList",
+  "readCondition", "writeCondition", "describeCondition", "conditionEditor",
+  "notApproved", "ifGroups", "outlineOf", "stepsIn", "sourceOf", "goLink", "sourceNote", "conditionLabel", "renderOutline",
+  "skeleton", "valueNow", "markBlocks",
+  "chainProblems", "startForm", "approvalBefore",
+  "showEditor", "touch", "renderSaveBar", "removeChain", "saveChain", "treeRow", "subchainRows", "renderEditorTree", "select",
+  "slugOf", "uniqueID", "addStep", "move", "removeStep", "renderInspector", "rootInspector",
+  "fieldsOf", "stepInspector", "inspectorSection", "readsStrip", "withReads", "valuesGroup", "setsSection", "flowFields", "sharedEditor", "kindFields", "agentFields", "toolValues", "valuesEditor",
+  "toolPicker", "promptPicker",
+  "itemButtons", "showTool", "showSettings", "showMemory", "returnsList", "showPrompt",
+  "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "elapsed", "remembered", "block", "actionLabel", "callView", "callPanel",
+  "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
+  "showRun", "findStepIn", "renderRun", "outcomeBanner", "renderDecision", "focusRow", "syncRows", "redrawRow", "toggleRow",
+  "stepRow", "summaryLine", "stepBody", "editLinks", "decideForm", "stopRun",
 ];
 
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
+  "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
+  "holdsSteps", "asText", "LONE_PLACEHOLDER",
 ];
 
 const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];

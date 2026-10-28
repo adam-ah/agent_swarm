@@ -9,38 +9,50 @@
 <body>
   <aside class="sidebar">
     <div class="brand">
-      <span class="brand-mark"></span>
-      <span class="brand-name">swarm</span>
+      <a class="brand-link" href="#/"><span class="brand-mark"></span><span class="brand-name">swarm</span></a>
+      <button class="btn small menu-btn" id="menu-btn" type="button" aria-expanded="false" aria-controls="side-nav">Menu</button>
     </div>
-    <div class="side-section">
-      <div class="side-label">Project folder <button class="add" id="add-project" title="Add a folder">+</button></div>
-      <select id="project-select"></select>
-      <a class="side-item" id="memory-link" href="#/memory"><span class="text">Memory</span><span class="meta">.swarm/memory.md</span></a>
-      <a class="side-item" id="settings-link" href="#/settings"><span class="text">Settings</span><span class="meta" id="settings-meta"></span></a>
-    </div>
-    <div class="side-section" data-fold="chains">
-      <div class="side-label"><span class="caret"></span>Chains <button class="add" data-new="chain" title="New chain">+</button></div>
-      <nav id="chains"></nav>
-    </div>
-    <div class="side-section" data-fold="runs">
-      <div class="side-label"><span class="caret"></span>Runs</div>
-      <nav id="runs"></nav>
-    </div>
-    <div class="side-section" data-fold="tools">
-      <div class="side-label"><span class="caret"></span>Tools <button class="add" data-new="tool" title="New tool">+</button></div>
-      <nav id="tools"></nav>
-    </div>
-    <div class="side-section" data-fold="prompts">
-      <div class="side-label"><span class="caret"></span>Prompts <button class="add" data-new="prompt" title="New prompt">+</button></div>
-      <nav id="prompts"></nav>
+    <div class="side-nav" id="side-nav">
+      <div class="side-section">
+        <div class="side-label">Project <button class="add" id="add-project" title="Add a project folder">+</button></div>
+        <select id="project-select" aria-label="Project"></select>
+        <a class="side-item" id="home-link" href="#/"><span class="text">Home</span><span class="meta" id="home-meta"></span></a>
+        <a class="side-item" id="memory-link" href="#/memory"><span class="text">Memory</span><span class="meta">.swarm/memory.md</span></a>
+        <a class="side-item" id="settings-link" href="#/settings"><span class="text">Settings</span><span class="meta" id="settings-meta"></span></a>
+      </div>
+      <div class="side-section waiting" id="waiting-section" hidden>
+        <div class="side-label">Waiting for you</div>
+        <nav id="waiting"></nav>
+      </div>
+      <div class="side-section" data-fold="chains">
+        <div class="side-label"><span class="caret"></span>Chains <button class="add" data-new="chain" title="New chain">+</button></div>
+        <nav id="chains"></nav>
+      </div>
+      <div class="side-section" data-fold="runs">
+        <div class="side-label"><span class="caret"></span>Recent runs</div>
+        <nav id="runs"></nav>
+      </div>
+      <div class="side-section" data-fold="tools">
+        <div class="side-label"><span class="caret"></span>Tools <button class="add" data-new="tool" title="New tool">+</button></div>
+        <nav id="tools"></nav>
+      </div>
+      <div class="side-section" data-fold="prompts">
+        <div class="side-label"><span class="caret"></span>Prompts <button class="add" data-new="prompt" title="New prompt">+</button></div>
+        <nav id="prompts"></nav>
+      </div>
     </div>
   </aside>
   <main id="main"></main>
   <div id="lightbox" class="lightbox" hidden><img alt=""></div>
   <script src="/app.js"></script>
+  <script src="/home.js"></script>
+  <script src="/conditions.js"></script>
+  <script src="/outline.js"></script>
+  <script src="/chain-page.js"></script>
   <script src="/chain-editor.js"></script>
   <script src="/step-inspector.js"></script>
   <script src="/item-pages.js"></script>
+  <script src="/run-detail.js"></script>
   <script src="/run-view.js"></script>
 </body>
 </html>

@@ -229,7 +229,17 @@ type RunSummary struct {
 	Subject   string            `json:"subject"`
 	Status    string            `json:"status"`
 	StartedAt time.Time         `json:"started_at"`
+	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Inputs    map[string]string `json:"inputs"`
+	Question  string            `json:"question,omitempty"`
+}
+
+func summaryOf(run *Run) RunSummary {
+	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs}
+	if waiting := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); waiting != nil && run.Status == "waiting" {
+		sum.Question = waiting.Question
+	}
+	return sum
 }
 
 func (s *Store) list(project string) []RunSummary {
@@ -240,7 +250,7 @@ func (s *Store) list(project string) []RunSummary {
 		if run == nil || (run.Project != "" && run.Project != project) {
 			continue
 		}
-		out = append(out, RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, Inputs: run.Inputs})
+		out = append(out, summaryOf(run))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
 	return out

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 )
@@ -54,17 +53,14 @@ func (c *Core) putSettings(lib *Library, scope string, content []byte) error {
 	if dir == "" {
 		return fmt.Errorf("scope is project or shared, not %q", scope)
 	}
-	merged := Settings{Agents: map[string]AgentCLI{}}
+	merged := newSettings()
 	for _, layerDir := range []string{c.home, projectDir} {
 		current := layer
 		if layerDir != dir {
 			current = Settings{}
 			_ = readJSON(settingsPath(layerDir), &current)
 		}
-		if current.Agent != "" {
-			merged.Agent = current.Agent
-		}
-		maps.Copy(merged.Agents, current.Agents)
+		addLayer(&merged, current)
 	}
 	problems := merged.problems()
 	lib.Settings = merged

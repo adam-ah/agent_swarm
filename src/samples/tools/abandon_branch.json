@@ -1,0 +1,4 @@
+{
+  "title": "Abandon the branch you are on: stash its uncommitted work, then delete it",
+  "run": "set -euo pipefail\n[ \"$(git rev-parse --abbrev-ref HEAD)\" = {{branch}} ] || { echo \"on $(git rev-parse --abbrev-ref HEAD), not the run's branch, so nothing was abandoned\"; exit 0; }\nkept=\"\"\nif [ -n \"$(git status --porcelain -- . ':!.swarm')\" ]; then\n  git stash push -q -u -m {{branch}} -- . ':!.swarm'\n  kept=\"; its uncommitted work is in git stash\"\nfi\ngit switch -q {{back_to}}\ngit branch -q -D {{branch}}\necho \"deleted \"{{branch}}\"$kept\"\n"
+}

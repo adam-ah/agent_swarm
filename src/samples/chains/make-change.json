@@ -1,0 +1,98 @@
+{
+  "title": "Make a change",
+  "description": "Describe a bug to fix or something to add, in plain words. An agent makes the change on a new branch, its tests run, then the full test suite if this project has one, and a second agent reviews it blind. You see the diff and the review: approve it to commit and push, or send it back with a note. Either way you end up back on the branch you started from, and what the run learned goes into this folder's memory.",
+  "subject": "{{request}}",
+  "inputs": [
+    { "name": "request", "label": "What to fix or add" },
+    { "name": "test_command", "label": "Full test suite command", "optional": true }
+  ],
+  "steps": [
+    {
+      "id": "branch",
+      "title": "Start a branch",
+      "tool": "start_branch"
+    },
+    {
+      "id": "change",
+      "title": "Make the change",
+      "agent": "change",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
+      "stop_if": "files_changed == ",
+      "stop": "Nothing was changed. {{summary}}"
+    },
+    {
+      "id": "focused",
+      "title": "Run the tests for this change",
+      "tool": "run",
+      "with": { "command": "{{change.test_command}}" }
+    },
+    {
+      "id": "full",
+      "title": "Run the full test suite",
+      "tool": "run",
+      "with": { "command": "{{test_command}}" },
+      "when": "test_command != "
+    },
+    {
+      "id": "review",
+      "title": "Blind review by a second agent",
+      "agent": "review-change",
+      "tools": ["Bash", "Read", "Grep", "Glob"]
+    },
+    {
+      "id": "diff",
+      "title": "Collect the change",
+      "tool": "capture_diff"
+    },
+    {
+      "id": "approve",
+      "title": "Your approval to commit and push",
+      "user": "The reviewer says {{review.verdict}}: {{review.summary}}\nFindings: {{review.findings}}\n\nCommit this change on {{branch.branch}} and push it?",
+      "show": ["{{run_folder}}/change.diff"],
+      "revise": "change"
+    },
+    {
+      "id": "commit",
+      "title": "Commit it",
+      "tool": "commit",
+      "with": { "message": "{{change.commit_message}}" }
+    },
+    {
+      "id": "push",
+      "title": "Push the branch",
+      "tool": "push"
+    },
+    {
+      "id": "abandon",
+      "title": "Abandon the branch",
+      "tool": "abandon_branch",
+      "with": { "branch": "{{branch.branch}}", "back_to": "{{branch.base}}" },
+      "always": true,
+      "when": "approve.decision != approve"
+    },
+    {
+      "id": "learn",
+      "title": "Decide what to remember",
+      "agent": "learn",
+      "tools": ["Read", "Grep", "Glob"],
+      "always": true,
+      "when": "change.summary != "
+    },
+    {
+      "id": "remember",
+      "title": "Save it to this folder's memory",
+      "tool": "remember",
+      "with": { "notes": "{{learn.notes}}", "about": "{{request}}" },
+      "always": true,
+      "when": "learn.notes != "
+    },
+    {
+      "id": "back",
+      "title": "Go back to the starting branch",
+      "tool": "switch_branch",
+      "with": { "branch": "{{branch.base}}" },
+      "always": true,
+      "when": "branch.base != "
+    }
+  ]
+}

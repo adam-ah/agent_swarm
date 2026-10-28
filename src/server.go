@@ -129,7 +129,7 @@ func (s *server) library(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"chains": lib.sortedChains(), "tools": lib.Tools, "prompts": lib.Prompts,
-		"agent_tools": agentTools, "builtins": builtinNames, "project": lib.Project,
+		"agent_tools": agentTools, "builtins": builtinNames, "input_values": lib.Settings.Inputs, "project": lib.Project,
 		"runners": lib.Settings.runners(), "default_runner": lib.Settings.defaultRunner(),
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
+func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	switch step.Kind() {
 	case "agent":
 		return r.runAgent(ctx, lib, run, sr, step, sc)
@@ -25,7 +26,7 @@ func (r *Runner) runStep(ctx context.Context, lib *Library, run *Run, sr *StepRu
 	}
 }
 
-func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
+func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	command := stepScope(step, sc, nil).fill(lib.Tools[step.Tool].Run, true)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("bash", "-c", command)
@@ -37,12 +38,10 @@ func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRu
 	err := runGroup(ctx, cmd)
 	call.finish(cmd, err, stdout.String(), stderr.String())
 
-	out := map[string]string{"output": strings.TrimSpace(stdout.String())}
+	out := map[string]any{"output": strings.TrimSpace(stdout.String())}
 	var fields map[string]any
 	if json.Unmarshal(stdout.Bytes(), &fields) == nil {
-		for k, v := range fields {
-			out[k] = text(v)
-		}
+		maps.Copy(out, fields)
 	}
 	if err != nil {
 		reason := lastLines(stderr.String(), 3)
@@ -56,13 +55,13 @@ func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRu
 	}
 	headline := lastLine(stdout.String())
 	if fields != nil {
-		headline = out["summary"]
+		headline = text(out["summary"])
 	}
 	r.store.update(run, func() { sr.Headline = headline })
 	return out, nil
 }
 
-func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, sc *scope) (map[string]string, error) {
+func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
 	r.store.update(run, func() {
 		sr.Status = "waiting"
 		sr.Question = stepScope(step, sc, nil).fill(step.User, false)
@@ -76,7 +75,7 @@ func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, 
 			headline += ": " + d.Note
 		}
 		r.store.update(run, func() { run.Status = "running"; sr.Headline = headline })
-		return map[string]string{"decision": d.Choice, "note": d.Note}, nil
+		return map[string]any{"decision": d.Choice, "note": d.Note}, nil
 	case <-ctx.Done():
 		return nil, errors.New("stopped")
 	}
@@ -142,23 +141,13 @@ func runGroup(ctx context.Context, cmd *exec.Cmd) error {
 	return cmd.Wait()
 }
 
-func stepScope(step Step, sc *scope, out map[string]string) *scope {
+func stepScope(step Step, sc *scope, out map[string]any) *scope {
 	local := map[string]any{}
 	for k, v := range step.With {
 		local[k] = sc.fill(v, false)
 	}
-	for k, v := range out {
-		local[k] = v
-	}
+	maps.Copy(local, out)
 	return sc.with(local)
-}
-
-func toAny(m map[string]string) map[string]any {
-	out := make(map[string]any, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }
 
 func nonEmptyLines(s string) []string {

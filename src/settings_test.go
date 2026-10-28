@@ -20,8 +20,8 @@ func writeSettingsFile(t *testing.T, dir, body string) {
 func TestLoadSettingsMergesProjectOverShared(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	writeSettingsFile(t, home, `{"agent":"codex","agents":{"pi":{"command":"pi -p"},"gem":{"command":"gem"}}}`)
-	writeSettingsFile(t, filepath.Join(project, ".swarm"), `{"agents":{"pi":{"command":"pi --fast"},"claude":{"args":["--model","opus"]}}}`)
+	writeSettingsFile(t, home, `{"agent":"codex","agents":{"pi":{"command":"pi -p"},"gem":{"command":"gem"}},"inputs":{"test_command":"make test","base":"main"}}`)
+	writeSettingsFile(t, filepath.Join(project, ".swarm"), `{"agents":{"pi":{"command":"pi --fast"},"claude":{"args":["--model","opus"]}},"inputs":{"test_command":"./test.sh"}}`)
 
 	got, err := loadSettings(home, project)
 	if err != nil {
@@ -34,9 +34,27 @@ func TestLoadSettingsMergesProjectOverShared(t *testing.T) {
 			"gem":    {Command: "gem"},
 			"claude": {Args: []string{"--model", "opus"}},
 		},
+		Inputs: map[string]string{"test_command": "./test.sh", "base": "main"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("loadSettings() = %+v, want %+v", got, want)
+	}
+}
+
+func TestInputValue(t *testing.T) {
+	s := Settings{Inputs: map[string]string{"test_command": "./test.sh"}}
+	tests := []struct {
+		in   Input
+		want string
+	}{
+		{in: Input{Name: "test_command", Default: "go test ./..."}, want: "./test.sh"},
+		{in: Input{Name: "branch", Default: "main"}, want: "main"},
+		{in: Input{Name: "note"}, want: ""},
+	}
+	for _, tt := range tests {
+		if got := s.inputValue(tt.in); got != tt.want {
+			t.Errorf("inputValue(%s) = %q, want %q", tt.in.Name, got, tt.want)
+		}
 	}
 }
 

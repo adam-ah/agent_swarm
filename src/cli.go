@@ -124,8 +124,47 @@ func (c *cli) inProject(project string) error {
 		return nil
 	case "run":
 		return c.run(project)
+	case "snapshot", "diff", "restore":
+		return c.swarmFiles(project)
 	}
 	return fmt.Errorf("no command %q", c.command)
+}
+
+func (c *cli) swarmFiles(project string) error {
+	folder, err := c.arg("a folder for the saved copy of .swarm")
+	if err != nil {
+		return err
+	}
+	if folder, err = filepath.Abs(folder); err != nil {
+		return err
+	}
+	switch c.command {
+	case "snapshot":
+		count, err := c.core.Snapshot(project, folder)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("saved %d file(s) from %s\n", count, swarmDir(project))
+	case "restore":
+		if err := c.core.Restore(project, folder); err != nil {
+			return err
+		}
+		fmt.Println("put " + swarmDir(project) + " back as it was")
+	default:
+		text, files, err := c.core.Diff(project, folder)
+		if err != nil {
+			return err
+		}
+		if len(c.positional) < 2 {
+			fmt.Print(text)
+			return nil
+		}
+		if err := writeFile(c.positional[1], []byte(text)); err != nil {
+			return err
+		}
+		fmt.Printf("%d file(s) changed\n", files)
+	}
+	return nil
 }
 
 func refused(err error) error {
@@ -166,7 +205,7 @@ func (c *cli) init() error {
 	}
 	fmt.Print(`  swarm guide                    how chains, tools, prompts and memory work
   swarm list                     what this project can run
-  swarm run change-swarm -input request="make a chain that ..."
+  swarm run edit-chain -input request="make a chain that ..."
   swarm serve                    the page, to watch and edit in a browser
 
 So agents working here know about swarm, add this line to the project's CLAUDE.md or AGENTS.md:
@@ -209,7 +248,7 @@ func printWarnings(warnings []string) {
 }
 
 func (c *cli) get(project string) error {
-	path, err := c.arg("a path like chains/fix-from-text.json")
+	path, err := c.arg("a path like chains/make-change.json")
 	if err != nil {
 		return err
 	}

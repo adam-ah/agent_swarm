@@ -48,7 +48,7 @@ func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*R
 	for _, in := range chain.Inputs {
 		v := strings.TrimSpace(inputs[in.Name])
 		if v == "" {
-			v = in.Default
+			v = lib.Settings.inputValue(in)
 		}
 		if v == "" && !in.Optional {
 			return nil, fmt.Errorf("%s is required", in.Label)

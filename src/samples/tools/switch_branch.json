@@ -1,0 +1,4 @@
+{
+  "title": "Switch to a branch",
+  "run": "set -euo pipefail\ngit switch -q {{branch}}\necho \"on \"{{branch}}\n"
+}

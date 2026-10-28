@@ -1,0 +1,4 @@
+{
+  "title": "Commit every change outside .swarm",
+  "run": "set -euo pipefail\ngit add -A -- . ':!.swarm'\ngit commit -q -m {{message}}\ngit log -1 --format='committed %h %s'\n"
+}

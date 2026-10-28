@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -83,17 +88,17 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 			sr.Log = sr.logName()
 		}
 	})
-	var out map[string]string
+	var out map[string]any
 	var err error
 	if step.Kind() == "chain" {
 		out, err = r.runChain(ctx, p, sr, step)
 	} else {
 		out, err = r.runStep(ctx, p.lib, p.run, sr, step, p.sc)
 	}
-	p.sc.outputs[step.ID] = toAny(out)
+	p.sc.outputs[step.ID] = out
 	r.record(runCtx, p, step, sr, out, err)
 	if err == nil && !p.end.ended && out["decision"] == "revise" {
-		return r.sendBack(p, step, i, out["note"])
+		return r.sendBack(p, step, i, text(out["note"]))
 	}
 	return i
 }
@@ -104,19 +109,19 @@ func (r *Runner) skip(p pass, step Step, sr *StepRun) bool {
 		return true
 	}
 	if step.When != "" && !p.sc.holds(step.When) {
-		r.store.update(p.run, func() { skipAll(sr); sr.Headline = "Skipped: " + step.When + " is not true" })
+		r.store.update(p.run, func() { skipAll(sr); sr.Headline = "Skipped: " + unmet(step.When) })
 		return true
 	}
 	return false
 }
 
-func (r *Runner) record(ctx context.Context, p pass, step Step, sr *StepRun, out map[string]string, err error) {
+func (r *Runner) record(ctx context.Context, p pass, step Step, sr *StepRun, out map[string]any, err error) {
 	local := stepScope(step, p.sc, out)
 	finished := time.Now()
 	r.store.update(p.run, func() {
 		sr.EndedAt = &finished
 		if step.Kind() != "chain" {
-			sr.Output = toAny(out)
+			sr.Output = out
 		}
 		if err != nil {
 			p.fail(ctx, step, sr, err)
@@ -138,17 +143,17 @@ func (p pass) fail(ctx context.Context, step Step, sr *StepRun, err error) {
 	p.end.finish("failed", step.Title+" failed: "+err.Error())
 }
 
-func (p pass) settle(step Step, sr *StepRun, out map[string]string, local *scope) {
+func (p pass) settle(step Step, sr *StepRun, out map[string]any, local *scope) {
 	sr.Status = "done"
 	for _, child := range sr.Children {
-		if child.Status == "stopped" || child.Status == "rejected" {
+		if child.Kind != "item" && (child.Status == "stopped" || child.Status == "rejected") {
 			sr.Status = child.Status
 		}
 	}
 	if step.Kind() == "user" && out["decision"] == "reject" {
 		reason := "You rejected: " + step.Title
-		if out["note"] != "" {
-			reason += " (" + out["note"] + ")"
+		if note := text(out["note"]); note != "" {
+			reason += " (" + note + ")"
 		}
 		sr.Status = "rejected"
 		p.end.finish("rejected", reason)
@@ -182,42 +187,149 @@ func skipAll(sr *StepRun) {
 	}
 }
 
-func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (map[string]string, error) {
+func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (map[string]any, error) {
 	sub := p.lib.Chains[step.Chain]
 	values := map[string]string{}
 	for _, in := range sub.Inputs {
-		if _, known := p.sc.lookup(in.Name); !known && in.Default != "" {
-			values[in.Name] = p.sc.fill(in.Default, false)
+		if _, known := p.sc.lookup(in.Name); !known && p.lib.Settings.inputValue(in) != "" {
+			values[in.Name] = p.sc.fill(p.lib.Settings.inputValue(in), false)
 		}
 	}
 	for k, v := range step.With {
 		values[k] = p.sc.fill(v, false)
 	}
+	key, items, err := listInput(step, p.sc)
+	if err != nil {
+		return nil, err
+	}
+	if key != "" {
+		return r.runEach(ctx, p, sr, step, values, key, items)
+	}
+	if len(sr.Children) != len(sub.Steps) || len(sr.Children) > 0 && sr.Children[0].Kind == "item" {
+		r.store.update(p.run, func() { sr.Children = expand(p.lib, sub, sr.Path+".") })
+	}
 	child := p.sc.child(values)
 	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: child, end: p.end})
 
-	out := map[string]string{}
-	for k, v := range child.flatten() {
-		out[k] = text(v)
-	}
+	out := child.flatten()
 	for id, fields := range child.outputs {
 		if _, taken := p.sc.outputs[id]; !taken {
 			p.sc.outputs[id] = fields
 		}
 	}
 	var failed []string
-	cost := 0.0
 	for _, c := range sr.Children {
-		cost += c.Cost
 		if c.Status == "failed" {
 			failed = append(failed, c.Title)
 		}
 	}
-	r.store.update(p.run, func() { sr.Cost = cost })
+	r.store.update(p.run, func() { sr.Cost = costOf(sr.Children) })
 	if len(failed) > 0 {
 		return out, fmt.Errorf("%s failed", strings.Join(failed, ", "))
 	}
 	return out, nil
+}
+
+func listInput(step Step, sc *scope) (string, []any, error) {
+	key := ""
+	var items []any
+	for _, k := range sortedKeys(step.With) {
+		name, lone := lonePlaceholder(step.With[k])
+		if !lone {
+			continue
+		}
+		v, _ := sc.value(name)
+		list, isList := v.([]any)
+		if !isList {
+			continue
+		}
+		if key != "" {
+			return "", nil, fmt.Errorf("%s and %s are both lists; a step runs its chain once per item of only one", step.With[key], step.With[k])
+		}
+		key, items = k, list
+	}
+	return key, items, nil
+}
+
+func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, values map[string]string, key string, items []any) (map[string]any, error) {
+	sub := p.lib.Chains[step.Chain]
+	source, _ := lonePlaceholder(step.With[key])
+	r.store.update(p.run, func() {
+		sr.Children = make([]*StepRun, len(items))
+		for i, item := range items {
+			path := fmt.Sprintf("%s.%d", sr.Path, i+1)
+			sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
+		}
+		sr.Headline = fmt.Sprintf("Runs %s %s, once per item of %s", step.Chain, times(len(items)), source)
+	})
+	folder, _ := p.sc.lookup("run_folder")
+	ended := map[string]int{}
+	ran := 0
+	for i, item := range items {
+		group := sr.Children[i]
+		if ctx.Err() != nil {
+			r.store.update(p.run, func() { skipAll(group) })
+			continue
+		}
+		ran++
+		end := &runEnd{status: "done"}
+		started := time.Now()
+		r.store.update(p.run, func() { group.Status, group.StartedAt = "running", &started })
+		own := maps.Clone(values)
+		own[key] = text(item)
+		if folder != "" {
+			own["run_folder"] = filepath.Join(folder, group.Path)
+			if err := os.MkdirAll(own["run_folder"], 0o755); err != nil {
+				return nil, err
+			}
+		}
+		r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: group.Children, sc: p.sc.child(own), end: end})
+		finished := time.Now()
+		r.store.update(p.run, func() {
+			group.Status, group.Headline, group.EndedAt = end.status, end.reason, &finished
+			group.Cost = costOf(group.Children)
+			sr.Cost = costOf(sr.Children)
+		})
+		ended[end.status]++
+	}
+
+	summary := fmt.Sprintf("%s did not run: %s is empty", step.Chain, source)
+	if len(items) > 0 {
+		var counts []string
+		for _, status := range []string{"done", "rejected", "stopped", "failed"} {
+			if ended[status] > 0 {
+				counts = append(counts, fmt.Sprintf("%d %s", ended[status], status))
+			}
+		}
+		if ran < len(items) {
+			counts = append(counts, fmt.Sprintf("%d not started", len(items)-ran))
+		}
+		summary = fmt.Sprintf("%s ran %s: %s", step.Chain, times(ran), strings.Join(counts, ", "))
+	}
+	r.store.update(p.run, func() { sr.Headline = summary })
+	out := map[string]any{"summary": summary}
+	if ctx.Err() != nil {
+		return out, errors.New("stopped")
+	}
+	if ended["failed"] > 0 {
+		return out, fmt.Errorf("%d of %d failed", ended["failed"], len(items))
+	}
+	return out, nil
+}
+
+func costOf(steps []*StepRun) float64 {
+	total := 0.0
+	for _, s := range steps {
+		total += s.Cost
+	}
+	return total
+}
+
+func times(n int) string {
+	if n == 1 {
+		return "once"
+	}
+	return fmt.Sprintf("%d times", n)
 }
 
 func (r *Runner) refreshSubject(chain *Chain, run *Run, sc *scope) {

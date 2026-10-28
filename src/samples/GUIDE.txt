@@ -41,18 +41,28 @@ serve", "swarm stop") yourself; it belongs to the person.
 
     swarm list                      every chain, tool and prompt the project
                                     can use, with its layer and steps
-    swarm get PATH                  print one, e.g. chains/fix-from-text.json
+    swarm get PATH                  print one, e.g. chains/make-change.json
     swarm get PATH -below           the shared version a project copy
                                     overrides
-    swarm put PATH -file F          save one from file F (or stdin); refused
-                                    with reasons if invalid
+    swarm put PATH -file F          save one from file F (or stdin) where it
+                                    already lives, else in this project;
+                                    refused with reasons if invalid
+    swarm put PATH -file F -scope project
+                                    save into this project, so a copy of a
+                                    shared one overrides it here only
     swarm put PATH -file F -scope shared
                                     save to ~/.swarm for every project; only
                                     when the person asks
     swarm rm PATH                   delete one; refused while a chain uses it
     swarm check                     confirm every chain loads, and list
                                     warnings: placeholders nothing fills,
-                                    and inputs, vars or values nothing reads
+                                    and inputs, vars, values or agent fields
+                                    nothing reads
+
+    swarm snapshot DIR              save a copy of this project's .swarm
+    swarm diff DIR [FILE]           what changed in .swarm since that copy,
+                                    into FILE if given
+    swarm restore DIR               put .swarm back as it was in that copy
 
     swarm memory                    what the project has learned
     swarm memory add -about TEXT NOTE...
@@ -174,6 +184,13 @@ It has exactly one of these:
       chain sees, plus its "with" values, which fill that chain's inputs;
       an input neither gives gets its default. Afterwards its steps'
       outputs can be read by their own ids.
+      To run it once per item of a list, give one input just the list,
+      e.g. "with": {"request": "{{split.changes}}"} where split returns
+      `changes` (list). The items run one after another, each with its
+      own {{run_folder}}. A rejection or stop ends only that item; a
+      failure fails the step once every item has run. Afterwards the
+      step returns only {{<id>.summary}}, such as "make-change ran 3
+      times: 2 done, 1 rejected". Never loop over a list in a tool.
 
 Any step can also have:
 
@@ -207,6 +224,14 @@ A TOOL: tools/<name>.json
   under the title.
 - Make a tool for anything deterministic: running tests, recording a video,
   committing, posting. Keep judgement for agents.
+- A tool does one thing. Put decisions in the chain's "when", not in the
+  script, so commit and push are two tools and the chain says when each
+  runs.
+- For a single command, use the run tool with "with": { "command": "..." }
+  instead of a new tool. Placeholders inside that command are filled as
+  they are, without quoting, so use them only for names and paths. Never
+  build a longer command around an agent's text, such as a commit message;
+  give it to a tool as its own value.
 
 
 AGENTS
@@ -222,20 +247,25 @@ An agent step runs one of these:
            fields as one JSON object as the last thing it outputs.
 
 settings.json, in ~/.swarm for every project or in <project>/.swarm for one
-project, chooses the default and defines custom agents:
+project, chooses the default agent, defines custom agents, and sets the
+values chain inputs start with:
 
     {
       "agent": "codex",
       "agents": {
         "claude": { "args": ["--model", "opus"] },
         "pi": { "command": "pi -p" }
-      }
+      },
+      "inputs": { "test_command": "./test.sh" }
     }
 
 "agent" is the default for every agent step. "args" adds arguments to the
-claude or codex command line. Change settings with "swarm put settings.json
--file F" (add -scope project for one project only); it is refused if a chain
-would then name an agent that does not exist.
+claude or codex command line. "inputs" gives any chain's input of that name
+its starting value, over the chain's own default; this is how one project
+adapts a shared chain, such as its test command, without copying it. A
+project's settings override the shared ones key by key. Change settings with
+"swarm put settings.json -file F" (add -scope project for one project only);
+it is refused if a chain would then name an agent that does not exist.
 
 
 A PROMPT: prompts/<name>.md
@@ -291,7 +321,7 @@ MEMORY
 
 .swarm/memory.md holds facts a future run in this project would otherwise
 rediscover: how to run the tests, where things live, conventions, traps.
-Prompts read it as {{memory}}. The sample fix-from-text chain ends with an
+Prompts read it as {{memory}}. The sample make-change chain ends with an
 agent that proposes notes and a remember tool that saves them with
 "swarm memory add". Keep notes short, true and specific to the project.
 
@@ -300,25 +330,30 @@ HOW TO CREATE OR CHANGE THINGS
 
   1. Run "swarm list" and reuse what exists. Do not write a second tool that
      does what take_video already does.
-  2. Write a draft file, then save it with "swarm put PATH -file DRAFT".
-     swarm checks it before saving it into the project. Invalid JSON, an
+  2. Write a draft file, then save it with "swarm put PATH -scope project
+     -file DRAFT". swarm checks it before saving it. Invalid JSON, an
      unknown field, a step without exactly one kind, a bad condition, or a
      step naming a tool, prompt or chain that does not exist are refused
      with the reason. Fix the draft and put it again. A saved file can
-     still print warnings, such as a placeholder nothing fills or a value
-     nothing reads; fix those too.
+     still print warnings, such as a placeholder nothing fills, or a value
+     or a field from a prompt's ## Return that nothing reads; fix those too.
+     summary and free-text output are exempt, since the page shows them.
   3. Save tools and prompts before the chain that uses them.
   4. To change a shared chain, tool or prompt for one project only, start
-     from "swarm get PATH > DRAFT", edit the draft, and put it. The
-     project's copy overrides the shared one in that project only. Use
-     -scope shared only when the person asks for a change to every project.
+     from "swarm get PATH > DRAFT", edit the draft, and put it with -scope
+     project. The project's copy overrides the shared one in that project
+     only. When only a value differs, such as the test command, set it
+     under "inputs" in the project's settings.json instead of copying the
+     chain. Use -scope shared only when the person asks for a change to
+     every project.
   5. Finish with "swarm check", and fix what it warns about.
   6. Anything that reaches outside the machine (pushing, posting, uploading,
      messaging) goes after a user step.
   7. Give each user step the files the person decides on: a diff, a video,
      a report.
 
-The sample chain change-swarm does exactly this for a request in plain
-words: an agent drafts and puts the project's files, "swarm check" runs, the
-person approves the diff, and a rejection puts the files back. So changes to
-swarm go through the same kind of chain as any other work.
+The sample chain edit-chain does exactly this for a request in plain
+words: "swarm snapshot" saves the project's .swarm, an agent drafts and puts
+the files, "swarm check" runs, "swarm diff" shows the person the change, and
+a rejection runs "swarm restore". So changes to swarm go through the same
+kind of chain as any other work.
