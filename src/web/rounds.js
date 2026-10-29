@@ -1,15 +1,17 @@
 const roundOf = (step) => Number.parseInt(step.rounds, 10) || 1;
 
 function roundsOf(steps) {
-  const attempts = steps.flatMap((step) => (step.earlier || []).filter((s) => s.started_at))
-    .sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
-  const groups = [];
-  for (const step of attempts) {
-    const last = groups.at(-1);
-    if (last?.round === roundOf(step) && !last.steps.some((s) => s.id === step.id)) last.steps.push(step);
-    else groups.push({ round: roundOf(step), steps: [step] });
-  }
-  return groups;
+  const byRound = new Map();
+  steps.forEach((step, order) => {
+    for (const attempt of (step.earlier || []).filter((s) => s.started_at)) {
+      const round = roundOf(attempt);
+      byRound.set(round, [...(byRound.get(round) || []), { attempt, order }]);
+    }
+  });
+  return [...byRound].sort(([a], [b]) => a - b).map(([round, list]) => ({
+    round,
+    steps: list.sort((a, b) => new Date(a.attempt.started_at) - new Date(b.attempt.started_at) || a.order - b.order).map((x) => x.attempt),
+  }));
 }
 
 function syncRounds(run) {

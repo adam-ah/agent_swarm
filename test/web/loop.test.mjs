@@ -226,4 +226,8 @@ test("past rounds of a loop stay listed and open, with what each step did, and t
 
   source.send(runAt(3, [tested(1, 16), tested(2, 17)], [sentBack(1, 16), sentBack(2, 17)], { ...tested(3, 18), output: { verdict: "pass" } }));
   assert.equal($(".ol-loop > .ol-label .ol-value").textContent, "value “pass”");
+
+  source.send(runAt(3, [tested(1, 16), { ...tested(2, 17), started_at: at(16, 31) }], [sentBack(1, 16), sentBack(2, 17)]));
+  assert.deepEqual(rounds().map((r) => [r.querySelector(".ol-word").textContent, ...[...r.querySelectorAll(".past .srow-title")].map((t) => t.textContent)]),
+    [["Round 1 of 3", "Run the tests", "Test again"], ["Round 2 of 3", "Run the tests", "Test again"]], "a round that starts in the same millisecond the last one ended keeps its own steps");
 });
