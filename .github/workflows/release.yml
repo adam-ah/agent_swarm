@@ -38,13 +38,10 @@ jobs:
           mkdir dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os=${target%/*} arch=${target#*/}
-            name="swarm-$GITHUB_REF_NAME-$os-$arch"
-            mkdir "dist/$name"
-            (cd src && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' -o "../dist/$name/swarm" .)
-            tar -C dist -czf "dist/$name.tar.gz" "$name"
-            rm -r "dist/$name"
+            (cd src && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' -o ../dist/swarm .)
+            (cd dist && zip -q "swarm-$GITHUB_REF_NAME-$os-$arch.zip" swarm && rm swarm)
           done
-          (cd dist && sha256sum *.tar.gz > checksums.txt)
+          (cd dist && sha256sum *.zip > checksums.txt)
 
       - name: Publish
         env:
