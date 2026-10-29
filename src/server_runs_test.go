@@ -117,6 +117,8 @@ func TestServerRerunAndDelete(t *testing.T) {
 	surfaceExpect(t, rerun(finished.ID, "["), http.StatusBadRequest, "error")
 	surfaceExpect(t, rerun(finished.ID, `{"from": "middle"}`), http.StatusBadRequest, "from must be")
 	surfaceExpect(t, rerun(going.ID, `{"from": "scratch"}`), http.StatusBadRequest, "still going")
+	surfaceExpect(t, rerun(going.ID, `{"from": "step", "step": "greet"}`), http.StatusBadRequest, "stop the run first")
+	surfaceExpect(t, rerun(finished.ID, `{"from": "step", "step": "nope"}`), http.StatusBadRequest, "the run has no step nope")
 
 	fresh := surfaceStarted(t, rerun(finished.ID, `{"from": "scratch"}`))
 	if fresh == finished.ID {
@@ -155,6 +157,20 @@ func TestServerRunFilesDocsAndCalls(t *testing.T) {
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodGet, base+"/file?path=/etc/passwd", nil), http.StatusBadRequest, "not an artifact")
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodGet, base+"/doc"+query, nil), http.StatusOK, "<h1>Findings</h1>")
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodGet, base+"/doc?path=/etc/passwd", nil), http.StatusBadRequest, "not an artifact")
+
+	rendered := surfaceRequest(t, core, http.MethodPost, "/api/markdown", strings.NewReader(`{"text": "**Ship** it\n\n<script>alert(1)</script>\n\n[go](javascript:alert(1))"}`))
+	var reply struct {
+		HTML string `json:"html"`
+	}
+	if err := json.Unmarshal(rendered.Body.Bytes(), &reply); err != nil || !strings.Contains(reply.HTML, "<p><strong>Ship</strong> it</p>") {
+		t.Errorf("rendered markdown = %d %s", rendered.Code, rendered.Body.String())
+	}
+	for _, unsafe := range []string{"script", "javascript"} {
+		if strings.Contains(reply.HTML, unsafe) {
+			t.Errorf("rendered markdown keeps %s: %s", unsafe, reply.HTML)
+		}
+	}
+	surfaceExpect(t, surfaceRequest(t, core, http.MethodPost, "/api/markdown", strings.NewReader("not json")), http.StatusBadRequest, "invalid")
 
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodGet, base+"/call?log=ghost", nil), http.StatusBadRequest, "no such step")
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodGet, base+"/call?log=greet", nil), http.StatusBadRequest, "nothing recorded")

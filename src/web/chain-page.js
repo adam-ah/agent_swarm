@@ -1,6 +1,12 @@
-function chainProblems(problems = [], warnings = []) {
-  if (problems.length) return h("div", { class: "problems" }, h("strong", {}, "This chain cannot run:"), h("ul", {}, problems.map((p) => h("li", {}, p))));
-  if (warnings.length) return h("div", { class: "problems warnings" }, h("strong", {}, "This chain runs, but these look wrong:"), h("ul", {}, warnings.map((w) => h("li", {}, w))));
+function chainProblems(problems = [], warnings = [], draft = false) {
+  if (problems.length) {
+    return h("div", { class: "problems" }, h("strong", {}, draft ? "Not saved yet, and swarm would refuse it:" : "This chain cannot run:"), h("ul", {}, problems.map((p) => h("li", {}, p))));
+  }
+  if (warnings.length) {
+    return h("div", { class: "problems warnings" }, h("strong", {}, draft ? "Not saved yet. It would run, but these look wrong:" : "This chain runs, but these look wrong:"),
+      h("ul", {}, warnings.map((w) => h("li", {}, w))));
+  }
+  if (draft) return h("div", { class: "hint" }, "Not saved yet. swarm finds nothing wrong with it.");
   return null;
 }
 

@@ -74,6 +74,13 @@ test("small helpers format kinds, times, money, paths and values", async () => {
   assert.equal(duration("2026-10-28T10:00:00Z", "2026-10-28T13:07:00Z"), "3h 07m");
   assert.equal(duration(at(15, 30), at(15)), "0s");
 
+  const seconds = page("seconds");
+  assert.equal(seconds(""), "");
+  assert.equal(seconds(at(15), at(15, 0, 50)), "0.1s");
+  assert.equal(seconds(at(15), at(15, 1, 140)), "1.1s");
+  assert.equal(seconds(at(15), at(17, 5)), "125.0s");
+  assert.equal(seconds(at(15, 30), at(15)), "0.0s");
+
   const ago = page("ago");
   assert.equal(ago(before(5)), "just now");
   assert.equal(ago(before(150)), "2m ago");

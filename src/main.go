@@ -7,12 +7,20 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
+
+const defaultPort = 7070
+
+func localPage(port int) string {
+	return net.JoinHostPort("localhost", strconv.Itoa(port))
+}
 
 const usage = `swarm runs chains of agent, tool and user steps. Read "swarm guide" first. Every change is
 validated before saving; * marks commands that write.
@@ -43,6 +51,9 @@ validated before saving; * marks commands that write.
   swarm run CHAIN [-input name=value]... [-detach]
                                 * start a run in the background and print steps as they end;
                                   stopping the command leaves the run going
+  swarm test CHAIN [-input name=value]... [-mock JSON|FILE] [-run ID,...]
+                                  dry run: the real flow with mocked answers; only -run steps
+                                  really run; prints every step's answer and what nothing filled
   swarm runs                      recent runs
   swarm show RUN                  a run's steps
   swarm approve RUN [-note T]   * answer the user step a run waits on
@@ -50,11 +61,12 @@ validated before saving; * marks commands that write.
   swarm reject RUN [-note T]    *
   swarm cancel RUN              * stop a run; "always" steps still run
 
-  swarm serve                     the page, on 0.0.0.0:7070
-  swarm stop                      close the page; runs keep going
+  swarm serve [PORT] [-host IP]   the page, on 127.0.0.1:7070; -host 0.0.0.0 for every interface
+  swarm stop [PORT]               close the page; runs keep going
 
 -project DIR: the project (default $SWARM_PROJECT, else the current folder). $SWARM_HOME
-replaces ~/.swarm. -addr HOST:PORT for serve and stop (default $SWARM_ADDR).
+replaces ~/.swarm. -addr HOST:PORT tells other commands where the page is (default
+$SWARM_ADDR, else localhost:7070).
 `
 
 func main() {
@@ -88,7 +100,7 @@ func dispatch(command string, args []string) error {
 		return stopServer(args)
 	case "_run":
 		return work(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "runs", "show", "approve", "revise", "reject", "cancel",
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "approve", "revise", "reject", "cancel",
 		"snapshot", "diff", "restore":
 		return runCommand(command, args)
 	}
@@ -141,7 +153,7 @@ func pageUp(addr string) bool {
 func overview() {
 	home := defaultHome()
 	folder, _ := os.Getwd()
-	addr := envOr("SWARM_ADDR", "localhost:7070")
+	addr := envOr("SWARM_ADDR", localPage(defaultPort))
 	core := openCore(home)
 	_, projectErr := core.Project(folder)
 	isProject := projectErr == nil
@@ -209,14 +221,45 @@ func samples() error {
 	return nil
 }
 
+func parseAround(flags *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := flags.Parse(args); err != nil {
+			return nil, err
+		}
+		if flags.NArg() == 0 {
+			return positional, nil
+		}
+		positional, args = append(positional, flags.Arg(0)), flags.Args()[1:]
+	}
+}
+
+func portArg(s string) (int, bool) {
+	n, err := strconv.Atoi(s)
+	return n, err == nil && n >= 1 && n <= 65535 && strconv.Itoa(n) == s
+}
+
 func serve(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := flags.String("addr", envOr("SWARM_ADDR", "0.0.0.0:7070"), "where to serve")
+	host := flags.String("host", "127.0.0.1", "the address to listen on; 0.0.0.0 for every interface")
 	home := flags.String("home", defaultHome(), "the shared library, run history and project list")
 	project := flags.String("project", envOr("SWARM_PROJECT", "."), "the folder the page opens on, kept for this session without adding it to the project list")
-	if err := flags.Parse(args); err != nil {
+	positional, err := parseAround(flags, args)
+	if err != nil {
 		return err
 	}
+	port := defaultPort
+	if len(positional) > 1 {
+		return fmt.Errorf("swarm serve takes one port, not %q", strings.Join(positional, " "))
+	}
+	if len(positional) == 1 {
+		n, valid := portArg(positional[0])
+		if !valid {
+			return fmt.Errorf("swarm serve takes a port from 1 to 65535, not %q", positional[0])
+		}
+		port = n
+	}
+	addr := net.JoinHostPort(*host, strconv.Itoa(port))
 	if !inTerminal() && os.Getenv("SWARM_SERVE_ANYWAY") == "" {
 		fmt.Fprint(os.Stderr, `swarm serve runs in a terminal of your own, so you can see its address and stop it.
 This is not a terminal, which usually means an agent started it.
@@ -235,7 +278,7 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 	}
 	projects, opened := core.Projects()
 	srv := &server{core: core, quit: make(chan struct{})}
-	httpServer := &http.Server{Addr: *addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Addr: addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-srv.quit
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -243,7 +286,7 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 		_ = httpServer.Shutdown(ctx)
 	}()
 	go reapOrphans(core.store, srv.quit, 30*time.Second)
-	log.Printf("swarm on http://%s, opens on %s, shared library %s, projects %v", *addr, opened, homeDir, projects)
+	log.Printf("swarm on http://%s, opens on %s, shared library %s, projects %v", addr, opened, homeDir, projects)
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -258,12 +301,17 @@ func inTerminal() bool {
 
 func stopServer(args []string) error {
 	flags := flag.NewFlagSet("stop", flag.ContinueOnError)
-	addr := flags.String("addr", envOr("SWARM_ADDR", "localhost:7070"), "the swarm page")
-	if err := flags.Parse(args); err != nil {
+	addr := flags.String("addr", envOr("SWARM_ADDR", localPage(defaultPort)), "the swarm page")
+	positional, err := parseAround(flags, args)
+	if err != nil {
 		return err
 	}
-	if flags.NArg() > 0 {
-		return fmt.Errorf("swarm stop stops the page; to stop one run use swarm cancel %s", flags.Arg(0))
+	if len(positional) > 0 {
+		port, valid := portArg(positional[0])
+		if !valid || len(positional) > 1 {
+			return fmt.Errorf("swarm stop stops the page; to stop one run use swarm cancel %s", positional[0])
+		}
+		*addr = localPage(port)
 	}
 	if !pageUp(*addr) {
 		fmt.Println("the swarm page is not running on " + *addr)

@@ -42,7 +42,7 @@ func TestServerProjects(t *testing.T) {
 func TestServerRoutesNeedAKnownProject(t *testing.T) {
 	core, _ := surfaceProject(t)
 	routes := [][2]string{
-		{http.MethodGet, "/api/library"}, {http.MethodGet, "/api/catalog"}, {http.MethodGet, "/api/settings"}, {http.MethodGet, "/api/check"},
+		{http.MethodGet, "/api/library"}, {http.MethodGet, "/api/catalog"}, {http.MethodGet, "/api/settings"}, {http.MethodGet, "/api/check"}, {http.MethodPost, "/api/check"},
 		{http.MethodGet, "/api/items/chains/hello.json"}, {http.MethodPut, "/api/items/chains/hello.json"}, {http.MethodDelete, "/api/items/chains/hello.json"},
 		{http.MethodPost, "/api/chains/hello/transfer"}, {http.MethodGet, "/api/memory"}, {http.MethodPut, "/api/memory"},
 		{http.MethodPost, "/api/memory/notes"}, {http.MethodGet, "/api/runs"}, {http.MethodPost, "/api/runs"},

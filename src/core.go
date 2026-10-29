@@ -116,22 +116,12 @@ func (c *Core) PutItem(project, path, scope string, content []byte) error {
 		if err := strictJSON(content, &tool); err != nil {
 			return &RefusedError{[]string{"not a valid tool: " + err.Error()}}
 		}
-		var problems []string
-		if strings.TrimSpace(tool.Title) == "" {
-			problems = append(problems, "a tool needs a title")
-		}
-		if strings.TrimSpace(tool.Run) == "" {
-			problems = append(problems, "a tool needs a run command")
-		}
-		if len(problems) > 0 {
+		if problems := toolProblems(tool); len(problems) > 0 {
 			return &RefusedError{problems}
 		}
 		return saveTool(dir, name, tool)
 	default:
-		if strings.TrimSpace(string(content)) == "" {
-			return &RefusedError{[]string{"a prompt cannot be empty"}}
-		}
-		if problems := newPrompt(string(content), "").Problems; len(problems) > 0 {
+		if problems := promptProblems(string(content)); len(problems) > 0 {
 			return &RefusedError{problems}
 		}
 		chain, prompt, _ := strings.Cut(name, "/")

@@ -31,14 +31,15 @@ func (lib *Library) stepProblems(chain *Chain, step Step, seen map[string]bool) 
 		problems = append(problems, where+": duplicate id")
 	}
 	kinds := 0
-	for _, set := range []bool{step.Tool != "", step.Agent != "", step.User != "", step.Chain != ""} {
+	for _, set := range []bool{step.Tool != "", step.Agent != "", step.User != "", step.Chain != "", step.Repeat != ""} {
 		if set {
 			kinds++
 		}
 	}
 	if kinds != 1 {
-		problems = append(problems, where+": needs exactly one of tool, agent, user or chain")
+		problems = append(problems, where+": needs exactly one of tool, agent, user, chain or repeat")
 	}
+	problems = append(problems, loopProblems(step, where, seen)...)
 	problems = append(problems, lib.referenceProblems(chain, step, where)...)
 	problems = append(problems, fieldProblems(chain, step, where, seen)...)
 	problems = append(problems, conditionProblems(step, where)...)

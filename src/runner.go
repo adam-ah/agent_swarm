@@ -13,6 +13,9 @@ import (
 )
 
 func (r *Runner) runStep(ctx context.Context, lib *Library, chain *Chain, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
+	if r.mocks != nil && !r.mocks.runs(sr) {
+		return r.mocks.answer(lib, chain, sr, step, sc)
+	}
 	switch step.Kind() {
 	case "agent":
 		return r.runAgent(ctx, lib, chain, run, sr, step, sc)

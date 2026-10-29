@@ -21,10 +21,12 @@ test("the call panel shows the command, tool calls, output and stream, and keeps
   assert.match(meta[0], /^started /);
   assert.deepEqual(meta.slice(1), ["ran 42.0s", "exit 0", "in /work/demo"]);
   assert.equal(call.querySelector(".call-meta .good").textContent, "exit 0");
-  assert.equal(call.querySelector("pre.command").textContent, "$ claude -p 'it'\\''s here' <argument 3> --output-format stream-json < stdin");
+  assert.deepEqual(texts(call, ".cmd-line > span"), ["$ claude", "-p 'it'\\''s here'", "--output-format stream-json", "< stdin"]);
 
-  const argument = panel(call, "argument 3");
-  assert.equal(argument.querySelector("summary").textContent, "argument 3 1.5 KB");
+  const argument = call.querySelector(".cmd-arg");
+  assert.equal(argument.parentElement.firstChild.textContent, "-p 'it'\\''s here'");
+  assert.equal(argument.querySelector(".cmd-arg-start").textContent, `'${"x".repeat(200)}…`);
+  assert.equal(argument.querySelector(".hint").textContent, "1.5 KB");
   assert.equal(argument.open, false);
   assert.equal(argument.querySelector("pre").textContent, callRecord.command[3]);
   assert.equal(panel(call, "stdin").querySelector("summary").textContent, "stdin 16 chars");
@@ -36,7 +38,7 @@ test("the call panel shows the command, tool calls, output and stream, and keeps
   assert.equal(call.querySelector(".actions-head").textContent, "Tool calls (3)");
   assert.deepEqual(texts(call, ".action-tool"), ["Bash", "Read", "Grep"]);
   assert.deepEqual(texts(call, ".action-input"), ["go test ./...", "not json", "{\"x\":1}"]);
-  assert.deepEqual(texts(call, ".action-time"), ["250ms", "1m 05s", "running"]);
+  assert.deepEqual(texts(call, ".action-time"), ["0.3s", "65.0s", "unfinished 39.0s"]);
   const actions = $$(".action");
   assert.ok(actions[1].classList.contains("failed"));
   assert.deepEqual(texts(actions[1], ".action-body .hint"), ["input", "output (failed)"]);
@@ -57,7 +59,7 @@ test("the call panel shows the command, tool calls, output and stream, and keeps
   await settle(20);
   const again = callOf("plan");
   assert.equal(callsTo("plan").length, 2);
-  assert.equal(panel(again, "argument 3").open, true);
+  assert.equal(again.querySelector(".cmd-arg").open, true);
   assert.equal(panel(again, "stdin").open, false);
   assert.equal($$(".action")[0].open, true);
   assert.equal(panel(again, "full output stream").open, true);
@@ -75,24 +77,32 @@ test("a call record shows how it exited, its error, and what it printed", async 
   const base = { command: ["make", "all"], dir: "/work/demo", started_at: at(15) };
 
   const killed = view({ ...base, ended_at: at(15, 0, 400), exit_code: -1 });
-  assert.deepEqual(texts(killed, ".call-meta span").slice(1), ["ran 400ms", "killed", "in /work/demo"]);
+  assert.deepEqual(texts(killed, ".call-meta span").slice(1), ["ran 0.4s", "killed", "in /work/demo"]);
   assert.equal(killed.querySelector(".call-meta .bad").textContent, "killed");
-  assert.equal(killed.querySelector("pre.command").textContent, "$ make all");
+  assert.deepEqual(texts(killed, ".cmd-line"), ["$ make all"]);
   assert.deepEqual(texts(killed, ".block-empty"), ["stdout printed nothing", "stderr printed nothing"]);
 
   const failed = view({ ...base, ended_at: at(17, 5), exit_code: 2, error: "make: no rule", stdout: "partial" });
-  assert.deepEqual(texts(failed, ".call-meta span").slice(1), ["ran 2m 05s", "exit 2", "in /work/demo"]);
+  assert.deepEqual(texts(failed, ".call-meta span").slice(1), ["ran 125.0s", "exit 2", "in /work/demo"]);
   assert.equal(failed.querySelector(".error-box").textContent, "make: no rule");
   assert.equal(panel(failed, "stdout").querySelector("pre").textContent, "partial");
   assert.deepEqual(texts(failed, ".block-empty"), ["stderr printed nothing"]);
 
-  const going = view({ ...base, stream: true });
+  const going = view({ ...base, stream: true, actions: [{ id: "a1", tool: "Bash", input: "make", started_at: at(15) }] });
   assert.deepEqual(texts(going, ".call-meta span").slice(1), ["still running", "in /work/demo"]);
   assert.equal(has(going, ".block-empty"), false);
   const stream = panel(going, "stdout");
   click(stream.querySelector("summary"));
   await settle(20);
   assert.equal(stream.querySelector("pre").textContent, "(empty)");
+
+  assert.match(going.querySelector(".action-time").textContent, /^running \d+\.\ds$/);
+  const live = going.querySelector(".action-time [data-tick]");
+  globalThis.document.body.append(going);
+  live.textContent = "-";
+  await settle(1100);
+  assert.match(live.textContent, /^\d+\.\ds$/);
+  going.remove();
 });
 
 test("a call that was not recorded says why", async () => {
@@ -191,6 +201,64 @@ test("artifacts render by kind, and images open in a lightbox driven by keys", a
   await settle(20);
 });
 
+test("a question renders as markdown, shows the files it links in place and marks the ones the step does not show", async () => {
+  reset();
+  const shots = "/runs/1/screenshots";
+  const artifacts = [
+    { kind: "image", path: `${shots}/after-1.png`, name: "after-1.png" },
+    { kind: "image", path: `${shots}/before-1.png`, name: "before-1.png" },
+    { kind: "image", path: "/runs/1/extra.png", name: "extra.png" },
+    { kind: "video", path: "/runs/1/clip.webm", name: "clip.webm" },
+    { kind: "markdown", path: `${shots}/repro.md`, name: "repro.md" },
+    { kind: "diff", path: "/runs/1/change.diff", name: "change.diff" },
+  ];
+  const question = "Open this PR?\n\n| Before | After |\n| --- | --- |\n| ![before](screenshots/before-1.png) | ![after](screenshots/after-1.png) |";
+  route("POST", "/api/markdown", { html: "<p>Open this PR?</p><table><tr><td><img src=\"screenshots/before-1.png\" alt=\"before\"></td><td><img src=\"./screenshots/after%2D1.png\" alt=\"after\"></td></tr></table>"
+    + "<p><img src=\"clip.webm\" alt=\"clip\"><a href=\"screenshots/repro.md\">steps</a><a href=\"https://github.com/o/r/pull/1\">pr</a><a href=\"#top\">top</a>"
+    + "<img src=\"screenshots/after-9.png\" alt=\"gone\"><a href=\"nowhere.txt\">gone link</a></p>" });
+  route("GET", /^\/api\/runs\/[^/]+\/(file|doc)$/, (c) => (c.query.path.endsWith("repro.md") ? "<h2>Bug</h2><p><img src=\"before-1.png\" alt=\"b\"><img src=\"../extra.png\" alt=\"e\"></p>" : ""));
+  await openRun(runOf("waiting", { plan: planDone, test: testDone, review: { status: "waiting", started_at: at(16), question, artifacts } }));
+  await settle(20);
+  const url = (path) => `/api/runs/${RUN}/file?path=${encodeURIComponent(path)}`;
+
+  assert.deepEqual(calls.filter((c) => c.path === "/api/markdown").map((c) => JSON.parse(c.body)), [{ text: question }, { text: question }]);
+  const asked = $(".decision .question.md");
+  assert.deepEqual([...asked.querySelectorAll("td img")].map((img) => img.getAttribute("src")), [url(`${shots}/before-1.png`), url(`${shots}/after-1.png`)]);
+  assert.equal(asked.querySelector("video").getAttribute("src"), `${url("/runs/1/clip.webm")}#t=1`);
+  const links = [...asked.querySelectorAll("a")];
+  assert.deepEqual(links.map((a) => [a.textContent, a.getAttribute("href"), a.getAttribute("target")]), [
+    ["steps", url(`${shots}/repro.md`), "_blank"],
+    ["pr", "https://github.com/o/r/pull/1", "_blank"],
+    ["top", null, null],
+  ]);
+  assert.deepEqual(texts(asked, ".missing"), ["screenshots/after-9.png is not among the files this step shows", "gone link"]);
+  assert.equal(asked.querySelector(".missing:last-child").title, "nowhere.txt is not among the files this step shows");
+
+  const below = $(".decision .question + .artifacts");
+  assert.deepEqual([...below.querySelectorAll(".stills img")].map((img) => img.getAttribute("alt")), ["extra.png"]);
+  assert.equal(has(below, "figure.video"), false);
+  assert.deepEqual(texts(below, ".doc-head"), ["repro.md", "change.diff"]);
+  assert.deepEqual([...below.querySelectorAll(".doc-body.md img")].map((img) => img.getAttribute("src")), [url(`${shots}/before-1.png`), url("/runs/1/extra.png")]);
+
+  const lightbox = $("#lightbox");
+  click(asked.querySelectorAll("td img")[1]);
+  assert.equal(lightbox.hidden, false);
+  assert.equal(lightbox.querySelector("img").getAttribute("src"), url(`${shots}/after-1.png`));
+  press(globalThis.document, "ArrowRight");
+  assert.equal(lightbox.querySelector("img").getAttribute("src"), url(`${shots}/before-1.png`));
+  press(globalThis.document, "Escape");
+
+  click(head("review"));
+  assert.ok(has(row("review"), ".srow-body .question.md td img"), "the step row shows the same rendered question");
+
+  route("POST", "/api/markdown", fail(500, "down"));
+  await openRun(runOf("waiting", { plan: planDone, test: testDone, review: { status: "waiting", started_at: at(16), question, artifacts, round: 1 } }));
+  await settle(20);
+  assert.equal($(".decision .question").textContent, question);
+  assert.equal(has($("#decision"), ".question.md"), false);
+  assert.equal($$(".decision .stills img").length, 3, "without markdown every file shows below the question");
+});
+
 test("an open step shows its fields, what it read, how it was asked again, and where to edit it", async () => {
   reset();
   route("GET", `/api/runs/${RUN}/call`, callRecord);
@@ -207,8 +275,8 @@ test("an open step shows its fields, what it read, how it was asked again, and w
 
   assert.deepEqual(texts(row("plan"), ".chip"), ["attempt 2", "continues", "asked again"]);
   assert.equal(row("test").querySelector(".srow-line").textContent, "Stopped: the tests are flaky");
-  assert.equal(row("test").querySelector(".srow-stats").textContent, "8s · 0.9k tokens");
-  assert.equal(row("learn").querySelector(".srow-stats").textContent, "5s · 12k tokens");
+  assert.equal(row("test").querySelector(".srow-stats").textContent, "8.0s · 0.9k tokens");
+  assert.equal(row("learn").querySelector(".srow-stats").textContent, "5.0s · 12k tokens");
   assert.deepEqual(texts(row("learn"), ".chip"), [], "an always step inside its outline block needs no chip");
 
   click(head("plan"));
@@ -290,7 +358,7 @@ test("earlier attempts list each try with its own call", async () => {
   click(head("plan"));
   const list = panel(row("plan"), "Earlier attempts (2)");
   const attempts = [...list.querySelectorAll(".attempt")];
-  assert.deepEqual(attempts.map((a) => a.querySelector(".attempt-head").textContent), ["Attempt 19s", "Attempt 2stopped"]);
+  assert.deepEqual(attempts.map((a) => a.querySelector(".attempt-head").textContent), ["Attempt 19.0s", "Attempt 2stopped"]);
   assert.equal(attempts[0].querySelector(".headline").textContent, "First plan");
   assert.equal(attempts[0].querySelector(".error-box").textContent, "no JSON in the answer");
   assert.deepEqual(texts(attempts[0], "dt"), ["reason"]);

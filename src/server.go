@@ -24,6 +24,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/catalog", s.catalog)
 	mux.HandleFunc("GET /api/settings", s.settings)
 	mux.HandleFunc("GET /api/check", s.check)
+	mux.HandleFunc("POST /api/check", s.checkDraft)
 	mux.HandleFunc("GET /api/items/{kind}/{file...}", s.getItem)
 	mux.HandleFunc("PUT /api/items/{kind}/{file...}", s.putItem)
 	mux.HandleFunc("GET /api/items/{file}", s.getItem)
@@ -43,6 +44,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
 	mux.HandleFunc("GET /api/runs/{id}/file", s.file)
 	mux.HandleFunc("GET /api/runs/{id}/doc", s.doc)
+	mux.HandleFunc("POST /api/markdown", s.renderMarkdown)
 	mux.HandleFunc("GET /api/runs/{id}/call", s.call)
 	return mux
 }
@@ -223,6 +225,24 @@ func (s *server) deleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w)
+}
+
+func (s *server) checkDraft(w http.ResponseWriter, r *http.Request) {
+	project, good := s.project(w, r)
+	if !good {
+		return
+	}
+	var d Draft
+	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+		fail(w, err)
+		return
+	}
+	verdicts, err := s.core.CheckDraft(project, d)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, verdicts)
 }
 
 func (s *server) transferChain(w http.ResponseWriter, r *http.Request) {

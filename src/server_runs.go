@@ -108,15 +108,21 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 func (s *server) rerun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		From string `json:"from"`
+		Step string `json:"step"`
 	}
 	if !readBody(w, r, &req) {
 		return
 	}
-	if req.From != "scratch" && req.From != "failed" {
-		fail(w, errors.New(`from must be "scratch" or "failed"`))
-		return
+	id := r.PathValue("id")
+	var err error
+	switch req.From {
+	case "scratch", "failed":
+		id, err = s.core.Rerun(id, req.From == "scratch")
+	case "step":
+		err = s.core.RerunFrom(id, req.Step)
+	default:
+		err = errors.New(`from must be "scratch", "failed" or "step"`)
 	}
-	id, err := s.core.Rerun(r.PathValue("id"), req.From == "scratch")
 	if err != nil {
 		fail(w, err)
 		return
@@ -177,10 +183,31 @@ func (s *server) doc(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	var html bytes.Buffer
-	if err := markdown.Convert(source, &html); err != nil {
+	html, err := toHTML(source)
+	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeBody(w, http.StatusOK, "text/html; charset=utf-8", html.Bytes())
+	writeBody(w, http.StatusOK, "text/html; charset=utf-8", html)
+}
+
+func (s *server) renderMarkdown(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	html, err := toHTML([]byte(body.Text))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"html": string(html)})
+}
+
+func toHTML(source []byte) ([]byte, error) {
+	var html bytes.Buffer
+	err := markdown.Convert(source, &html)
+	return html.Bytes(), err
 }

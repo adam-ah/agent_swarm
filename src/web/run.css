@@ -1,0 +1,44 @@
+.artifacts { display: flex; flex-direction: column; gap: 14px; }
+.artifacts:empty { display: none; }
+.video { margin: 0; }
+.video video { display: block; width: 100%; max-height: 540px; border-radius: 10px; background: #0b0d10; border: 1px solid var(--line); }
+.caption { margin-top: 6px; color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.stills { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+.still { flex: none; cursor: zoom-in; margin: 0; }
+.still img { display: block; height: 128px; border-radius: 8px; border: 1px solid var(--line); background: #0b0d10; }
+.still figcaption { margin-top: 4px; color: var(--faint); font: 11px var(--mono); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.doc-head { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: 12px var(--mono); background: var(--panel-2); }
+.doc-body { padding: 4px 18px 10px; max-height: 360px; overflow: hidden; line-height: 1.6; }
+.doc.open .doc-body { max-height: none; }
+.doc-more { display: block; width: 100%; padding: 8px; border: 0; border-top: 1px solid var(--line-soft); background: var(--panel-2); color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; }
+.doc-body pre.plain { margin: 10px 0; background: none; padding: 0; white-space: pre-wrap; font: 12.5px/1.5 var(--mono); }
+pre.diff { margin: 10px 0; font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.diff span { display: block; padding: 0 6px; border-radius: 3px; }
+pre.diff .add { background: var(--ok-soft); color: #0d6b3a; }
+pre.diff .del { background: var(--bad-soft); color: #9b2626; }
+pre.diff .hunk { color: var(--accent); background: var(--accent-soft); }
+pre.diff .meta { color: var(--muted); font-weight: 650; }
+
+.question.md { white-space: normal; }
+.question.md > :first-child { margin-top: 0; }
+.question.md > :last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3 { font-size: 15px; margin: 16px 0 6px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.doc-body p, .md p { margin: 10px 0; }
+.md code { background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+.doc-body pre, .md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md table { width: 100%; margin: 10px 0; border-collapse: collapse; table-layout: fixed; }
+.md th, .md td { padding: 6px 8px; border: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+.md img, .md video { display: block; max-width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #0b0d10; }
+.md img { cursor: zoom-in; }
+.md .missing { color: var(--warn); font: 12px var(--mono); }
+
+.rounds:empty { display: none; }
+.round > summary, .past > summary { cursor: pointer; list-style: none; }
+.round > summary::-webkit-details-marker, .past > summary::-webkit-details-marker { display: none; }
+.round > summary::before, .past > summary .srow-caret::before { content: "▸"; color: var(--faint); font-size: 11px; }
+.round[open] > summary::before, .past[open] > summary .srow-caret::before { content: "▾"; }
+.round > .past { margin-left: 14px; }
+.past > summary:hover { background: var(--panel-2); }
+.past[open] .srow-line { white-space: normal; overflow-wrap: anywhere; }

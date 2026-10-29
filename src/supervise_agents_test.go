@@ -35,6 +35,19 @@ sleep 3622
 	}
 }
 
+func TestAgentStepWaitsPastItsAnswerToABackgroundTaskNotice(t *testing.T) {
+	quickStops(t)
+	fakeClaude(t, `echo '{"type":"system","subtype":"task_notification","status":"stopped","summary":"Background shell command didn'"'"'t finish before the previous session ended"}'
+echo '{"type":"result","subtype":"success","result":"","num_turns":0,"origin":{"kind":"task-notification"},"session_id":"s1"}'
+sleep 0.3
+echo '{"type":"result","result":"","structured_output":{"summary":"fixed all seven"},"session_id":"s1"}'
+`)
+	run, _ := execute(t, sequenceLibrary(t), agentChain(""))
+	if step := run.Steps[0]; step.Status != "done" || step.Output["summary"] != "fixed all seven" {
+		t.Fatalf("step = %s %v (%s), want the answer to the prompt", step.Status, step.Output, step.Error)
+	}
+}
+
 func TestAgentStepStopsWhenNothingHappens(t *testing.T) {
 	quickStops(t)
 	fakeClaude(t, `printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npx vitest run\nmore"}}]}}'

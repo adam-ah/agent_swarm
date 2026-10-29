@@ -51,8 +51,8 @@ const putItem = (kind, name, value, scope = "") =>
 const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" });
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
-const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", root: "≡" };
-const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", item: "one run of the chain, for this item" };
+const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", repeat: "↻", root: "≡" };
+const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", repeat: "repeat", item: "one run of the chain, for this item" };
 const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
 const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
@@ -71,6 +71,7 @@ function kindOf(step) {
   if (step.agent) return "agent";
   if (step.user !== undefined && step.user !== null && step.user !== "") return "user";
   if (step.chain) return "chain";
+  if (step.repeat) return "repeat";
   return "tool";
 }
 
@@ -81,6 +82,11 @@ function duration(from, to) {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+function seconds(from, to) {
+  if (!from) return "";
+  return `${(Math.max(0, (to ? new Date(to) : new Date()) - new Date(from)) / 1000).toFixed(1)}s`;
 }
 
 function ago(when) {
@@ -292,10 +298,33 @@ const returnsText = (prompt) => (prompt?.returns || []).map((f) => (f.value === 
 const mapToRows = (m) => Object.entries(m || {}).map(([key, value]) => ({ key, value }));
 const rowsToMap = (rows) => Object.fromEntries(rows.filter((r) => r.key).map((r) => [r.key, r.value]));
 
-function usedBy(match) {
+function usedBy(match, verdicts) {
   const groups = lib.chains.map((chain) => [chain, (chain.steps || []).filter((s) => match(s, chain))]).filter(([, steps]) => steps.length);
   if (!groups.length) return [h("span", { class: "hint" }, "Not used by any chain yet")];
-  return groups.map(([chain, steps]) => h("div", { class: "use" },
-    h("a", { class: "use-chain", href: `#/chain/${chain.name}` }, chain.title),
-    h("span", { class: "use-steps" }, steps.map((s, i) => [i ? ", " : "", h("a", { href: `#/chain/${chain.name}/${s.id}` }, s.title)]))));
+  return groups.map(([chain, steps]) => {
+    const v = verdicts?.[`chains/${chain.name}.json`] || chain;
+    return h("div", { class: "use" },
+      h("a", { class: "use-chain", href: `#/chain/${chain.name}` }, chain.title),
+      h("span", { class: "use-steps" }, steps.map((s, i) => [i ? ", " : "", h("a", { href: `#/chain/${chain.name}/${s.id}` }, s.title)])),
+      (v.problems || []).map((p) => h("div", { class: "error-text" }, `cannot run: ${p}`)),
+      (v.warnings || []).map((w) => h("div", { class: "hint" }, `⚠ ${w}`)));
+  });
+}
+
+const CHECK_DELAY = 150;
+let checkTimer;
+let checkSeq = 0;
+
+function checkLater(draft, show) {
+  clearTimeout(checkTimer);
+  const seq = ++checkSeq;
+  checkTimer = setTimeout(async () => {
+    const verdicts = await send("POST", "/api/check", draft).catch(() => null);
+    if (verdicts && seq === checkSeq) show(verdicts);
+  }, CHECK_DELAY);
+}
+
+function draftStatus(status, problems = []) {
+  status.className = problems.length ? "status error-text" : "status";
+  status.textContent = problems.length ? `Unsaved. swarm would refuse it: ${problems.join("; ")}` : "Unsaved";
 }

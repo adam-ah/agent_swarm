@@ -35,6 +35,8 @@ type cli struct {
 	about      string
 	below      bool
 	detach     bool
+	mock       string
+	real       string
 	inputs     inputFlags
 	positional []string
 }
@@ -64,7 +66,7 @@ func runCommand(command string, args []string) error {
 func parseCommand(command string, args []string) (*cli, error) {
 	c := &cli{command: command, inputs: inputFlags{}}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
-	flags.StringVar(&c.addr, "addr", envOr("SWARM_ADDR", "localhost:7070"), "where swarm serve listens, for page links")
+	flags.StringVar(&c.addr, "addr", envOr("SWARM_ADDR", localPage(defaultPort)), "where swarm serve listens, for page links")
 	flags.StringVar(&c.folder, "project", envOr("SWARM_PROJECT", "."), "the project folder")
 	flags.BoolVar(&c.below, "below", false, "get: the shared version below this project's copy")
 	flags.StringVar(&c.file, "file", "", "put, memory set: read from this file instead of stdin")
@@ -72,7 +74,9 @@ func parseCommand(command string, args []string) (*cli, error) {
 	flags.StringVar(&c.note, "note", "", "approve, revise, reject: a note for the record; revise needs one")
 	flags.StringVar(&c.about, "about", "", "memory add: what the notes came from")
 	flags.BoolVar(&c.detach, "detach", false, "run: print the run's id and return; the run keeps going")
-	flags.Var(c.inputs, "input", "run: a chain input as name=value; repeat for more")
+	flags.Var(c.inputs, "input", "run, test: a chain input as name=value; repeat for more")
+	flags.StringVar(&c.mock, "mock", "", "test: step answers, as JSON or a JSON file")
+	flags.StringVar(&c.real, "run", "", "test: steps that really run, comma-separated")
 	for len(args) > 0 {
 		name, _, _ := strings.Cut(strings.TrimLeft(args[0], "-"), "=")
 		if strings.HasPrefix(args[0], "-") && args[0] != "--" && flags.Lookup(name) == nil {
@@ -124,6 +128,8 @@ func (c *cli) inProject(project string) error {
 		return nil
 	case "run":
 		return c.run(project)
+	case "test":
+		return c.test(project)
 	case "snapshot", "diff", "restore":
 		return c.swarmFiles(project)
 	}
@@ -210,10 +216,12 @@ func (c *cli) init() error {
 
 So agents working here know about swarm, add this line to the project's CLAUDE.md or AGENTS.md:
 
-  This project uses swarm for multi-step agent work. Run "swarm guide" before creating, changing or running a chain.
-`)
+  ` + agentNote + "\n")
 	return nil
 }
+
+const agentNote = `This project uses swarm for multi-step agent work. Run "swarm guide" before creating, changing or running a chain. ` +
+	`Read and change chains, tools and prompts only with the swarm command, never by opening files in .swarm/.`
 
 func (c *cli) list(project string) error {
 	lib, err := c.core.Library(project)
@@ -284,10 +292,17 @@ func (c *cli) remove(project string) error {
 	if err != nil {
 		return err
 	}
+	users := []string{}
+	if lib, err := c.core.Library(project); err == nil {
+		users = lib.chainsUsing(path)
+	}
 	if err := c.core.DeleteItem(project, path); err != nil {
 		return refused(err)
 	}
 	fmt.Println("deleted " + path)
+	if lib, err := c.core.Library(project); err == nil && len(users) > 0 {
+		printWarnings(lib.allWarnings(users...))
+	}
 	return nil
 }
 

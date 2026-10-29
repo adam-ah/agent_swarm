@@ -5,7 +5,14 @@ function notApproved(when, gateID) {
 
 function ifGroups(steps, inBranch = false) {
   const nodes = [];
-  for (const step of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const end = steps.findLastIndex((s, j) => j > i && s.repeat === step.id);
+    if (end > i) {
+      nodes.push({ type: "loop", step: steps[end], children: [...ifGroups(steps.slice(i, end), inBranch), { type: "step", step: steps[end] }] });
+      i = end;
+      continue;
+    }
     const cond = inBranch ? "" : step.when || "";
     const last = nodes[nodes.length - 1];
     if (cond && last?.type === "if" && last.cond === cond) last.children.push({ type: "step", step });
@@ -33,6 +40,27 @@ function outlineOf(steps, all = steps) {
   nodes.push({ type: "decision", step: gate, back, approved: outlineOf(rest.filter((s) => !s.always), all), rejected: ifGroups(rejected, true), always: always.length > 0 });
   if (always.length) nodes.push({ type: "always", children: ifGroups(always) });
   return nodes;
+}
+
+const BLOCK_START = { loop: "start of the loop", if: "start of the If block", always: "start of the steps that always run" };
+
+function startsAround(nodes, id) {
+  for (const node of nodes) {
+    if (node.type === "step" || node.type === "decision") {
+      if (node.step.id === id) return [];
+      if (node.type === "step") continue;
+    }
+    const branches = node.type === "decision"
+      ? [[node.approved, "start of the approved branch"], [node.rejected, "start of the rejected branch"]]
+      : [[node.children, BLOCK_START[node.type]]];
+    for (const [kids, level] of branches) {
+      const inner = startsAround(kids, id);
+      if (!inner) continue;
+      const around = [...inner, { step: stepsIn(kids)[0], level }];
+      return node.type === "decision" ? [...around, { step: node.step, level: "the approval" }] : around;
+    }
+  }
+  return null;
 }
 
 function stepsIn(nodes) {
@@ -80,8 +108,8 @@ function conditionLabel(text, chain, go, value) {
 }
 
 function renderOutline(nodes, view, blocks = [], inAlways = false) {
-  const group = (cls, label, children, always = inAlways) => {
-    const el = h("div", { class: `ol-block ${cls}` }, h("div", { class: "ol-label" }, label), h("div", { class: "ol-kids" }, renderOutline(children, view, blocks, always)));
+  const group = (cls, label, children, always = inAlways, lead = null) => {
+    const el = h("div", { class: `ol-block ${cls}` }, h("div", { class: "ol-label" }, label), h("div", { class: "ol-kids" }, lead, renderOutline(children, view, blocks, always)));
     blocks.push({ el, steps: stepsIn(children) });
     return el;
   };
@@ -91,6 +119,12 @@ function renderOutline(nodes, view, blocks = [], inAlways = false) {
     if (node.type === "step") return view.step(node.step, inAlways);
     if (node.type === "if") return group("ol-if", [word("If"), conditionLabel(node.cond, view.chain, view.go, view.value)], node.children);
     if (node.type === "always") return group("ol-always", [word("Then, always"), note("even after a failure, a stop or a rejection")], node.children, true);
+    if (node.type === "loop") {
+      const r = node.step;
+      return group("ol-loop", [word("Repeat"), note(`(${r.rounds || 3}× at most)`),
+        r.when ? [note("while"), conditionLabel(r.when, view.chain, view.go, view.value)] : note("every round"),
+        note(`· ${LOOP_ENDS[r.fail || ""] || r.fail}`)], node.children, inAlways, view.rounds?.(node));
+    }
     const everyRejected = node.rejected.length && node.rejected.every((n) => readCondition(n.step.when)?.op === "isnt");
     const after = node.always ? "only the steps under THEN, ALWAYS run" : "nothing more runs";
     return [

@@ -107,7 +107,7 @@ func TestDefaultHome(t *testing.T) {
 
 func TestServeRefusesWithoutATerminal(t *testing.T) {
 	surfaceProject(t)
-	out, err := surfaceDispatch(t, "serve", "-addr", surfaceClosedAddr)
+	out, err := surfaceDispatch(t, "serve")
 	surfaceFails(t, err, "refused to start outside a terminal")
 	if !strings.Contains(out, "This is not a terminal") {
 		t.Errorf("no reason given: %s", out)
@@ -115,17 +115,24 @@ func TestServeRefusesWithoutATerminal(t *testing.T) {
 	_, err = surfaceDispatch(t, "serve", "-bogus")
 	surfaceFails(t, err, "flag provided but not defined")
 	t.Setenv("SWARM_SERVE_ANYWAY", "1")
-	_, err = surfaceDispatch(t, "serve", "-addr", surfaceClosedAddr, "-project", filepath.Join(t.TempDir(), "missing"))
+	_, err = surfaceDispatch(t, "serve", "1", "-project", filepath.Join(t.TempDir(), "missing"))
 	surfaceFails(t, err, "is not a folder")
 }
 
-func TestServeReportsAnAddressItCannotUse(t *testing.T) {
+func TestServeTakesAPortAndAHost(t *testing.T) {
 	surfaceProject(t)
 	t.Setenv("SWARM_SERVE_ANYWAY", "1")
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	_, err := surfaceDispatch(t, "serve", "-addr", "no-port")
-	surfaceFails(t, err, "missing port in address")
+	taken := httptest.NewServer(http.NotFoundHandler())
+	defer taken.Close()
+	port := strings.TrimPrefix(taken.URL, "http://127.0.0.1:")
+	_, err := surfaceDispatch(t, "serve", port, "-host", "127.0.0.1")
+	surfaceFails(t, err, "listen tcp 127.0.0.1:"+port+": bind: address already in use")
+	for args, want := range map[string]string{"0": "a port from 1 to 65535, not \"0\"", "08080": "not \"08080\"", "70000": "not \"70000\"", "web": "not \"web\"", "1 2": "takes one port, not \"1 2\""} {
+		_, err = surfaceDispatch(t, "serve", strings.Fields(args)...)
+		surfaceFails(t, err, want)
+	}
 }
 
 func TestStopWhenNothingRuns(t *testing.T) {
@@ -136,6 +143,8 @@ func TestStopWhenNothingRuns(t *testing.T) {
 	surfaceContains(t, out, err, "not running on bad host")
 	_, err = surfaceDispatch(t, "stop", "0101-000000")
 	surfaceFails(t, err, "use swarm cancel 0101-000000")
+	out, err = surfaceDispatch(t, "stop", "1")
+	surfaceContains(t, out, err, "not running on localhost:1")
 	_, err = surfaceDispatch(t, "stop", "-bogus")
 	surfaceFails(t, err, "flag provided but not defined")
 	t.Setenv("SWARM_ADDR", "")

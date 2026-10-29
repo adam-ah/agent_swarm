@@ -32,6 +32,7 @@ type Runner struct {
 	mu       sync.Mutex
 	running  map[int]bool
 	kept     []keptGroup
+	mocks    *mocks
 }
 
 func newRunner(home string, store *Store) *Runner {
@@ -52,10 +53,7 @@ func (r *Runner) environment(run *Run) []string {
 		"PATH="+filepath.Dir(r.swarm)+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*Run, error) {
-	if len(chain.Problems) > 0 {
-		return nil, fmt.Errorf("fix the chain first: %s", strings.Join(chain.Problems, "; "))
-	}
+func resolveInputs(lib *Library, chain *Chain, inputs map[string]string) (map[string]string, error) {
 	if len(chain.Steps) == 0 {
 		return nil, fmt.Errorf("%s has no steps yet", chain.Name)
 	}
@@ -69,6 +67,17 @@ func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*R
 			return nil, fmt.Errorf("%s is required", in.Label)
 		}
 		resolved[in.Name] = v
+	}
+	return resolved, nil
+}
+
+func (r *Runner) start(lib *Library, chain *Chain, inputs map[string]string) (*Run, error) {
+	if len(chain.Problems) > 0 {
+		return nil, fmt.Errorf("fix the chain first: %s", strings.Join(chain.Problems, "; "))
+	}
+	resolved, err := resolveInputs(lib, chain, inputs)
+	if err != nil {
+		return nil, err
 	}
 	id, err := r.store.claim()
 	if err != nil {

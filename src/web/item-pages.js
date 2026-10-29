@@ -41,15 +41,21 @@ function showTool(name) {
   const source = tool.source;
   delete tool.source;
   const status = h("span", { class: "status" });
-  const dirty = unsaved(status);
+  const users = h("div", { class: "panel-body used-by" });
+  const drawUsers = (verdicts) => users.replaceChildren(...usedBy((s) => s.tool === name, verdicts));
+  drawUsers();
+  const dirty = () => {
+    unsaved(status)();
+    checkLater({ tools: { [name]: tool } }, (v) => { drawUsers(v); draftStatus(status, v[`tools/${name}.json`]?.problems); });
+  };
   main.replaceChildren(h("div", { class: "page" },
     h("div", { class: "eyebrow" }, `Tool · tools/${name}.json · ${FROM[source] || "not saved yet"}`),
     h("h1", {}, name),
     h("p", { class: "lead" }, "A named action a chain can call. It runs as a bash script in the project folder. {{name}} is filled from the chain's inputs and values, the step's values, or an earlier step's output ({{step_id.field}}), already shell-quoted. If it prints a JSON object, its fields become the step's output."),
     h("div", { class: "split" },
-      h("div", { class: "panel" }, h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s) => s.tool === name))),
+      h("div", { class: "panel" }, h("div", { class: "panel-head" }, "Used by"), users),
       h("div", { class: "panel" },
-        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Definition"), itemButtons("tools", name, source, status, () => tool)),
+        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Definition"), itemButtons("tools", name, source, status, () => tool, () => drawUsers())),
         h("div", { class: "panel-body form" },
           field("What it does", textInput(tool.title, (v) => { tool.title = v; dirty(); })),
           field("Command", textArea(tool.run, (v) => { tool.run = v; dirty(); }, { class: "code", rows: 12 })))))));
@@ -183,11 +189,11 @@ function showPrompt(chainName, name) {
   const source = chain?.source;
   const status = h("span", { class: "status" });
   const facts = h("div", { class: "panel" });
-  const drawFacts = () => {
+  const drawFacts = (verdicts) => {
     const saved = promptOf(chainName, name) || {};
     const placeholders = placeholdersIn(saved.text);
     facts.replaceChildren(
-      h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s, c) => c.name === chainName && s.agent === name)),
+      h("div", { class: "panel-head" }, "Used by"), h("div", { class: "panel-body used-by" }, usedBy((s, c) => c.name === chainName && s.agent === name, verdicts)),
       h("div", { class: "panel-head" }, "Fields it returns"), h("div", { class: "panel-body used-by" }, returnsList(saved)),
       h("div", { class: "panel-head" }, "Placeholders it reads"), h("div", { class: "panel-body used-by" }, placeholders.length ? placeholders.map((p) => h("code", {}, `{{${p}}}`)) : h("span", { class: "hint" }, "none")),
       h("div", { class: "panel-head" }, "How to list the fields"), h("div", { class: "panel-body" }, h("pre", { class: "example" }, RETURN_EXAMPLE),
@@ -201,6 +207,10 @@ function showPrompt(chainName, name) {
     h("div", { class: "split" },
       facts,
       h("div", { class: "panel" },
-        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", `${chainName}/${name}`, source, status, () => text, drawFacts)),
-        h("div", { class: "panel-body" }, textArea(text, (v) => { text = v; unsaved(status)(); }, { class: "code prompt" }))))));
+        h("div", { class: "panel-head" }, h("span", { class: "grow" }, "Text"), itemButtons("prompts", `${chainName}/${name}`, source, status, () => text, () => drawFacts())),
+        h("div", { class: "panel-body" }, textArea(text, (v) => {
+          text = v;
+          unsaved(status)();
+          checkLater({ prompts: { [`${chainName}/${name}`]: text } }, (verdicts) => { drawFacts(verdicts); draftStatus(status, verdicts[`chains/${chainName}/${name}.md`]?.problems); });
+        }, { class: "code prompt" }))))));
 }

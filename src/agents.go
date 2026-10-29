@@ -227,6 +227,9 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 				}
 			}
 		case "result":
+			if answersTaskNotice(line) {
+				return false
+			}
 			if !got {
 				got = json.Unmarshal(line, &final) == nil
 				log.edit(func(c *Call) { c.Result = prettyRaw(line) })
@@ -243,6 +246,15 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 		return result, fmt.Errorf("claude reported an error: %s", lastLines(final.Result, 3))
 	}
 	return result, nil
+}
+
+func answersTaskNotice(line []byte) bool {
+	var result struct {
+		Origin struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
+	}
+	return json.Unmarshal(line, &result) == nil && result.Origin.Kind == "task-notification"
 }
 
 func codexArgs(call agentCall, schemaFile string) []string {

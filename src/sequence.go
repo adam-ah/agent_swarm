@@ -71,6 +71,9 @@ func (r *Runner) runSteps(ctx context.Context, p pass) {
 	if *p.feedback != "" {
 		p.sc.values["feedback"] = *p.feedback
 	}
+	if p.sc.parent == nil {
+		r.store.update(p.run, func() { r.refreshSubject(p.chain, p.run, p.sc) })
+	}
 	for i := 0; i < len(p.chain.Steps); i++ {
 		i = r.runOne(ctx, p, i)
 	}
@@ -78,6 +81,9 @@ func (r *Runner) runSteps(ctx context.Context, p pass) {
 
 func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	step, sr := p.chain.Steps[i], p.steps[i]
+	if r.mocks != nil {
+		r.mocks.order = append(r.mocks.order, sr)
+	}
 	defer func() { r.noteStopped(p.run, "after "+step.Title, r.release(sr.Path)) }()
 	if runCtx.Err() != nil {
 		p.end.finish("stopped", "You stopped the run before: "+step.Title)
@@ -86,8 +92,11 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 		restore(p.lib, p.sc, step, sr)
 		return i
 	}
-	if r.skip(p, step, sr) {
+	if r.skip(runCtx, p, step, sr) {
 		return i
+	}
+	if step.Kind() == "repeat" {
+		return r.loop(runCtx, p, step, sr, i)
 	}
 	ctx := runCtx
 	if p.end.ended {
@@ -115,13 +124,17 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	return i
 }
 
-func (r *Runner) skip(p pass, step Step, sr *StepRun) bool {
+func (r *Runner) skip(ctx context.Context, p pass, step Step, sr *StepRun) bool {
 	if p.end.ended && !step.Always {
 		r.store.update(p.run, func() { skipAll(sr) })
 		return true
 	}
 	if step.When != "" && !p.sc.holds(step.When) {
-		r.store.update(p.run, func() { skipAll(sr); sr.Headline = "Skipped: " + unmet(step.When) })
+		r.store.update(p.run, func() {
+			skipAll(sr)
+			sr.Headline = "Skipped: " + unmet(step.When)
+			p.endedEarly(ctx, step, sr)
+		})
 		return true
 	}
 	return false

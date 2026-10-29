@@ -75,6 +75,79 @@ func TestRerunFromTheFailedStepInAWorker(t *testing.T) {
 	}
 }
 
+func TestRewindFromAStepRerunsItAndEverythingAfter(t *testing.T) {
+	steps := func() []*StepRun {
+		return []*StepRun{
+			{ID: "plan", Path: "plan", Title: "Plan", Kind: "agent", Status: "done", StartedAt: &time.Time{}},
+			{ID: "build", Path: "build", Kind: "chain", Status: "done", StartedAt: &time.Time{}, Children: []*StepRun{
+				{ID: "1", Path: "build.1", Kind: "item", Status: "done", StartedAt: &time.Time{}, Children: []*StepRun{
+					{ID: "compile", Path: "build.1.compile", Title: "Compile", Kind: "tool", Status: "done", StartedAt: &time.Time{}},
+					{ID: "link", Path: "build.1.link", Kind: "tool", Status: "done", StartedAt: &time.Time{}},
+				}},
+				{ID: "2", Path: "build.2", Kind: "item", Status: "done", StartedAt: &time.Time{}},
+			}},
+			{ID: "ship", Path: "ship", Kind: "tool", Status: "done", StartedAt: &time.Time{}},
+		}
+	}
+	top := steps()
+	if target := rewindFrom(top, "plan"); target == nil || target.Title != "Plan" || target.Round != 1 {
+		t.Fatalf("rewound to %+v", target)
+	}
+	for _, sr := range top {
+		if sr.Status != "pending" || len(sr.Earlier) != 1 {
+			t.Errorf("%s = %s with %d earlier, want pending with one", sr.Path, sr.Status, len(sr.Earlier))
+		}
+	}
+
+	nested := steps()
+	if target := rewindFrom(nested, "build.1.compile"); target == nil || target.Title != "Compile" {
+		t.Fatalf("rewound to %+v", target)
+	}
+	item := nested[1].Children[0]
+	if nested[0].Status != "done" || nested[1].Status != "pending" || item.Status != "pending" || len(item.Earlier) != 0 {
+		t.Errorf("plan %s, build %s, item %s with %d earlier", nested[0].Status, nested[1].Status, item.Status, len(item.Earlier))
+	}
+	if item.Children[1].Status != "pending" || nested[1].Children[1].Status != "pending" || nested[2].Status != "pending" {
+		t.Errorf("link %s, item 2 %s, ship %s, want all pending", item.Children[1].Status, nested[1].Children[1].Status, nested[2].Status)
+	}
+
+	if rewindFrom(steps(), "build.3.compile") != nil || rewindFrom(steps(), "") != nil {
+		t.Error("rewound to a step that is not there")
+	}
+}
+
+func TestRerunFromAnEarlierStepOfAFinishedRun(t *testing.T) {
+	core, project := engineSetup(t)
+	first, err := core.StartRun(project, "flaky", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	killWorkerOnCleanup(t, core, first.ID)
+	awaitRunEnd(t, core, first.ID)
+	writeFiles(t, project, map[string]string{"fixed": ""})
+	if err := core.RerunFrom(first.ID, "say"); err != nil {
+		t.Fatal(err)
+	}
+	done := awaitRunEnd(t, core, first.ID)
+	if done.Status != "done" || done.RerunFrom != "Say" || done.Steps[0].Round != 1 || done.Steps[1].Round != 1 {
+		t.Errorf("rerun = %s from %q (%s), rounds %d %d", done.Status, done.RerunFrom, done.Reason, done.Steps[0].Round, done.Steps[1].Round)
+	}
+
+	unrun := finishedRun(t, core, project, "flaky", []*StepRun{{ID: "say", Path: "say", Title: "Say", Kind: "tool", Status: "failed"}, {ID: "flaky", Path: "flaky", Title: "Flaky", Kind: "tool", Status: "pending"}})
+	gone := finishedRun(t, core, project, "gone", []*StepRun{{ID: "say", Path: "say", Kind: "tool", Status: "done"}})
+	for _, tt := range []struct{ id, path, want string }{
+		{"0101-000000", "say", "no run 0101-000000"},
+		{fakeRunAt(t, core, "waiting", ""), "check", "stop the run first"},
+		{unrun, "nope", "the run has no step nope"},
+		{unrun, "flaky", "Flaky did not run"},
+		{gone, "say", "no chain named gone"},
+	} {
+		if err := core.RerunFrom(tt.id, tt.path); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("RerunFrom(%s, %s) = %v, want %q", tt.id, tt.path, err, tt.want)
+		}
+	}
+}
+
 func TestRerunRefuses(t *testing.T) {
 	core, project := engineSetup(t)
 	broken := t.TempDir()
@@ -108,14 +181,14 @@ func TestResumeRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	chain := lib.Chains["flaky"]
-	if err := core.runner.resume(lib, chain, "0101-000000"); err == nil {
+	if err := core.runner.resume(lib, chain, "0101-000000", ""); err == nil {
 		t.Error("resumed a missing run")
 	}
 	stuck := finishedRun(t, core, project, "flaky", flakySteps())
 	if err := os.MkdirAll(filepath.Join(core.store.runDir(stuck), decisionFile, "inside"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := core.runner.resume(lib, chain, stuck); err == nil {
+	if err := core.runner.resume(lib, chain, stuck, ""); err == nil {
 		t.Error("resumed a run whose signals could not be cleared")
 	}
 	core.runner.swarm = filepath.Join(t.TempDir(), "missing")

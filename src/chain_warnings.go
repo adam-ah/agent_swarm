@@ -40,6 +40,8 @@ func outputsOf(chain *Chain, step Step) outputs {
 		return outputs{fields: names}
 	case "user":
 		return outputs{fields: []string{"decision", "note"}}
+	case "repeat":
+		return outputs{}
 	}
 	return outputs{any: true}
 }
@@ -188,6 +190,9 @@ func (w *warner) step(step Step) {
 	}
 	if name, _, _, err := parseCondition(step.When); err == nil {
 		w.read(where+": run only if", "{{"+name+"}}", nil, false, w.earlier)
+	}
+	if step.Kind() == "repeat" {
+		return
 	}
 	reads := map[string]bool{}
 	for _, t := range w.lib.stepTemplates(w.chain, step) {

@@ -40,13 +40,48 @@ function touch(redrawInspector = false) {
   renderEditorTree();
   renderSaveBar();
   if (redrawInspector) renderInspector();
+  const mine = editor;
+  checkLater(editorDraft(), (verdicts) => {
+    if (mine !== editor) return;
+    editor.verdict = draftVerdict(verdicts);
+    editor.refused = undefined;
+    renderSaveBar();
+  });
+}
+
+function cleanDraft() {
+  const draft = clone(editor.draft);
+  for (const step of draft.steps) {
+    if (step.with && !Object.keys(step.with).length) delete step.with;
+  }
+  return draft;
+}
+
+function editorDraft() {
+  return {
+    chains: { [editor.name]: cleanDraft() },
+    prompts: Object.fromEntries([...editor.dirtyPrompts].map((n) => [`${editor.name}/${n}`, editor.prompts[n]])),
+    tools: Object.fromEntries([...editor.dirtyTools].map((n) => [n, { ...editor.tools[n], source: undefined }])),
+  };
+}
+
+function draftVerdict(verdicts) {
+  const own = `chains/${editor.name}.json`;
+  const out = { problems: [], warnings: [] };
+  for (const [path, v] of Object.entries(verdicts)) {
+    const tag = (text) => (path === own ? text : `${path}: ${text}`);
+    out.problems.push(...(v.problems || []).map(tag));
+    out.warnings.push(...(v.warnings || []).map(tag));
+  }
+  return out;
 }
 
 function renderSaveBar() {
   const shared = editor.source !== "project";
+  const draft = editor.dirty && editor.verdict ? chainProblems(editor.verdict.problems, editor.verdict.warnings, true) : "";
   document.getElementById("problems").replaceChildren(editor.refused?.length
     ? h("div", { class: "problems" }, h("strong", {}, "Not saved. swarm refused it because:"), h("ul", {}, editor.refused.map((p) => h("li", {}, p))))
-    : editor.dirty ? "" : chainProblems(editor.problems, editor.warnings) || "");
+    : editor.dirty ? draft : chainProblems(editor.problems, editor.warnings) || "");
   const status = editor.message ? h("span", { class: "status ok-text" }, editor.message)
     : editor.dirty ? h("span", { class: "status" }, shared ? "Unsaved. Saving changes it for every project." : "Unsaved changes") : null;
   document.getElementById("savebar").replaceChildren(
@@ -128,11 +163,7 @@ async function saveChain(scope = "") {
       await putItem("prompts", `${editor.name}/${name}`, editor.prompts[name], scope);
       editor.dirtyPrompts.delete(name);
     }
-    const draft = clone(editor.draft);
-    for (const step of draft.steps) {
-      if (step.with && !Object.keys(step.with).length) delete step.with;
-    }
-    await putItem("chains", editor.name, draft, scope);
+    await putItem("chains", editor.name, cleanDraft(), scope);
   } catch (err) {
     if (!err.problems?.length) {
       alert(err.message);
@@ -191,8 +222,8 @@ function renderEditorTree() {
     })));
   document.getElementById("tree-actions").replaceChildren(
     h("span", { class: "hint" }, typeof editor.selected === "number" ? "Add a step after the selected one:" : "Add a step at the end:"),
-    h("div", { class: "row" }, [["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"]].map(([kind, label]) =>
-      h("button", { class: `btn small add-kind ${kind}`, type: "button", onclick: () => addStep(kind) }, `+ ${label}`))));
+    h("div", { class: "row" }, [["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"], ["repeat", "Repeat"]].map(([kind, label]) =>
+      h("button", { class: `btn small add-kind ${kind}`, type: "button", disabled: kind === "repeat" && insertAt() === 0, onclick: () => addStep(kind) }, `+ ${label}`))));
 }
 
 const editorGo = (from) => select(from.kind === "step" ? editor.draft.steps.indexOf(from.step) : "root");
@@ -214,17 +245,20 @@ function uniqueID(base, self) {
   for (let n = 2; ; n++) if (!ids.has(`${base}_${n}`)) return `${base}_${n}`;
 }
 
+const insertAt = () => (typeof editor.selected === "number" ? editor.selected + 1 : editor.draft.steps.length);
+
 function addStep(kind) {
   const otherChains = lib.chains.map((c) => c.name).filter((n) => n !== editor.name);
+  const at = insertAt();
   const step = {
     tool: { title: "New tool step", tool: Object.keys(editor.tools).sort()[0] || "" },
     agent: { title: "New agent step", agent: Object.keys(editor.prompts).sort()[0] || "", tools: ["Read", "Grep", "Glob"] },
     user: { title: "Your approval", user: "Continue?" },
     chain: { title: "Sub-chain", chain: otherChains[0] || "" },
+    repeat: { title: "Repeat", repeat: editor.draft.steps[at - 1]?.id },
   }[kind];
   step.id = uniqueID(slugOf(step.title));
   editor.fresh.add(step);
-  const at = typeof editor.selected === "number" ? editor.selected + 1 : editor.draft.steps.length;
   editor.draft.steps.splice(at, 0, step);
   editor.selected = at;
   touch(true);
@@ -240,11 +274,32 @@ function move(delta) {
 
 function removeStep() {
   const steps = editor.draft.steps;
-  const step = steps[editor.selected];
-  if (!confirm(`Delete the step "${step.title}"?`)) return;
-  steps.splice(editor.selected, 1);
-  editor.selected = steps.length ? Math.min(editor.selected, steps.length - 1) : "root";
+  const gone = steps[editor.selected];
+  const after = steps.slice(editor.selected + 1);
+  const rejectedOnly = kindOf(gone) === "user" ? after.filter((s) => s.always && notApproved(s.when, gone.id)) : [];
+  const next = after.find((s) => !rejectedOnly.includes(s));
+  const drop = [...rejectedOnly, ...after.filter((s) => s.repeat === gone.id && s === next)];
+  const also = drop.length ? ` ${drop.map((s) => `"${s.title}"`).join(" and ")} only make${drop.length > 1 ? "" : "s"} sense with it, so ${drop.length > 1 ? "they go" : "it goes"} too.` : "";
+  if (!confirm(`Delete the step "${gone.title}"?${also}`)) return;
+  editor.draft.steps = steps.filter((s) => s !== gone && !drop.includes(s));
+  forget(editor.draft.steps, gone, after.find((s) => !drop.includes(s)));
+  editor.selected = editor.draft.steps.length ? Math.min(editor.selected, editor.draft.steps.length - 1) : "root";
   touch(true);
+}
+
+function forget(steps, gone, next) {
+  const about = (cond) => (readCondition(cond)?.name || "").startsWith(`${gone.id}.`);
+  for (const s of steps) {
+    if (s.repeat === gone.id) s.repeat = next.id;
+    if (s.revise === gone.id && next && steps.indexOf(next) < steps.indexOf(s)) s.revise = next.id;
+    else if (s.revise === gone.id) delete s.revise;
+    if (s.resume === gone.id && gone.resume) s.resume = gone.resume;
+    else if (s.resume === gone.id) delete s.resume;
+    if (s.keep_until === gone.id && next) s.keep_until = next.id;
+    else if (s.keep_until === gone.id) delete s.keep_until;
+    if (about(s.when)) delete s.when;
+    if (about(s.stop_if)) { delete s.stop_if; delete s.stop; }
+  }
 }
 
 function renderInspector() {

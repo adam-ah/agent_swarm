@@ -100,7 +100,7 @@ test("a prompt page lists its users, its returned fields and its placeholders, a
   assert.equal($("h1").textContent, "change");
   assert.deepEqual(heads(), ["Used by", "Fields it returns", "Placeholders it reads", "How to list the fields", "Text"]);
   const facts = $$(".panel-body.used-by");
-  assert.equal(text(facts[0]), "Make a changeMake the change");
+  assert.equal(text(facts[0]), "Make a changeMake the change⚠ approve: nothing reads approve.note");
   assert.deepEqual([...facts[1].children].map(text), ["summary", "files list", "verdict DONE | STUCK"]);
   assert.deepEqual([...facts[2].children].map(text), ["{{request}}", "{{memory}}"]);
   assert.match($("pre.example").textContent, /^## Return\n\n- `verdict`/);

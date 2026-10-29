@@ -60,6 +60,9 @@ type Step struct {
 	When      string            `json:"when,omitempty"`
 	StopIf    string            `json:"stop_if,omitempty"`
 	Stop      string            `json:"stop,omitempty"`
+	Repeat    string            `json:"repeat,omitempty"`
+	Rounds    int               `json:"rounds,omitempty"`
+	Fail      string            `json:"fail,omitempty"`
 	Always    bool              `json:"always,omitempty"`
 }
 
@@ -71,13 +74,15 @@ func (s Step) Kind() string {
 		return "user"
 	case s.Chain != "":
 		return "chain"
+	case s.Repeat != "":
+		return "repeat"
 	default:
 		return "tool"
 	}
 }
 
 func (s Step) Uses() string {
-	return s.Tool + s.Agent + s.Chain
+	return s.Tool + s.Agent + s.Chain + s.Repeat
 }
 
 type Chain struct {

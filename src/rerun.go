@@ -16,13 +16,9 @@ func (c *Core) Rerun(id string, fromScratch bool) (string, error) {
 	if run.going() {
 		return "", errors.New("the run is still going")
 	}
-	lib, err := c.Library(run.Project)
+	lib, chain, err := c.chainOf(run)
 	if err != nil {
 		return "", err
-	}
-	chain := lib.Chains[run.Chain]
-	if chain == nil {
-		return "", fmt.Errorf("no chain named %s", run.Chain)
 	}
 	c.store.sweepRun(id)
 	if fromScratch {
@@ -32,7 +28,41 @@ func (c *Core) Rerun(id string, fromScratch bool) (string, error) {
 		}
 		return fresh.ID, nil
 	}
-	return id, c.runner.resume(lib, chain, id)
+	return id, c.runner.resume(lib, chain, id, "")
+}
+
+func (c *Core) RerunFrom(id, path string) error {
+	run := c.store.load(id)
+	if run == nil {
+		return fmt.Errorf("no run %s", id)
+	}
+	step := findStep(run.Steps, func(s *StepRun) bool { return s.Path == path })
+	switch {
+	case run.going():
+		return errors.New("stop the run first")
+	case step == nil:
+		return fmt.Errorf("the run has no step %s", path)
+	case step.Status == "pending" || step.Status == "skipped":
+		return fmt.Errorf("%s did not run", step.Title)
+	}
+	lib, chain, err := c.chainOf(run)
+	if err != nil {
+		return err
+	}
+	c.store.sweepRun(id)
+	return c.runner.resume(lib, chain, id, path)
+}
+
+func (c *Core) chainOf(run *Run) (*Library, *Chain, error) {
+	lib, err := c.Library(run.Project)
+	if err != nil {
+		return nil, nil, err
+	}
+	chain := lib.Chains[run.Chain]
+	if chain == nil {
+		return nil, nil, fmt.Errorf("no chain named %s", run.Chain)
+	}
+	return lib, chain, nil
 }
 
 func (c *Core) DeleteRun(id string) error {
@@ -47,7 +77,7 @@ func (c *Core) DeleteRun(id string) error {
 	return c.store.remove(id)
 }
 
-func (r *Runner) resume(lib *Library, chain *Chain, id string) error {
+func (r *Runner) resume(lib *Library, chain *Chain, id, from string) error {
 	if len(chain.Problems) > 0 {
 		return fmt.Errorf("fix the chain first: %s", strings.Join(chain.Problems, "; "))
 	}
@@ -63,7 +93,12 @@ func (r *Runner) resume(lib *Library, chain *Chain, id string) error {
 	}
 	now := time.Now()
 	r.store.update(run, func() {
-		rewind(run.Steps)
+		run.RerunFrom = ""
+		if target := rewindFrom(run.Steps, from); target != nil {
+			run.RerunFrom = target.Title
+		} else {
+			rewind(run.Steps)
+		}
 		run.Status, run.Reason, run.EndedAt, run.PID, run.ResumedAt = "running", "", nil, 0, &now
 	})
 	if err := r.spawn(run); err != nil {
@@ -112,6 +147,29 @@ func rewind(steps []*StepRun) {
 		}
 		return
 	}
+}
+
+func rewindFrom(steps []*StepRun, path string) *StepRun {
+	for i, sr := range steps {
+		var target *StepRun
+		switch {
+		case sr.Path == path:
+			steps[i] = again(sr)
+			target = steps[i]
+		case strings.HasPrefix(path, sr.Path+"."):
+			if target = rewindFrom(sr.Children, path); target == nil {
+				return nil
+			}
+			sr.Status, sr.Error, sr.Ended, sr.EndedAt = "pending", "", "", nil
+		default:
+			continue
+		}
+		for j := i + 1; j < len(steps); j++ {
+			steps[j] = again(steps[j])
+		}
+		return target
+	}
+	return nil
 }
 
 func retry(sr *StepRun) *StepRun {

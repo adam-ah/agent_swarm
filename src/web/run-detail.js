@@ -17,12 +17,11 @@ function readsOf(def, chainName = editor?.name) {
 function readsList(names, chain, go, valueOf) {
   return h("div", { class: "reads-list" }, names.map((name) => {
     const from = sourceOf(name, chain);
-    const now = valueOf ? valueOf(name, from) : undefined;
-    const text = String(now ?? "");
+    const now = valueOf?.(name, from);
     return h("div", { class: "read" },
       h("code", { class: "ol-name" }, name),
       sourceNote(from, go),
-      now === undefined ? null : h("span", { class: "ol-value", title: text }, text ? `value “${text.length > 80 ? `${text.slice(0, 80)}…` : text}”` : "value empty"));
+      now ? h("span", { class: "ol-value", title: now.text }, valueLabel(now, 80)) : null);
   }));
 }
 
@@ -39,7 +38,7 @@ function readsPanel(run, step, chainName) {
 function earlierPanel(run, earlier) {
   return h("details", { class: "output earlier" }, h("summary", {}, `Earlier attempts (${earlier.length})`),
     earlier.map((step, n) => h("div", { class: "attempt" },
-      h("div", { class: "attempt-head" }, `Attempt ${n + 1}`, h("span", { class: "srow-stats" }, step.started_at ? duration(step.started_at, step.ended_at) : step.status)),
+      h("div", { class: "attempt-head" }, `Attempt ${n + 1}`, h("span", { class: "srow-stats" }, step.started_at ? seconds(step.started_at, step.ended_at) : step.status)),
       step.headline ? h("div", { class: "headline" }, step.headline) : null,
       step.error ? h("div", { class: "error-box" }, step.error) : null,
       stepFields(step),
@@ -53,14 +52,6 @@ const ASKED_AGAIN_TITLE = "How it was asked again for its fields";
 const sizeOf = (text) => (text.length < 1024 ? `${text.length} chars` : `${(text.length / 1024).toFixed(1)} KB`);
 const shellWord = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
 const firstLine = (text) => (text || "").split("\n").find((line) => line.trim()) || "";
-
-function elapsed(from, to) {
-  if (!from) return "";
-  const ms = (to ? new Date(to) : new Date()) - new Date(from);
-  if (ms < 1000) return `${Math.max(0, ms)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return duration(from, to);
-}
 
 function remembered(el, key, opened) {
   el.open = opened.get(key) ?? el.open;
@@ -84,24 +75,36 @@ function actionLabel(action) {
   return firstLine(input);
 }
 
+function commandView(command, stdin, opened) {
+  const lines = [["$"]];
+  command.forEach((arg, i) => {
+    if (i > 0 && arg.startsWith("-")) lines.push([]);
+    const line = lines.at(-1);
+    if (arg.length > 160 || arg.includes("\n")) line.push(longArgument(arg, i, opened));
+    else if (typeof line.at(-1) === "string") line.push(`${line.pop()} ${shellWord(arg)}`);
+    else line.push(shellWord(arg));
+  });
+  if (stdin) lines.push(["< stdin"]);
+  return h("div", { class: "command" }, lines.map((parts) => h("div", { class: "cmd-line" }, parts.map((part) => (typeof part === "string" ? h("span", {}, part) : part)))));
+}
+
+function longArgument(arg, i, opened) {
+  return remembered(h("details", { class: "cmd-arg" },
+    h("summary", {}, h("span", { class: "cmd-arg-start" }, `'${firstLine(arg).slice(0, 200)}…`), h("span", { class: "hint" }, sizeOf(arg))),
+    h("pre", {}, arg)), `argument ${i}`, opened);
+}
+
 function callView(runID, log, call, opened) {
   const ended = call.ended_at;
   const exit = call.exit_code === undefined ? null : call.exit_code === 0 ? "exit 0" : call.exit_code === -1 ? "killed" : `exit ${call.exit_code}`;
-  const long = [];
-  const words = call.command.map((arg, i) => {
-    if (arg.length <= 160 && !arg.includes("\n")) return shellWord(arg);
-    long.push([i, arg]);
-    return `<argument ${i}>`;
-  });
   const out = [
     h("div", { class: "call-meta" },
       h("span", {}, `started ${new Date(call.started_at).toLocaleTimeString()}`),
-      h("span", {}, ended ? `ran ${elapsed(call.started_at, ended)}` : "still running"),
+      h("span", {}, ended ? `ran ${seconds(call.started_at, ended)}` : "still running"),
       exit ? h("span", { class: call.exit_code === 0 ? "good" : "bad" }, exit) : null,
       h("span", { class: "hint" }, `in ${call.dir}`),
       call.limits ? h("span", { class: "hint" }, call.limits) : null),
-    h("pre", { class: "command" }, `$ ${words.join(" ")}${call.stdin ? " < stdin" : ""}`),
-    long.map(([i, arg]) => block(`argument ${i}`, arg, opened)),
+    commandView(call.command, call.stdin, opened),
     block("stdin", call.stdin, opened),
   ];
   if (call.error) out.push(h("div", { class: "error-box" }, call.error));
@@ -114,7 +117,8 @@ function callView(runID, log, call, opened) {
           h("summary", {},
             h("span", { class: "action-tool" }, a.tool),
             h("span", { class: "action-input" }, actionLabel(a)),
-            h("span", { class: "action-time" }, a.ended_at ? elapsed(a.started_at, a.ended_at) : "running")),
+            h("span", { class: "action-time" }, a.ended_at ? seconds(a.started_at, a.ended_at)
+              : [ended ? "unfinished " : "running ", h("span", { "data-since": a.started_at, "data-until": ended || "", "data-tick": "seconds" }, seconds(a.started_at, ended))])),
           h("div", { class: "action-body" }, h("div", { class: "hint" }, "input"), h("pre", {}, a.input),
             a.ended_at ? [h("div", { class: "hint" }, a.failed ? "output (failed)" : "output"), h("pre", {}, a.output || "(empty)")] : null)),
         `action ${a.id || n}`, opened))));
@@ -150,7 +154,75 @@ function callPanel(runID, log, title = "How it was called") {
   return { log, el, load };
 }
 
-function renderArtifacts(runID, artifacts) {
+function stepShows(runID, step) {
+  const artifacts = step.artifacts || [];
+  if (step.kind !== "user" || !step.question) return renderArtifacts(runID, artifacts);
+  const question = h("div", { class: "question" }, step.question);
+  const rest = h("div", { class: "artifacts" });
+  send("POST", "/api/markdown", { text: step.question }).then(({ html }) => {
+    question.innerHTML = html;
+    question.classList.add("md");
+    const inline = linkFiles(question, runID, artifacts, "");
+    rest.replaceChildren(...renderArtifacts(runID, artifacts.filter((a) => !inline.has(a.path)), artifacts));
+  }, () => rest.replaceChildren(...renderArtifacts(runID, artifacts)));
+  return [question, rest];
+}
+
+const EXTERNAL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
+
+function linkFiles(container, runID, artifacts, base) {
+  const inline = new Set();
+  const images = [];
+  for (const el of container.querySelectorAll("a[href], img[src]")) {
+    const image = el.tagName === "IMG";
+    const target = el.getAttribute(image ? "src" : "href");
+    if (target.startsWith("#")) {
+      el.removeAttribute("href");
+      continue;
+    }
+    if (EXTERNAL.test(target)) {
+      if (!image) Object.assign(el, { target: "_blank", rel: "noreferrer" });
+      continue;
+    }
+    const file = fileAt(artifacts, base, target);
+    if (!file) {
+      const why = `${target} is not among the files this step shows`;
+      el.replaceWith(h("span", { class: "missing", title: why }, image ? why : el.textContent));
+    } else if (!image) {
+      Object.assign(el, { href: fileURL(runID, file.path), target: "_blank", rel: "noreferrer" });
+    } else if (file.kind === "video") {
+      inline.add(file.path);
+      el.replaceWith(h("video", { src: `${fileURL(runID, file.path)}#t=1`, controls: true, preload: "metadata", playsinline: true }));
+    } else {
+      inline.add(file.path);
+      el.setAttribute("src", fileURL(runID, file.path));
+      images.push(el);
+    }
+  }
+  const urls = images.map((img) => img.getAttribute("src"));
+  images.forEach((img, i) => img.addEventListener("click", () => openLightbox(urls, i)));
+  return inline;
+}
+
+function fileAt(artifacts, base, target) {
+  let path = target.split(/[?#]/)[0];
+  try { path = decodeURIComponent(path); } catch {}
+  const wanted = normalPath(path.startsWith("/") ? path : `${base}/${path}`);
+  const tail = normalPath(path);
+  const ending = artifacts.filter((a) => a.path.endsWith(tail));
+  return artifacts.find((a) => a.path === wanted) || (ending.length === 1 ? ending[0] : null);
+}
+
+function normalPath(path) {
+  const parts = [];
+  for (const part of path.split("/")) {
+    if (part === "..") parts.pop();
+    else if (part && part !== ".") parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+
+function renderArtifacts(runID, artifacts, all = artifacts) {
   const out = [];
   for (const a of artifacts.filter((x) => x.kind === "video")) {
     out.push(h("figure", { class: "video" },
@@ -169,8 +241,11 @@ function renderArtifacts(runID, artifacts) {
     const more = h("button", { class: "doc-more", type: "button", onclick: () => { doc.classList.toggle("open"); more.textContent = doc.classList.contains("open") ? "Show less" : "Show all"; } }, "Show all");
     doc.append(more);
     fetch(fileURL(runID, a.path, a.kind === "markdown" ? "doc" : "file")).then((r) => r.text()).then((text) => {
-      if (a.kind === "markdown") body.innerHTML = text;
-      else if (a.kind === "diff") body.replaceChildren(diffView(text));
+      if (a.kind === "markdown") {
+        body.innerHTML = text;
+        body.classList.add("md");
+        linkFiles(body, runID, all, a.path.slice(0, a.path.lastIndexOf("/")));
+      } else if (a.kind === "diff") body.replaceChildren(diffView(text));
       else body.replaceChildren(h("pre", { class: "plain" }, a.kind === "json" ? prettyJSON(text) : text));
       requestAnimationFrame(() => { if (body.scrollHeight <= body.clientHeight + 4) more.remove(); });
     });

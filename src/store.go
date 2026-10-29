@@ -48,6 +48,9 @@ type StepRun struct {
 	Resumed    string         `json:"resumed,omitempty"`
 	Log        string         `json:"log,omitempty"`
 	AskedAgain string         `json:"asked_again,omitempty"`
+	Repeats    int            `json:"repeats,omitempty"`
+	Rounds     string         `json:"rounds,omitempty"`
+	Loop       string         `json:"loop,omitempty"`
 	Children   []*StepRun     `json:"children,omitempty"`
 	Earlier    []*StepRun     `json:"earlier,omitempty"`
 }
@@ -83,6 +86,7 @@ type Run struct {
 	Reason    string            `json:"reason,omitempty"`
 	StartedAt time.Time         `json:"started_at"`
 	ResumedAt *time.Time        `json:"resumed_at,omitempty"`
+	RerunFrom string            `json:"rerun_from,omitempty"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Cost      float64           `json:"cost"`
 	PID       int               `json:"pid,omitempty"`

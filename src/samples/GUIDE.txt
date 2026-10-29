@@ -2,13 +2,15 @@ SWARM GUIDE
 
 swarm runs chains: ordered steps, each a tool (a shell command), an agent
 (Claude Code, Codex or another CLI given a prompt, returning named fields),
-a user step (waits for a person's decision) or a sub-chain. The page shows
-runs live and takes answers to user steps; every command works without it.
+a user step (waits for a person's decision), a sub-chain, or a repeat (loops
+back to an earlier step). The page shows runs live and takes answers to user
+steps; every command works without it.
 
-Change chains, tools, prompts and settings only with the swarm command: it
-validates before saving and refuses with reasons. Never write into .swarm/
-or ~/.swarm/ directly. Never run "swarm serve" or "swarm stop"; the page
-belongs to the person.
+Read and change chains, tools, prompts and settings only with the swarm
+command: "swarm list" and "swarm get PATH" to read, "swarm put" to save,
+which validates and refuses with reasons. Never open, read, search or write
+files under .swarm/ or ~/.swarm/ yourself, not even to look. Never run
+"swarm serve" or "swarm stop"; the page belongs to the person.
 
 
 FILES
@@ -31,12 +33,13 @@ All act on the current folder's project; -project DIR picks another.
     swarm list                    chains (with steps), tools, prompts, layers
     swarm get PATH [-below]       print one; -below: the shared one it overrides
     swarm put PATH [-file F] [-scope project|shared]
-                                  validate and save F or stdin; default: where
-                                  it lives, else the project; shared only
-                                  when the person asks
-    swarm rm PATH                 delete; refused while a chain uses it
-    swarm check                   validate all; warn on unfilled placeholders
-                                  and on inputs, vars and fields nothing reads
+                                  validate and save F or stdin, then warn about
+                                  the chains it affects; default: where it
+                                  lives, else the project; shared only when
+                                  the person asks
+    swarm rm PATH                 delete, then warn; refused while a chain
+                                  uses it
+    swarm check                   validate and warn about every chain at once
     swarm settings                configured and installed agents
     swarm init [DIR]              make a folder a project
     swarm snapshot DIR            copy .swarm into DIR
@@ -46,6 +49,8 @@ All act on the current folder's project; -project DIR picks another.
     swarm memory add [-about TEXT] NOTE...
     swarm memory set [-file F]
     swarm run CHAIN [-input name=value]... [-detach]
+    swarm test CHAIN [-input name=value]... [-mock JSON|FILE] [-run ID,...]
+                                  dry run; see TESTING
     swarm runs                    recent runs
     swarm show RUN                a run's steps
     swarm cancel RUN              stop a run; "always" steps still run
@@ -111,11 +116,22 @@ Each step has an id, a title saying what it does, and exactly one of:
     Waits for approve or reject (reject ends the run); returns decision and
     note. "show" lists files to decide on (globs, relative to the project):
     videos play, images form a filmstrip, .md renders, .diff is coloured,
-    the rest is text. "revise": "<earlier step>" adds a third answer: the
-    note sends the run back to that step and reruns everything from there;
-    a claude or codex step resumes its session with the note, other agent
-    steps get all notes appended to their prompt, tools read {{feedback}}.
-    Use it for reviewing any plan or draft.
+    the rest is text. The question is markdown, including any field it
+    fills in, so an agent writing such a field can put files in it: list
+    the file in "show", then ![what it shows](path) shows an image or video
+    in place and [text](path) links to it. The path only has to be the end
+    of the file's path, e.g. screenshots/before-1.png; in a shown .md it is
+    relative to that file. A table row puts a before and after side by
+    side:
+        | Before | After |
+        | --- | --- |
+        | ![error](shots/before-1.png) | ![fixed](shots/after-1.png) |
+    Files shown in place leave the filmstrip; a link to a file not in
+    "show" is marked missing. "revise": "<earlier step>" adds a third
+    answer: the note sends the run back to that step and reruns everything
+    from there; a claude or codex step resumes its session with the note,
+    other agent steps get all notes appended to their prompt, tools read
+    {{feedback}}. Use it for reviewing any plan or draft.
 
 "chain": "<chain>"
     Runs a sub-chain that sees the caller's values; "with" fills its
@@ -126,6 +142,19 @@ Each step has an id, a title saying what it does, and exactly one of:
     failure fails the step after all items, and only {{<id>.summary}} is
     set ("make-change ran 3 times: 2 done, 1 rejected"). Never loop in a
     tool.
+
+"repeat": "<earlier step>"
+    Goes back to that step and reruns everything from there: the steps in
+    between form a loop, ending at this step. Its "when" decides each time;
+    false ends the loop and the run goes on. "rounds": the most times the
+    loop runs (default 3). "fail": "out_of_rounds" fails the run if it still
+    wants another round after the last; "fail": "ended_early" fails it if
+    the loop ends before the last round; without fail the run goes on
+    either way. Takes only when, rounds and fail. A review loop:
+      { "id": "fix", "title": "Fix the findings", "agent": "fix",
+        "when": "review.verdict == CHANGES" },
+      { "id": "again", "title": "Review again", "repeat": "review",
+        "when": "review.verdict == CHANGES", "fail": "out_of_rounds" }
 
 Any step may add:
     "when": "name == value" (or !=)   skip unless true; a missing name is
@@ -249,22 +278,43 @@ read {{memory}}. make-change ends with an agent proposing notes and the
 remember tool saving them.
 
 
+TESTING
+
+"swarm test CHAIN" walks the chain through the real engine (when, stop_if,
+repeat, revise, sub-chains, per-item runs) but runs no step. It prints each
+step in the order it ran, with its answer, the command a tool would run,
+placeholders nothing filled, and why skipped steps were skipped; each
+step's filled prompt, command or question is saved in the folder it names.
+Default answers: an agent returns its ## Return fields as examples (the
+first choice, "<id.field>" for text), a user step approves, a tool returns
+"<id.field>" for every field the chain reads from it. -mock picks other
+paths, keyed by step id:
+    {"plan": {"verdict": "STOP"}, "approve": ["revise: shorter", "approve"],
+     "review": [{"verdict": "CHANGES"}, {"verdict": "APPROVE"}],
+     "tests": {"fail": "2 failed"}}
+A list is one answer per run of that step, then the default; {"fail": ...}
+fails the step; a user step takes approve, reject or "revise: note".
+-run names steps that really run, only read-only ones such as a lint.
+Test each chain you create or change, once per path through it.
+
+
 CREATING OR CHANGING
 
-1. Run "swarm list" and reuse its tools. Prompts are not shared: a new
-   chain gets its own, even when copied.
+1. Run "swarm list" and reuse its tools; "swarm get PATH" shows any file.
+   Prompts are not shared: a new chain gets its own, even when copied.
 2. Draft a file and save it with "swarm put PATH -scope project -file
    DRAFT". Invalid JSON, unknown fields, steps without exactly one kind,
    bad conditions and missing tools, prompts or chains are refused with
-   reasons; fix the draft and retry.
+   reasons. A saved put, and an rm, prints warnings for every chain it
+   affects: placeholders nothing fills, fields nothing reads (summary and
+   free-text output are exempt). Fix the draft and put it again until
+   both are clean; no separate check is needed.
 3. Put tools and prompts before the chain that uses them.
 4. To change a shared item for one project, "swarm get PATH > DRAFT", edit,
    and put it with -scope project. A project copy of a chain takes its
    prompts and then reads only its own. If only a value differs, set it
    under "inputs" in the project's settings.json instead.
-5. Finish with "swarm check" and fix its warnings; summary and free-text
-   output are exempt.
-6. Anything leaving the machine (push, post, upload, message) goes after a
+5. Anything leaving the machine (push, post, upload, message) goes after a
    user step that shows the files to decide on.
 
 The edit-chain sample does this from a plain request: snapshot, an agent

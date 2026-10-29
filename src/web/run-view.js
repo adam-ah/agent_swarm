@@ -1,6 +1,6 @@
 function showRun(id) {
   main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" }, "Loading…")));
-  runView = { id, entries: new Map(), status: null, decisionKey: null, slots: new Map(), blocks: [], grouped: new Set(), values: [] };
+  runView = { id, entries: new Map(), status: null, decisionKey: null, slots: new Map(), blocks: [], grouped: new Set(), values: [], rounds: [] };
   stream = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
   stream.onmessage = (event) => renderRun(JSON.parse(event.data));
 }
@@ -19,7 +19,7 @@ function renderRun(run) {
   if (!page || page.dataset.run !== run.id) {
     page = h("div", { class: "page narrow", "data-run": run.id },
       h("div", { class: "eyebrow" }, "Run of ", h("a", { href: `#/chain/${run.chain}` }, run.title)),
-      h("h1", { id: "subject" }),
+      h("h1", { id: "subject", onclick: (e) => { if (!e.target.closest("a")) e.currentTarget.classList.toggle("whole"); } }),
       h("div", { class: "run-meta", id: "meta" }),
       h("div", { id: "banner" }),
       h("div", { id: "decision" }),
@@ -28,8 +28,10 @@ function renderRun(run) {
     main.replaceChildren(page);
     Object.assign(runView, { entries: new Map(), decisionKey: null });
   }
-  const label = run.subject || Object.entries(run.inputs || {}).map(([k, v]) => `${k} ${v}`).join(", ") || run.title;
-  page.querySelector("#subject").replaceChildren(run.link ? h("a", { href: run.link, target: "_blank", rel: "noreferrer" }, label) : label);
+  const label = run.subject || Object.values(run.inputs || {}).find((v) => v) || run.title;
+  const subject = page.querySelector("#subject");
+  subject.title = label;
+  subject.replaceChildren(run.link ? h("a", { href: run.link, target: "_blank", rel: "noreferrer" }, label) : label);
 
   const live = run.status === "running" || run.status === "waiting";
   const unfinished = !live && run.status !== "done";
@@ -37,12 +39,14 @@ function renderRun(run) {
   page.querySelector("#meta").replaceChildren(...[
     h("span", { class: "pill" }, h("span", { class: `dot ${run.status}` }), STATUS_LABEL[run.status] || run.status),
     h("span", {}, `started ${new Date(run.started_at).toLocaleTimeString()}`),
-    run.resumed_at ? h("span", {}, `rerun from its failed step at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
+    run.resumed_at ? h("span", {}, `rerun from ${run.rerun_from || "its failed step"} at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),
     run.cost ? h("span", {}, money(run.cost)) : null,
     h("span", { class: "row push-right" },
       live ? h("button", { class: "btn small danger", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
       unfinished ? h("button", { class: "btn small", type: "button", title: "Keeps every step that finished and starts again at the one that did not", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
+      unfinished ? rerunPoints(run).map(({ step, level }) => h("button", { class: "btn small", type: "button", title: `Keeps every step before ${step.title} and runs it and everything after it again`,
+        onclick: () => rerunRun(run.id, "step", keyOf(step)) }, `Rerun from ${step.title} (${level})`)) : null,
       unfinished ? h("button", { class: "btn small", type: "button", title: "Starts a new run of this chain with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Rerun from scratch") : null,
       live ? null : h("button", { class: "btn small danger", type: "button", onclick: () => deleteRun(run.id).then((gone) => { if (gone) location.hash = "#/"; }) }, "Delete run")),
   ].filter(Boolean));
@@ -50,6 +54,7 @@ function renderRun(run) {
   page.querySelector("#banner").replaceChildren(outcomeBanner(run) || "");
   renderDecision(run, page.querySelector("#decision"));
   syncRows(page.querySelector("#steps"), run.steps, run, run.chain);
+  syncRounds(run);
   markBlocks(run);
   renderStopped(run, page.querySelector("#stopped"));
 
@@ -84,8 +89,7 @@ function renderDecision(run, el) {
   runView.decisionKey = key;
   el.replaceChildren(step ? h("section", { class: "decision" },
     h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), step.title),
-    h("div", { class: "question" }, step.question),
-    h("div", { class: "artifacts" }, renderArtifacts(run.id, step.artifacts || [])),
+    stepShows(run.id, step),
     decideForm(run.id, step)) : "");
 }
 
@@ -119,6 +123,11 @@ function skeleton(chainName, prefix) {
       if (inAlways) runView.grouped.add(prefix + s.id);
       return slot;
     },
+    rounds: (loop) => {
+      const el = h("div", { class: "rounds" });
+      runView.rounds.push({ el, paths: stepsIn(loop.children).map((s) => prefix + s.id), total: loop.step.rounds || 3, opened: new Map(), sig: null });
+      return el;
+    },
   }, blocks);
   runView.blocks.push(...blocks.map((b) => ({ el: b.el, paths: b.steps.map((s) => prefix + s.id) })));
   return el;
@@ -131,12 +140,23 @@ const runGo = (chainName, prefix) => (from) => {
 
 const RAN = new Set(["done", "failed", "running", "waiting", "stopped", "rejected"]);
 
+const SETTLED = new Set(["done", "failed", "stopped", "rejected"]);
+
 function valueNow({ name, from, prefix }, run) {
-  if (from.kind === "input") return prefix ? undefined : run.inputs?.[name] ?? "";
+  if (from.kind === "input") return prefix ? undefined : { text: run.inputs?.[name] ?? "" };
   if (from.kind !== "step") return undefined;
-  const entry = runView.entries.get(prefix + from.step.id);
-  if (!entry || !RAN.has(entry.step.status)) return undefined;
-  return asText(entry.step.output?.[from.field]);
+  const step = runView.entries.get(prefix + from.step.id)?.step;
+  if (!step) return undefined;
+  if (SETTLED.has(step.status)) return { text: asText(step.output?.[from.field]) };
+  const before = step.earlier?.findLast((s) => SETTLED.has(s.status));
+  if (!before) return undefined;
+  return { text: asText(before.output?.[from.field]), from: step.rounds ? `from round ${roundOf(before)}` : `from attempt ${(before.round || 0) + 1}` };
+}
+
+function valueLabel(now, max) {
+  if (!now) return "";
+  const shown = now.text ? `value “${now.text.length > max ? `${now.text.slice(0, max)}…` : now.text}”` : "value empty";
+  return now.from ? `${shown} ${now.from}` : shown;
 }
 
 function markBlocks(run) {
@@ -148,9 +168,8 @@ function markBlocks(run) {
   }
   for (const value of runView.values) {
     const now = valueNow(value, run);
-    const text = String(now ?? "");
-    value.span.textContent = now === undefined ? "" : text ? `value “${text.length > 60 ? `${text.slice(0, 60)}…` : text}”` : "value empty";
-    value.span.title = text;
+    value.span.textContent = valueLabel(now, 60);
+    value.span.title = now?.text ?? "";
   }
 }
 
@@ -164,9 +183,9 @@ function syncRows(container, steps, run, chain) {
       (runView.slots.get(keyOf(step)) || container).append(entry.el);
     }
     Object.assign(entry, { run, step });
-    const artSig = JSON.stringify(step.artifacts || []);
+    const artSig = JSON.stringify([step.question || "", step.artifacts || []]);
     if (entry.artSig !== artSig) {
-      entry.arts.replaceChildren(...renderArtifacts(run.id, step.artifacts || []));
+      entry.arts.replaceChildren(...stepShows(run.id, step));
       entry.artSig = artSig;
     }
     if (entry.call?.log !== step.log) entry.call = step.log ? callPanel(run.id, step.log) : null;
@@ -180,7 +199,7 @@ function syncRows(container, steps, run, chain) {
       entry.kids.replaceChildren();
     }
     if (step.children?.length) syncRows(entry.kids, step.children, run, step.uses);
-    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: holdsSteps(step) ? undefined : step.cost });
+    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: holdsSteps(step) ? undefined : step.cost, run: run.status });
     if (entry.sig !== sig) {
       if (step.status === "failed" && entry.status !== "failed") entry.open = true;
       Object.assign(entry, { sig, status: step.status });
@@ -203,12 +222,16 @@ function toggleRow(entry) {
   redrawRow(entry);
 }
 
-function stepRow(entry) {
-  const { run, step } = entry;
+function stepStats(step) {
   const stats = [];
-  if (step.started_at && step.status !== "running") stats.push(duration(step.started_at, step.ended_at));
+  if (step.started_at && step.status !== "running") stats.push(seconds(step.started_at, step.ended_at));
   if (step.cost && !holdsSteps(step)) stats.push(money(step.cost));
   else if (step.tokens) stats.push(`${(step.tokens / 1000).toFixed(step.tokens < 10000 ? 1 : 0)}k tokens`);
+  return stats.join(" · ");
+}
+
+function stepRow(entry) {
+  const { run, step } = entry;
   const expandable = !["pending", "skipped"].includes(step.status) && !holdsSteps(step);
   const open = expandable && entry.open;
   const toggle = () => toggleRow(entry);
@@ -220,12 +243,12 @@ function stepRow(entry) {
   h("span", { class: `kind ${step.kind}`, title: KIND_NAME[step.kind] }, step.kind === "item" ? step.id : KIND_LETTER[step.kind]),
   h("span", { class: "srow-text" },
     h("span", { class: "srow-title" }, step.title,
-      step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
+      step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
       step.resumed ? h("span", { class: "chip flag", title: `Continues the session of ${step.resumed}` }, "continues") : null,
       step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "asked again") : null,
       step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Runs even after a failure, a stop or a rejection" }, "always") : null),
     summaryLine(step, open)),
-  h("span", { class: "srow-stats" }, stats.join(" · ")),
+  h("span", { class: "srow-stats" }, stepStats(step)),
   h("span", { class: "srow-caret" }, expandable ? (open ? "▾" : "▸") : ""));
   return h("div", { class: `srow ${step.status} ${step.kind} ${open ? "open" : ""}`, id: `row-${keyOf(step)}` },
     head,
@@ -248,9 +271,9 @@ function stepBody(run, step, entry) {
     step.error ? h("div", { class: "error-box" }, step.error) : null,
     step.ended ? h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended) : null,
     step.sent_back ? h("div", { class: "hint" }, h("strong", {}, "Sent back with: "), step.sent_back) : null,
+    step.loop ? h("div", { class: "hint" }, step.loop) : null,
     step.kind === "agent" && step.ended_at ? h("div", { class: "hint" }, step.resumed ? `Continued the session of ${step.resumed}` : "New context",
       step.session ? ` · session ${step.session}` : " · no session id, so it cannot be continued") : null,
-    step.kind === "user" && step.question ? h("div", { class: "question" }, step.question) : null,
     entry.arts,
     stepFields(step),
     readsPanel(run, step, entry.chain),
@@ -298,9 +321,34 @@ function resumeStep(steps) {
   return step ? resumeStep(step.children) || step : null;
 }
 
-async function rerunRun(id, from) {
+function rerunPoints(run) {
+  const failed = resumeStep(run.steps);
+  if (!failed) return [];
+  const byPath = (path) => findStepIn(run.steps, (s) => keyOf(s) === path);
+  const points = [];
+  let path = keyOf(failed);
+  while (path) {
+    const dot = path.lastIndexOf(".");
+    const prefix = path.slice(0, dot + 1);
+    const parent = prefix ? byPath(prefix.slice(0, -1)) : null;
+    const chain = lib.chains.find((c) => c.name === (parent ? parent.uses : run.chain));
+    for (const start of startsAround(outlineOf(chain?.steps || []), path.slice(dot + 1)) || []) {
+      points.push({ step: byPath(prefix + start.step.id), level: start.level });
+    }
+    if (parent) points.push({ step: parent, level: parent.kind === "item" ? "this item" : "the whole sub-chain" });
+    path = parent ? keyOf(parent) : "";
+  }
+  const seen = new Set([keyOf(failed)]);
+  return points.filter(({ step }) => {
+    if (!step || !SETTLED.has(step.status) || seen.has(keyOf(step))) return false;
+    seen.add(keyOf(step));
+    return true;
+  });
+}
+
+async function rerunRun(id, from, step) {
   try {
-    const res = await send("POST", `/api/runs/${encodeURIComponent(id)}/rerun`, { from });
+    const res = await send("POST", `/api/runs/${encodeURIComponent(id)}/rerun`, step ? { from, step } : { from });
     loadRuns().catch(() => {});
     if (res.id !== id) location.hash = `#/run/${res.id}`;
   } catch (err) {
@@ -322,7 +370,7 @@ async function deleteRun(id) {
 
 setInterval(() => {
   for (const el of document.querySelectorAll("[data-since]")) {
-    if (!el.dataset.until) el.textContent = duration(el.dataset.since);
+    if (!el.dataset.until) el.textContent = (el.dataset.tick === "seconds" ? seconds : duration)(el.dataset.since);
   }
 }, 1000);
 setInterval(() => loadRuns().catch(() => {}), 5000);

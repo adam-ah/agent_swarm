@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { $, $$, answers, calls, click, dialogs, fail, go, page, reset, route, settle, sources, type } from "./page.mjs";
-import { RUN, at, callRecord, has, head, isOpen, openRun, panel, planDone, press, row, runOf, testDone, texts } from "./run-fixtures.mjs";
+import { RUN, at, callRecord, has, head, isOpen, library, openRun, panel, planDone, press, row, runOf, testDone, texts } from "./run-fixtures.mjs";
 
 const hash = () => globalThis.location.hash;
 const buttons = () => texts($("#meta"), "button");
@@ -28,7 +28,7 @@ test("a live run follows its event stream and closes it on leaving", async () =>
   assert.match(row("plan").className, /\bdone\b/);
   assert.equal(row("plan").querySelector(".state").textContent, "✓");
   assert.equal(row("plan").querySelector(".srow-line").textContent, "Change the session check");
-  assert.equal(row("plan").querySelector(".srow-stats").textContent, "42s · $0.12");
+  assert.equal(row("plan").querySelector(".srow-stats").textContent, "42.0s · $0.12");
   assert.equal(row("plan").querySelector(".srow-caret").textContent, "▸");
   assert.match(row("test").querySelector(".srow-line").textContent, /^Running · /);
 
@@ -46,16 +46,23 @@ test("a live run follows its event stream and closes it on leaving", async () =>
   assert.equal(source.closed, true);
 });
 
-test("the subject falls back to the inputs, then the title, and can link out", async () => {
+test("the subject falls back to the first input, then the title, can link out, and shows in full on click", async () => {
   reset();
-  const source = await openRun(runOf("running", {}, { subject: "", link: "https://example.test/issue/7" }));
+  const source = await openRun(runOf("running", {}, { subject: "", link: "https://example.test/issue/7", inputs: { empty: "", request: "Login fails" } }));
   const link = $("#subject a");
-  assert.equal(link.textContent, "request Login fails");
+  assert.equal(link.textContent, "Login fails");
+  assert.equal($("#subject").title, "Login fails");
   assert.equal(link.getAttribute("href"), "https://example.test/issue/7");
   assert.equal(link.getAttribute("target"), "_blank");
+  click(link);
+  assert.equal($("#subject").classList.contains("whole"), false);
 
   source.send(runOf("running", {}, { subject: "", inputs: {} }));
   assert.equal($("#subject").textContent, "Fix a bug");
+  click($("#subject"));
+  assert.equal($("#subject").classList.contains("whole"), true);
+  click($("#subject"));
+  assert.equal($("#subject").classList.contains("whole"), false);
 });
 
 test("rows open on click or key, and a failed step opens by itself", async () => {
@@ -107,7 +114,7 @@ test("opening a step of a live run shows how it was called", async () => {
   const call = panel(row("plan"), "How it was called");
   assert.equal(call.open, true);
   assert.ok(calls.some((c) => c.path === `/api/runs/${RUN}/call` && c.query.log === "plan"));
-  assert.match(call.querySelector("pre.command").textContent, /^\$ claude -p/);
+  assert.equal(call.querySelector(".cmd-line").textContent, "$ claude");
 });
 
 test("opening a step after the run ended leaves how it was called closed", async () => {
@@ -242,6 +249,33 @@ test("a rerun the server refuses is reported", async () => {
   await settle();
   assert.deepEqual(dialogs.alert, ["the run folder is gone"]);
   assert.equal(hash(), `#/run/${RUN}`);
+});
+
+test("an ended run reruns from the failed step, the loop it is in, each parent, or from scratch", async () => {
+  reset();
+  route("POST", `/api/runs/${RUN}/rerun`, { id: RUN });
+  const lib = structuredClone(library);
+  lib.chains[0].steps.splice(2, 0, { id: "again", title: "Test again", repeat: "plan", when: "test.verdict != pass", rounds: 3 });
+  const looped = runOf("failed", { plan: planDone, test: testDone }, { ended_at: at(16) });
+  looped.steps.splice(2, 0, { id: "again", path: "again", title: "Test again", kind: "repeat", uses: "plan", status: "failed", error: "all 3 rounds ran" });
+  const source = await openRun(looped, lib);
+  assert.deepEqual(buttons(), ["Rerun from Test again", "Rerun from Plan the fix (start of the loop)", "Rerun from scratch", "Delete run"]);
+  click(button("Rerun from Plan the fix (start of the loop)"));
+  await settle();
+  assert.deepEqual(posted(`/api/runs/${RUN}/rerun`), [{ from: "step", step: "plan" }]);
+
+  const compile = { id: "compile", path: "build.1.compile", title: "Compile it", kind: "tool", uses: "compile", status: "failed", error: "cc: error" };
+  const item = { id: "1", path: "build.1", title: "auth.go", kind: "item", uses: "part", status: "failed", children: [compile] };
+  source.send(runOf("failed", { plan: planDone, test: testDone, build: { status: "failed", children: [item] } }, { ended_at: at(16) }));
+  assert.deepEqual(buttons(), ["Rerun from Compile it", "Rerun from auth.go (this item)", "Rerun from Build each part (the whole sub-chain)", "Rerun from scratch", "Delete run"]);
+  route("POST", `/api/runs/${RUN}/rerun`, fail(400, "the run folder is gone"));
+  click(button("Rerun from auth.go (this item)"));
+  await settle();
+  assert.deepEqual(posted(`/api/runs/${RUN}/rerun`).at(-1), { from: "step", step: "build.1" });
+  assert.deepEqual(dialogs.alert, ["the run folder is gone"]);
+
+  source.send(runOf("done", { plan: planDone, test: testDone }, { ended_at: at(16), resumed_at: at(15, 55), rerun_from: "Plan the fix" }));
+  assert.ok(texts($("#meta"), "span").some((t) => t.startsWith("rerun from Plan the fix at ")));
 });
 
 test("stopped, rejected and interrupted runs say how they ended", async () => {

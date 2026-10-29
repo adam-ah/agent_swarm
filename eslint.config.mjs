@@ -3,10 +3,10 @@ import css from "@eslint/css";
 import globals from "globals";
 
 const sharedFunctions = [
-  "h", "withProject", "api", "send", "itemURL", "putItem", "deleteItem", "clone", "kindOf", "duration", "ago",
+  "h", "withProject", "api", "send", "itemURL", "putItem", "deleteItem", "clone", "kindOf", "duration", "seconds", "ago",
   "money", "fileURL", "loadLibrary", "loadRuns", "loadProjects", "renderProjects", "switchProject", "renderSide",
   "createItem", "closeStream", "refresh", "field", "textInput", "textArea", "selectBox", "linesInput", "rowsEditor",
-  "mapToRows", "rowsToMap", "usedBy", "listsPassed",
+  "mapToRows", "rowsToMap", "usedBy", "listsPassed", "checkLater", "draftStatus",
   "showHome", "waitingCard", "chainCard", "runList",
   "readCondition", "writeCondition", "describeCondition", "conditionEditor",
   "notApproved", "ifGroups", "outlineOf", "stepsIn", "sourceOf", "goLink", "sourceNote", "conditionLabel", "renderOutline",
@@ -18,16 +18,16 @@ const sharedFunctions = [
   "toolPicker", "promptPicker",
   "itemButtons", "showTool", "showSettings", "showMemory", "returnsList", "showPrompt",
   "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "elapsed", "remembered", "block", "actionLabel", "callView", "callPanel",
-  "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
+  "stepShows", "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
   "showRun", "findStepIn", "renderRun", "outcomeBanner", "renderDecision", "focusRow", "syncRows", "redrawRow", "toggleRow",
-  "stepRow", "summaryLine", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
+  "stepRow", "stepStats", "startsAround", "rerunPoints", "valueLabel", "summaryLine", "roundsOf", "syncRounds", "pastRound", "pastStep", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
 ];
 
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
   "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
-  "holdsSteps", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE",
+  "holdsSteps", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS",
 ];
 
 const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];
@@ -104,5 +104,9 @@ export default [
     plugins: { css },
     language: "css/css",
     rules: { ...css.configs.recommended.rules, "css/use-baseline": "off" },
+  },
+  {
+    files: ["src/web/run.css"],
+    rules: { "css/no-invalid-properties": ["error", { allowUnknownVariables: true }] },
   },
 ];

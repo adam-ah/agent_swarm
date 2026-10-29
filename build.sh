@@ -127,6 +127,10 @@ echo "built $root/swarm"
 
 if [ "${1:-}" = "install" ]; then
   mkdir -p ~/.local/bin
-  cp "$root/swarm" ~/.local/bin/swarm
-  echo "installed ~/.local/bin/swarm"
+  if ! { cp "$root/swarm" ~/.local/bin/.swarm.new && mv -f ~/.local/bin/.swarm.new ~/.local/bin/swarm; }; then
+    rm -f ~/.local/bin/.swarm.new
+    echo "build.sh: could not install ~/.local/bin/swarm" >&2
+    exit 1
+  fi
+  echo "installed ~/.local/bin/swarm; restart swarm serve to use it"
 fi

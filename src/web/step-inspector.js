@@ -1,4 +1,5 @@
-const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["user", "User: wait for a person to approve"], ["chain", "Sub-chain: run another chain"]];
+const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["user", "User: wait for a person to approve"], ["chain", "Sub-chain: run another chain"],
+  ["repeat", "Repeat: go back to an earlier step"]];
 
 function fieldsOf(step) {
   const kind = kindOf(step);
@@ -30,13 +31,15 @@ function stepInspector(step) {
     touch();
   };
   const setKind = (next) => {
-    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "tools", "with", "resume", "stall", "timeout", "keep_until"]) delete step[key];
+    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
     if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
     if (next === "user") step.user = "Continue?";
     if (next === "chain") step.chain = lib.chains.map((c) => c.name).find((n) => n !== editor.name) || "";
+    if (next === "repeat") step.repeat = editor.draft.steps[at - 1].id;
     touch(true);
   };
+  const what = kind === "repeat" ? `Repeat (${step.rounds || 3}× at most)` : "What it does";
   return h("div", { class: "form" },
     h("div", { class: "inspector-head" },
       h("span", { class: `chip ${kind}` }, KIND_NAME[kind]), heading,
@@ -46,12 +49,30 @@ function stepInspector(step) {
     h("div", { class: "row2" },
       field("Title", textInput(step.title, setTitle)),
       h("label", { class: "field" }, h("span", {}, "ID", idHint), idInput)),
-    inspectorSection("What it does", "", kindFields(step, kind)),
+    inspectorSection(what, "", kindFields(step, kind)),
     setsSection(step),
     flowFields(step),
     kind === "tool" || kind === "agent" ? inspectorSection("When swarm stops it", "", limitFields(step, kind)) : null,
-    h("details", { class: "advanced" }, h("summary", {}, "Change what kind of step this is"), selectBox(KIND_CHOICES, kind, setKind)));
+    h("details", { class: "advanced" }, h("summary", {}, "Change what kind of step this is"), selectBox(KIND_CHOICES.filter(([k]) => k !== "repeat" || at > 0), kind, setKind)));
 }
+
+function repeatFields(step) {
+  const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
+  const rounds = step.rounds || 3;
+  const counts = [...new Set([2, 3, 4, 5, 6, 8, 10, rounds])].sort((a, b) => a - b);
+  return h("div", { class: "form" },
+    field("Go back to", selectBox(earlier.map((s) => [s.id, s.title || s.id]), step.repeat, (v) => { step.repeat = v; touch(true); }),
+      "every step from there to here runs again"),
+    field("At most", selectBox(counts.map((n) => [String(n), `${n}×${n === 3 ? " (the default)" : ""}`]), String(rounds), (v) => { step.rounds = v === "3" ? undefined : Number(v); touch(true); }),
+      "rounds, counting the first"),
+    field("When the loop ends", selectBox(Object.entries(LOOP_ENDS), step.fail || "", (v) => { step.fail = v || undefined; touch(true); })));
+}
+
+const LOOP_ENDS = {
+  "": "the run goes on either way",
+  out_of_rounds: "the run fails if it still wants another round after the last",
+  ended_early: "the run fails if the loop ends before the last round",
+};
 
 const IDLE = { tool: ["10m", "no output and no CPU use"], agent: ["15m", "nothing new from the agent"] };
 
@@ -127,6 +148,11 @@ function flowFields(step) {
   const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
   const names = [...[...(editor.draft.inputs || []), ...(editor.draft.vars || [])].map((v) => v.name).filter(Boolean),
     ...earlier.flatMap((s) => fieldsOf(s).map((f) => `${s.id}.${f}`))];
+  if (kindOf(step) === "repeat") {
+    const back = conditionEditor(step.when, ["every round, until the rounds run out", "only when"], names, (v) => { step.when = v; touch(); });
+    return inspectorSection("When it goes back", "",
+      field("Goes back", withReads(back, () => [readCondition(step.when)?.name].filter(Boolean)), "otherwise the loop ends here and the run goes on"));
+  }
   const message = field("Message when it stops the run", textInput(step.stop, (v) => { step.stop = v || undefined; touch(); }, { placeholder: "e.g. Nothing was changed. {{summary}}" }));
   message.hidden = !step.stop_if && !step.stop;
   const gate = approvalBefore(step, editor.draft.steps);
@@ -174,6 +200,7 @@ function kindFields(step, kind) {
       step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open the ${step.chain} chain →`) : null);
   }
   if (kind === "agent") return agentFields(step);
+  if (kind === "repeat") return repeatFields(step);
   const name = step.tool;
   const tool = editor.tools[name];
   const ownReads = readsStrip(() => placeholdersIn(tool?.run).filter((n) => n.includes(".") || lib.builtins.includes(n)), "its command reads");

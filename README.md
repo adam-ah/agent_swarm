@@ -7,7 +7,7 @@ Runs chains of agent, tool and user steps you design, and shows every run live o
 ```bash
 ./build.sh install               # builds ./swarm and copies it to ~/.local/bin
 swarm init /path/to/project      # makes the folder a swarm project
-swarm serve                      # port 7070 on every interface; the other commands talk to it
+swarm serve [PORT] [-host IP]    # 127.0.0.1:7070 by default; -host 0.0.0.0 for every interface
 ```
 
 The build packs `src/web/` and `src/samples/` into the single binary. Nothing is written until you ask: `swarm` on its own shows what is set up and what to run next, and `swarm samples` writes the samples into `~/.swarm` (the `make-change` and `edit-chain` chains, their tools and prompts, and `GUIDE.txt`). After that they are ordinary files you own. Run history and the project list live in `~/.swarm` too. Each project's own chains, tools, prompts and memory go in its `.swarm/`, committed with the project.
@@ -35,6 +35,8 @@ Agent steps run Claude Code (`claude -p`), Codex (`codex exec`, with your own Co
 | Path | What |
 | --- | --- |
 | `build.sh` | builds `./swarm`; `./build.sh install` also copies it to `~/.local/bin` |
+| `release.sh` | tags the next version (patch by default, or `./release.sh minor` / `major`) and pushes the tag |
+| `.github/workflows/release.yml` | pushing a `v*` tag runs `build.sh`, then publishes Linux and macOS builds (amd64, arm64) as a GitHub release |
 | `src/*.go` | the core, the server, the runner and the commands; `assets.go` embeds the two folders below |
 | `src/web/` | the page |
 | `src/samples/` | sample chains, tools, prompts and `GUIDE.txt`, written to `~/.swarm` by `swarm samples` |
