@@ -301,9 +301,7 @@ func (g *guard) watch(parent context.Context) {
 		if g.limits.cpu {
 			ps := scanProcs()
 			if cpu := ps.cpu(g.r.stepOwned(g.mark)(ps)); cpu > lastCPU {
-				if lastCPU >= 0 {
-					g.progress()
-				}
+				g.progress()
 				lastCPU = cpu
 			}
 		}
