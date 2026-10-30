@@ -43,6 +43,20 @@ test("starting a run sends the inputs and opens the new run", async () => {
   assert.equal(globalThis.location.hash, "#/run/1028-120000");
 });
 
+test("the start form shows the swarm run command for the values in it", async () => {
+  start();
+  await open("#/chain/make-change");
+  const command = () => $("form.start .start-cli pre").textContent;
+
+  assert.equal(command(), "swarm run make-change -project /work/demo -input request='...' -input test_command='make test'");
+  const [request, testCommand] = $$("form.start .start-fields textarea, form.start .start-fields input");
+  type(request, "Fix the user's login page");
+  type(testCommand, "");
+  assert.equal(command(), "swarm run make-change -project /work/demo -input request='Fix the user'\\''s login page'");
+  type(request, "fix-42");
+  assert.equal(command(), "swarm run make-change -project /work/demo -input request=fix-42");
+});
+
 test("a refused start shows why next to the button", async () => {
   start();
   route("POST", "/api/runs", fail(422, "refused", ["request: it needs a value"]));
@@ -65,7 +79,7 @@ test("a run cannot start while the chain has unsaved changes", async () => {
   assert.equal(calls.some((c) => c.method === "POST"), false);
 });
 
-test("a chain with problems cannot start, and a chain without inputs shows only the button", async () => {
+test("a chain with problems cannot start, and a chain without inputs shows no fields", async () => {
   start();
   await open("#/chain/solo");
   assert.equal(startButton().disabled, true);

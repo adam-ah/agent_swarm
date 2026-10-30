@@ -20,6 +20,9 @@ function startForm(chain) {
       : h("textarea", { rows: 6, placeholder: "Describe it in plain words" }, value);
     return { input: i, el, fromSettings };
   });
+  const command = h("pre", { class: "example" });
+  const showCommand = () => { command.textContent = cliCommand(chain, controls); };
+  showCommand();
   const submit = async (e) => {
     e.preventDefault();
     message.textContent = editor?.dirty ? "Save or discard your changes to the chain first." : "";
@@ -33,7 +36,7 @@ function startForm(chain) {
       message.textContent = err.message;
     }
   };
-  return h("form", { class: "panel start", onsubmit: submit },
+  return h("form", { class: "panel start", onsubmit: submit, oninput: showCommand },
     h("div", { class: "editbar-title" }, "Start a run"),
     controls.length ? h("div", { class: "start-fields" }, controls.map(({ input, el, fromSettings }) =>
       h("label", { class: `field ${input.optional ? "" : "wide"}` },
@@ -41,7 +44,18 @@ function startForm(chain) {
           input.optional ? h("span", { class: "hint" }, " optional") : null,
           fromSettings ? h("span", { class: "hint", title: "This project's starting value, set in Settings" }, " · from Settings") : null),
         el))) : null,
-    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: !!chain.problems?.length }, "Start run"), message));
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: !!chain.problems?.length }, "Start run"), message),
+    h("div", { class: "start-cli" }, h("span", { class: "hint" }, "Or from a terminal, with the values above:"), command));
+}
+
+function cliCommand(chain, controls) {
+  const words = ["swarm", "run", chain.name, "-project", shellWord(project)];
+  for (const { input, el, fromSettings } of controls) {
+    const value = el.value.trim();
+    if (value) words.push("-input", `${input.name}=${shellWord(value)}`);
+    else if (!input.optional && !fromSettings && !input.default) words.push("-input", `${input.name}='...'`);
+  }
+  return words.join(" ");
 }
 
 function approvalBefore(step, steps) {
