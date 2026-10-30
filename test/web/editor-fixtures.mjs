@@ -165,6 +165,7 @@ export const text = (el) => el?.textContent.replace(/\s+/g, " ").trim();
 export const button = (label, root = globalThis.document) => [...root.querySelectorAll("button")].find((b) => b.textContent === label);
 
 export const rows = () => $$("#tree .tree-row:not(.readonly)");
+export const own = (selector) => $$(selector).filter((el) => !el.closest(".subchain"));
 
 export const row = (title) => rows().find((r) => r.querySelector(".title").textContent === title);
 

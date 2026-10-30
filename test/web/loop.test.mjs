@@ -30,6 +30,18 @@ test("a repeat step heads a block holding the steps it goes back over", async ()
   assert.deepEqual(parts($(".ol-loop .ol-if > .ol-label")), ["If", "change.verdict", "is DONE", "set by Make the change"]);
 });
 
+test("a chain that runs a looping sub-chain shows the sub-chain's loop the way the sub-chain's own page does", async () => {
+  const lib = looped();
+  lib.chains.push({ name: "parent", title: "Parent", steps: [{ id: "run_change", title: "Run make-change", chain: "make-change" }], source: "project" });
+  start(lib);
+  await open("#/chain/parent");
+
+  assert.deepEqual(parts($("#tree .ol-loop > .ol-label")),
+    ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run fails if it still wants another round after the last"]);
+  assert.deepEqual($$("#tree .ol-loop .tree-row.readonly .title").map((t) => t.textContent), ["Make the change", "Run the tests", "Review it", "Review again"]);
+  assert.deepEqual($$("#tree .tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files"]);
+});
+
 test("the repeat step's inspector sets where it goes back to, how often and when the run fails", async () => {
   const { saved: calls } = start(looped());
   await open("#/chain/make-change/again");

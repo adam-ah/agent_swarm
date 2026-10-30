@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { $, $$, click, page, settle, type } from "./page.mjs";
-import { body, button, control, labelled, open, shown, start, text } from "./editor-fixtures.mjs";
+import { $, click, page, settle, type } from "./page.mjs";
+import { body, button, control, labelled, open, own, shown, start, text } from "./editor-fixtures.mjs";
 
 const read = (condition) => page(`readCondition(${JSON.stringify(condition)})`);
 const write = (parts) => page(`writeCondition(${JSON.stringify(parts)})`);
@@ -55,7 +55,7 @@ test("the condition editor sets each operator and offers the names of earlier va
     await settle();
     return body(saved.findLast((c) => c.path === "/api/items/chains/make-change.json")).steps.find((s) => s.id === "test").when;
   };
-  const label = () => [...($(".ol-if > .ol-label")?.children || [])].map(text);
+  const label = () => [...(own(".ol-if > .ol-label")[0]?.children || [])].map(text);
 
   assert.equal(shown(control("Runs")), "on");
   assert.deepEqual(parts(), ["select", "input", "select", "input", "datalist"]);
@@ -108,7 +108,7 @@ test("a condition the editor cannot read is kept as text and edited as text", as
   await open("#/chain/solo/only");
 
   assert.deepEqual([...$(".ol-if > .ol-label").children].map(text), ["If", "{{ready}} == yes"]);
-  assert.deepEqual($$(".tree-note").map(text), ["⤷ stops the run here if its exit_code > 0"]);
+  assert.deepEqual(own(".tree-note").map(text), ["⤷ stops the run here if its exit_code > 0"]);
   const runs = labelled("Runs");
   const raw = runs.querySelector(".cond input");
   assert.equal(raw.value, "{{ready}} == yes");
@@ -120,7 +120,7 @@ test("a condition the editor cannot read is kept as text and edited as text", as
   type(raw, "ready == yes");
   assert.deepEqual([...$(".ol-if > .ol-label").children].map(text), ["If", "ready", "is yes", "nothing sets it"]);
   type(labelled("Stops the run after it").querySelector(".cond input"), "only.output == ");
-  assert.deepEqual($$(".tree-note").map(text), ["⤷ stops the run here if its only.output is empty"]);
+  assert.deepEqual(own(".tree-note").map(text), ["⤷ stops the run here if its only.output is empty"]);
 
   click(button("Save"));
   await settle();

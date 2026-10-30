@@ -194,10 +194,22 @@ function treeRow({ kind, title, id, selected, readonly, onclick }) {
 function subchainRows(chainName, depth) {
   const sub = lib.chains.find((c) => c.name === chainName);
   if (!sub || depth > 4) return null;
-  return h("div", { class: "tree-kids" }, (sub.steps || []).map((s) => [
-    treeRow({ kind: kindOf(s), title: s.title, id: s.id, readonly: true }),
-    s.chain ? subchainRows(s.chain, depth + 1) : null,
-  ]));
+  const steps = sub.steps || [];
+  return h("div", { class: "tree-kids subchain" }, renderOutline(outlineOf(steps), {
+    chain: sub,
+    step: (s) => stepRows(s, steps, chainName, treeRow({ kind: kindOf(s), title: s.title, id: s.id, readonly: true }), depth),
+  }));
+}
+
+function stepRows(step, steps, chainName, row, depth) {
+  const lists = step.chain ? listsPassed(step, steps, chainName) : [];
+  return [
+    row,
+    step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
+    lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}`) : null,
+    step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
+    step.chain ? subchainRows(step.chain, depth + 1) : null,
+  ];
 }
 
 function renderEditorTree() {
@@ -210,14 +222,7 @@ function renderEditorTree() {
       go: editorGo,
       step: (step) => {
         const i = d.steps.indexOf(step);
-        const lists = step.chain ? listsPassed(step, d.steps, editor.name) : [];
-        return [
-          treeRow({ kind: kindOf(step), title: step.title, id: step.id, selected: editor.selected === i, onclick: () => select(i) }),
-          step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
-          lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}`) : null,
-          step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${d.steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
-          step.chain ? subchainRows(step.chain, 1) : null,
-        ];
+        return stepRows(step, d.steps, editor.name, treeRow({ kind: kindOf(step), title: step.title, id: step.id, selected: editor.selected === i, onclick: () => select(i) }), 0);
       },
     })));
   document.getElementById("tree-actions").replaceChildren(

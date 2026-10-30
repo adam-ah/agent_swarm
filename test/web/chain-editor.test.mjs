@@ -24,7 +24,9 @@ test("the editor shows the chain's steps as a tree with branches, notes and read
   assert.ok(row("Title, inputs and values").classList.contains("selected"));
   assert.deepEqual($$("#tree .tree-row.readonly .title").map((t) => t.textContent),
     ["Apply one changeset", "Run solo", "Only step", "Back to shipping", "Apply one changeset", "Run solo", "Only step", "Back to shipping"]);
-  assert.deepEqual($$(".tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files"]);
+  assert.deepEqual($$(".tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files",
+    "⤷ stops the run here if its exit_code > 0", "⤷ stops the run here if its exit_code > 0"]);
+  assert.deepEqual($$(".subchain .ol-if > .ol-label").map(text), ["If{{ready}} == yes", "If{{ready}} == yes"]);
 
   assert.deepEqual(parts($(".ol-if > .ol-label")), ["If", "change.verdict", "is DONE", "set by Make the change"]);
   assert.equal(text($(".ol-revise")), "Sent back⟲ runs again from “Make the change”, with your note");
