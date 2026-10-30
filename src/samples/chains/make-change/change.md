@@ -14,10 +14,11 @@ It is either a bug to fix or something new to add. What earlier runs in this fol
 4. Run that test again and see it pass, then the tests around it. If memory says how to build or test this project, do it that way.
 5. Do not commit, push or switch branches. Later steps do that after a review and a person's approval.
 
-If the request is unclear, already done, or you cannot find a sound way to do it, change nothing and say why in the summary.
+If you cannot tell what the person means, or there are several sound ways to do it and the choice is theirs, ask before changing anything: put each question in `questions`, leave the other fields empty, and you get the answers in this conversation. Ask only what the code cannot tell you. If the request is already done, or there is no sound way to do it, change nothing and say why in the summary.
 
 ## Return
 
+- `questions` (list): what you need the person to answer before you can go on; empty once you have what you need
 - `summary`: one plain sentence for a reviewer: what was wrong or missing, and what you changed
 - `files_changed` (list): the repo-relative files you changed or added
 - `test_command`: the shell command, run from the repository root, that runs only the tests covering this change; empty if the repository has no tests

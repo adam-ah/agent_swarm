@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -48,6 +50,7 @@ type StepRun struct {
 	Resumed    string         `json:"resumed,omitempty"`
 	Log        string         `json:"log,omitempty"`
 	AskedAgain string         `json:"asked_again,omitempty"`
+	Asks       []*Ask         `json:"asks,omitempty"`
 	Repeats    int            `json:"repeats,omitempty"`
 	Rounds     string         `json:"rounds,omitempty"`
 	Loop       string         `json:"loop,omitempty"`
@@ -103,8 +106,9 @@ func (run *Run) going() bool {
 }
 
 type decision struct {
-	Choice string `json:"choice"`
-	Note   string `json:"note"`
+	Choice  string   `json:"choice"`
+	Note    string   `json:"note"`
+	Answers []string `json:"answers,omitempty"`
 }
 
 const (
@@ -254,6 +258,9 @@ func summaryOf(run *Run) RunSummary {
 	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs}
 	if waiting := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); waiting != nil && run.Status == "waiting" {
 		sum.Question = waiting.Question
+		if ask := waiting.openAsk(); ask != nil {
+			sum.Question = waiting.Title + " asks: " + strings.Join(ask.Questions, " · ")
+		}
 	}
 	return sum
 }
@@ -286,7 +293,9 @@ func (s *Store) hasArtifact(id, path string) bool {
 
 func (s *Store) hasLog(id, log string) bool {
 	run := s.load(id)
-	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.Log == log || step.AskedAgain == log }) != nil
+	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool {
+		return step.Log == log || step.AskedAgain == log || slices.ContainsFunc(step.Asks, func(a *Ask) bool { return a.Log == log })
+	}) != nil
 }
 
 func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {

@@ -50,6 +50,7 @@ function pastStep(run, step, opened) {
     h("div", { class: "srow-body" },
       step.error ? h("div", { class: "error-box" }, step.error) : null,
       stepFields(step),
+      asksPanel(run.id, step),
       step.log ? callPanel(run.id, step.log).el : null,
       step.asked_again ? callPanel(run.id, step.asked_again, ASKED_AGAIN_TITLE).el : null)),
   `${step.path}@${step.started_at}`, opened);

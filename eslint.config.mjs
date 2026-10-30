@@ -17,7 +17,7 @@ const sharedFunctions = [
   "fieldsOf", "stepInspector", "inspectorSection", "readsStrip", "withReads", "valuesGroup", "setsSection", "flowFields", "sharedEditor", "kindFields", "agentFields", "toolValues", "valuesEditor",
   "toolPicker", "promptPicker",
   "itemButtons", "showTool", "showSettings", "showMemory", "returnsList", "showPrompt",
-  "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "elapsed", "remembered", "block", "actionLabel", "callView", "callPanel",
+  "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "remembered", "openAsk", "questionsForm", "asksPanel", "block", "actionLabel", "callView", "callPanel",
   "stepShows", "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
   "showRun", "findStepIn", "renderRun", "outcomeBanner", "renderDecision", "focusRow", "syncRows", "redrawRow", "toggleRow",
   "stepRow", "stepStats", "startsAround", "rerunPoints", "valueLabel", "summaryLine", "roundsOf", "syncRounds", "pastRound", "pastStep", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
@@ -27,7 +27,7 @@ const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
   "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
-  "holdsSteps", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS",
+  "holdsSteps", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS", "LEFT_TO_AGENT", "answerOf",
 ];
 
 const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];

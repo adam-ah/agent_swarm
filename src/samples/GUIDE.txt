@@ -57,6 +57,9 @@ All act on the current folder's project; -project DIR picks another.
     swarm approve RUN [-note T]   answer the user step a run waits on, only
     swarm revise RUN -note T      when the person tells you to
     swarm reject RUN [-note T]
+    swarm answer RUN -a TEXT...   answer an agent's questions, one -a per
+    swarm answer RUN -decide      question in order, or let it decide; only
+                                  when the person tells you to
 
 A run has its own process; "swarm run" only follows it, so your command
 timing out leaves the run going. For long chains use -detach and poll
@@ -101,8 +104,7 @@ Each step has an id, a title saying what it does, and exactly one of:
 
 "agent": "<prompt>"
     Runs an agent CLI headless in the project folder with
-    chains/<chain>/<prompt>.md. It cannot ask questions. "runner" overrides
-    the default agent. "tools" limits a claude step (Bash, Read, Grep, Glob,
+    chains/<chain>/<prompt>.md. "runner" overrides the default agent. "tools" limits a claude step (Bash, Read, Grep, Glob,
     Write, Edit, WebFetch, WebSearch): grant the minimum, reviewers get no
     Write or Edit. Codex ignores "tools" and uses the person's Codex config.
     Returns the fields in the prompt's "## Return"; without one, free text
@@ -111,6 +113,12 @@ Each step has an id, a title saying what it does, and exactly one of:
     continues the newest session in that line, so change, review, fix stays
     one conversation and its prompt is just the follow-up. Both steps must
     use the same CLI. Keep reviewers in a new session so they stay blind.
+    A prompt whose ## Return has `questions` (list) can ask the person
+    before it answers: while the list is not empty the step waits, the
+    person answers each question (or lets it decide), and the agent goes
+    on in the same session with the answers until it returns none.
+    {{<id>.answers}} holds every question and answer; give it to later
+    steps that must know what the person said, such as a blind reviewer.
 
 "user": "<question>"
     Waits for approve or reject (reject ends the run); returns decision and
@@ -252,7 +260,9 @@ not do, then how to work, and end with:
 One field per line. A field is text unless its description is only
 backticked choices, like verdict, or its name has (list), (number), (bool)
 or (A | B | C). Every step using the prompt returns these; a Return section
-swarm cannot read is refused.
+swarm cannot read is refused. Add `questions` (list) to let the agent ask
+the person, and say in the prompt when to ask instead of guessing and to
+leave it empty once it has what it needs.
 
 
 PLACEHOLDERS
@@ -293,7 +303,9 @@ paths, keyed by step id:
      "review": [{"verdict": "CHANGES"}, {"verdict": "APPROVE"}],
      "tests": {"fail": "2 failed"}}
 A list is one answer per run of that step, then the default; {"fail": ...}
-fails the step; a user step takes approve, reject or "revise: note".
+fails the step; a user step takes approve, reject or "revise: note". An
+agent mock with questions gets "<answer N>" answers and goes on with the
+next mock in its list.
 -run names steps that really run, only read-only ones such as a lint.
 Test each chain you create or change, once per path through it.
 

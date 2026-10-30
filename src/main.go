@@ -59,6 +59,8 @@ validated before saving; * marks commands that write.
   swarm approve RUN [-note T]   * answer the user step a run waits on
   swarm revise RUN -note T      * send the run back to the step's revise target with the note
   swarm reject RUN [-note T]    *
+  swarm answer RUN -a TEXT...   * answer the questions an agent step asks, one -a per question
+  swarm answer RUN -decide      * let the agent decide them itself
   swarm cancel RUN              * stop a run; "always" steps still run
 
   swarm serve [PORT] [-host IP]   the page, on 127.0.0.1:7070; -host 0.0.0.0 for every interface
@@ -100,8 +102,8 @@ func dispatch(command string, args []string) error {
 		return stopServer(args)
 	case "_run":
 		return work(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "approve", "revise", "reject", "cancel",
-		"snapshot", "diff", "restore":
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "approve", "revise", "reject", "answer",
+		"cancel", "snapshot", "diff", "restore":
 		return runCommand(command, args)
 	}
 	return fmt.Errorf("no command %q\n\n%s", command, usage)

@@ -84,13 +84,13 @@ function outcomeBanner(run) {
 
 function renderDecision(run, el) {
   const step = run.status === "waiting" ? findStepIn(run.steps, (s) => s.status === "waiting") : null;
-  const key = step ? `${keyOf(step)}:${step.round || 0}:${JSON.stringify(step.artifacts || [])}` : "";
+  const ask = step && openAsk(step);
+  const key = step ? `${keyOf(step)}:${step.round || 0}:${(step.asks || []).length}:${JSON.stringify(step.artifacts || [])}` : "";
   if (key === runView.decisionKey) return;
   runView.decisionKey = key;
   el.replaceChildren(step ? h("section", { class: "decision" },
-    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), step.title),
-    stepShows(run.id, step),
-    decideForm(run.id, step)) : "");
+    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), ask ? `${step.title} asks you` : step.title),
+    ask ? questionsForm(run.id, ask) : [stepShows(run.id, step), decideForm(run.id, step)]) : "");
 }
 
 const keyOf = (step) => step.path || step.id;
@@ -246,6 +246,7 @@ function stepRow(entry) {
       step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
       step.resumed ? h("span", { class: "chip flag", title: `Continues the session of ${step.resumed}` }, "continues") : null,
       step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "asked again") : null,
+      step.asks?.length ? h("span", { class: "chip flag", title: "It asked you questions before it answered" }, "asked you") : null,
       step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Runs even after a failure, a stop or a rejection" }, "always") : null),
     summaryLine(step, open)),
   h("span", { class: "srow-stats" }, stepStats(step)),
@@ -261,7 +262,7 @@ function summaryLine(step, open) {
     return h("span", { class: "srow-line working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
       `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at)));
   }
-  if (step.status === "waiting") return h("span", { class: "srow-line" }, "Waiting for your answer above");
+  if (step.status === "waiting") return h("span", { class: "srow-line" }, openAsk(step) ? "Asking you questions above" : "Waiting for your answer above");
   const text = step.headline || (open ? "" : firstLine(step.error) || step.ended);
   return text ? h("span", { class: "srow-line" }, text) : null;
 }
@@ -276,6 +277,7 @@ function stepBody(run, step, entry) {
       step.session ? ` · session ${step.session}` : " · no session id, so it cannot be continued") : null,
     entry.arts,
     stepFields(step),
+    asksPanel(run.id, step),
     readsPanel(run, step, entry.chain),
     entry.call?.el,
     step.asked_again ? h("div", { class: "hint" }, ASKED_AGAIN) : null,

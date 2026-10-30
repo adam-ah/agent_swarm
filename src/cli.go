@@ -38,7 +38,18 @@ type cli struct {
 	mock       string
 	real       string
 	inputs     inputFlags
+	answers    answerFlags
+	leave      bool
 	positional []string
+}
+
+type answerFlags []string
+
+func (f *answerFlags) String() string { return "" }
+
+func (f *answerFlags) Set(v string) error {
+	*f = append(*f, v)
+	return nil
 }
 
 func runCommand(command string, args []string) error {
@@ -49,7 +60,7 @@ func runCommand(command string, args []string) error {
 	switch command {
 	case "init":
 		return c.init()
-	case "approve", "revise", "reject":
+	case "approve", "revise", "reject", "answer":
 		return c.decide()
 	case "cancel":
 		return c.cancel()
@@ -75,6 +86,8 @@ func parseCommand(command string, args []string) (*cli, error) {
 	flags.StringVar(&c.about, "about", "", "memory add: what the notes came from")
 	flags.BoolVar(&c.detach, "detach", false, "run: print the run's id and return; the run keeps going")
 	flags.Var(c.inputs, "input", "run, test: a chain input as name=value; repeat for more")
+	flags.Var(&c.answers, "a", "answer: the answer to one question; repeat once per question, in order")
+	flags.BoolVar(&c.leave, "decide", false, "answer: let the agent decide its questions itself")
 	flags.StringVar(&c.mock, "mock", "", "test: step answers, as JSON or a JSON file")
 	flags.StringVar(&c.real, "run", "", "test: steps that really run, comma-separated")
 	for len(args) > 0 {

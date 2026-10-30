@@ -50,7 +50,7 @@ func TestDecideRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got decision
-	if err := readJSON(filepath.Join(core.store.runDir(waiting), decisionFile), &got); err != nil || got != (decision{Choice: "reject", Note: "no"}) {
+	if err := readJSON(filepath.Join(core.store.runDir(waiting), decisionFile), &got); err != nil || !reflect.DeepEqual(got, decision{Choice: "reject", Note: "no"}) {
 		t.Errorf("decision file = %+v, %v", got, err)
 	}
 	if err := core.Decide(waiting, decision{Choice: "approve"}); err == nil || !strings.Contains(err.Error(), "already being applied") {

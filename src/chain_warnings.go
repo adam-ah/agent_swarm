@@ -37,6 +37,9 @@ func outputsOf(chain *Chain, step Step) outputs {
 		for _, f := range returns {
 			names = append(names, f.Name)
 		}
+		if chain.Prompts[step.Agent].asks() {
+			names = append(names, answersField)
+		}
 		return outputs{fields: names}
 	case "user":
 		return outputs{fields: []string{"decision", "note"}}
@@ -147,7 +150,7 @@ func (w *warner) unread(step Step, reads map[string]bool) {
 		own[name] = true
 	}
 	for _, field := range outputsOf(w.chain, step).fields {
-		if field == "summary" || field == "output" || own[field] || reads[step.ID+"."+field] {
+		if field == "summary" || field == "output" || field == questionsField || field == answersField || own[field] || reads[step.ID+"."+field] {
 			continue
 		}
 		w.warnf("step %q returns %s, but nothing reads {{%s.%s}}", step.ID, field, step.ID, field)

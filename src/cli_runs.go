@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -45,10 +46,17 @@ func (c *cli) decide() error {
 	if err != nil {
 		return err
 	}
-	if err := c.core.Decide(id, decision{Choice: c.command, Note: c.note}); err != nil {
+	d := decision{Choice: c.command, Note: c.note}
+	if c.command == "answer" {
+		d = decision{Choice: "answer", Answers: c.answers}
+	}
+	if c.command == "answer" && c.leave {
+		d = decision{Choice: "decide"}
+	}
+	if err := c.core.Decide(id, d); err != nil {
 		return err
 	}
-	fmt.Println(map[string]string{"approve": "approved", "revise": "sent back", "reject": "rejected"}[c.command] + " " + id)
+	fmt.Println(map[string]string{"approve": "approved", "revise": "sent back", "reject": "rejected", "answer": "answered", "decide": "left to the agent:"}[d.Choice] + " " + id)
 	return nil
 }
 
@@ -116,6 +124,9 @@ func report(steps []*StepRun, indent string, seen map[string]string, link string
 }
 
 func stepLine(s *StepRun, indent, link string) string {
+	if ask := s.openAsk(); s.Status == "waiting" && ask != nil {
+		return askLine(s, ask, indent, link)
+	}
 	switch s.Status {
 	case "running":
 		return fmt.Sprintf("%s… %s [%s]\n", indent, s.Title, s.Kind)
@@ -140,6 +151,20 @@ func stepLine(s *StepRun, indent, link string) string {
 		return fmt.Sprintf("%s- %s (skipped)\n", indent, s.Title)
 	}
 	return fmt.Sprintf("%s  %s\n", indent, s.Title)
+}
+
+func askLine(s *StepRun, ask *Ask, indent, link string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s? %s asks:\n", indent, s.Title)
+	for i, q := range ask.Questions {
+		fmt.Fprintf(&b, "%s  %d. %s\n", indent, i+1, q)
+	}
+	how := "swarm answer RUN -a TEXT (once per question, in order) / swarm answer RUN -decide (it chooses)"
+	if link != "" {
+		how += ", or on the page: " + link
+	}
+	fmt.Fprintf(&b, "%s  answer with %s\n", indent, how)
+	return b.String()
 }
 
 func suffix(text string) string {

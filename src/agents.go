@@ -60,30 +60,13 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, chain *Chain, run *
 	}
 	builtin := lib.Settings.builtinFor(runner)
 	call.limits = limitsFor(step, agentStall, builtin == "")
-	result, err := r.callAgent(ctx, call, builtin, sc)
-	if err == nil && len(prompt.Returns) > 0 && result.fields(prompt.Returns) == nil && builtin != "" && result.session != "" {
-		call.log, call.session, call.prompt = sr.Log+"-fields", result.session, fieldsPrompt(prompt.Returns)
-		r.store.update(run, func() { sr.AskedAgain = call.log })
-		result, err = r.callAgent(ctx, call, builtin, sc)
+	missing := fmt.Errorf("%s did not return the fields in chains/%s/%s.md", runner, chain.Name, step.Agent)
+	result, out, err := r.answer(ctx, call, builtin, sc, prompt.Returns, missing)
+	if err == nil && prompt.asks() {
+		result, out, err = r.clarify(ctx, call, builtin, sc, prompt.Returns, missing, result, out)
 	}
 	if err != nil {
 		return nil, err
-	}
-
-	out := map[string]any{}
-	if len(prompt.Returns) > 0 {
-		fields := result.fields(prompt.Returns)
-		if fields == nil {
-			return nil, fmt.Errorf("%s did not return the fields in chains/%s/%s.md", runner, chain.Name, step.Agent)
-		}
-		for _, f := range prompt.Returns {
-			out[f.Name] = fields[f.Name]
-			if out[f.Name] == nil {
-				out[f.Name] = ""
-			}
-		}
-	} else {
-		out["output"] = result.text
 	}
 	headline := text(out["summary"])
 	if headline == "" {

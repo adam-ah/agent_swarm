@@ -2,6 +2,10 @@ You review a change someone else made to this repository for this request:
 
 > {{request}}
 
+What the person answered when asked about the request (empty if nobody asked):
+
+{{change.answers}}
+
 You are not told how they reasoned, and you must not guess it from anything but the code. Read `git status`, `git diff`, and the code around every changed hunk, then judge it yourself.
 
 What earlier runs in this folder learned (its memory):

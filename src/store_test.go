@@ -188,7 +188,7 @@ func TestStoreListFiltersByProjectNewestFirst(t *testing.T) {
 func TestStoreFindsArtifactsAndLogs(t *testing.T) {
 	store := testStore(t)
 	saveTestRun(t, store, &Run{ID: "0101-000001", Chain: "c", Status: "done", Steps: []*StepRun{
-		{ID: "a", Log: "a-2", Earlier: []*StepRun{{ID: "a", Log: "a"}}},
+		{ID: "a", Log: "a-2", Asks: []*Ask{{Log: "a-2-ask-1"}}, Earlier: []*StepRun{{ID: "a", Log: "a"}}},
 		{ID: "b", Children: []*StepRun{{ID: "c", Log: "b.c", AskedAgain: "b.c-fields", Artifacts: []Artifact{{Path: "/p/x.md"}, {Path: "/p/y.md"}}}}},
 	}})
 	for path, want := range map[string]bool{"/p/y.md": true, "/p/z.md": false} {
@@ -196,7 +196,7 @@ func TestStoreFindsArtifactsAndLogs(t *testing.T) {
 			t.Errorf("hasArtifact(%s) = %v", path, got)
 		}
 	}
-	for log, want := range map[string]bool{"a": true, "a-2": true, "b.c": true, "b.c-fields": true, "": false, "z": false} {
+	for log, want := range map[string]bool{"a": true, "a-2": true, "a-2-ask-1": true, "a-2-ask-2": false, "b.c": true, "b.c-fields": true, "": false, "z": false} {
 		if got := store.hasLog("0101-000001", log); got != want {
 			t.Errorf("hasLog(%q) = %v", log, got)
 		}

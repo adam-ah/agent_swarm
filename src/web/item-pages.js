@@ -178,6 +178,7 @@ function returnsList(prompt) {
   return [
     ...problems.map((p) => h("span", { class: "error-text" }, p)),
     ...fields.map((f) => h("span", {}, h("code", {}, f.name), f.value === "text" ? null : h("span", { class: "hint" }, ` ${f.value}`))),
+    fields.some((f) => f.name === "questions") ? h("span", { class: "hint" }, "It can ask you questions and waits for your answers before it goes on; later steps read them as {{step_id.answers}}") : null,
   ];
 }
 

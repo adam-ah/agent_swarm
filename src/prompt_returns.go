@@ -51,7 +51,7 @@ func promptReturns(text string) (Fields, []string) {
 			fields = append(fields, field)
 		}
 	}
-	return fields, problems
+	return fields, append(problems, questionProblems(fields)...)
 }
 
 func returnField(line string) (Field, error) {

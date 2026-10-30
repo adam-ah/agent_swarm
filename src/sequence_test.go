@@ -30,6 +30,16 @@ func sequenceLibrary(t *testing.T) *Library {
 
 func execute(t *testing.T, lib *Library, chain *Chain, decisions ...string) (*Run, string) {
 	t.Helper()
+	each := make([]decision, len(decisions))
+	for i, d := range decisions {
+		choice, note, _ := strings.Cut(d, ":")
+		each[i] = decision{Choice: choice, Note: note}
+	}
+	return executeWith(t, lib, chain, each...)
+}
+
+func executeWith(t *testing.T, lib *Library, chain *Chain, decisions ...decision) (*Run, string) {
+	t.Helper()
 	store := openStore(filepath.Join(t.TempDir(), "runs"))
 	id, err := store.claim()
 	if err != nil {
@@ -37,8 +47,7 @@ func execute(t *testing.T, lib *Library, chain *Chain, decisions ...string) (*Ru
 	}
 	run := &Run{ID: id, Project: lib.Project, Status: "running", Steps: expand(lib, chain, ""), decisions: make(chan decision, len(decisions))}
 	for _, d := range decisions {
-		choice, note, _ := strings.Cut(d, ":")
-		run.decisions <- decision{Choice: choice, Note: note}
+		run.decisions <- d
 	}
 	r := &Runner{store: store, swarm: "true", home: t.TempDir()}
 	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": store.logDir(run)}))

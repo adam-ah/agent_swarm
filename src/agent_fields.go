@@ -43,6 +43,33 @@ func (r *Runner) callAgent(ctx context.Context, call agentCall, builtin string, 
 	return result, err
 }
 
+func (r *Runner) answer(ctx context.Context, call agentCall, builtin string, sc *scope, returns Fields, missing error) (agentResult, map[string]any, error) {
+	result, err := r.callAgent(ctx, call, builtin, sc)
+	if err == nil && len(returns) > 0 && result.fields(returns) == nil && builtin != "" && result.session != "" {
+		call.log, call.session, call.prompt = call.log+"-fields", result.session, fieldsPrompt(returns)
+		r.store.update(call.run, func() { call.sr.AskedAgain = call.log })
+		result, err = r.callAgent(ctx, call, builtin, sc)
+	}
+	if err != nil {
+		return result, nil, err
+	}
+	if len(returns) == 0 {
+		return result, map[string]any{"output": result.text}, nil
+	}
+	fields := result.fields(returns)
+	if fields == nil {
+		return result, nil, missing
+	}
+	out := map[string]any{}
+	for _, f := range returns {
+		out[f.Name] = fields[f.Name]
+		if out[f.Name] == nil {
+			out[f.Name] = ""
+		}
+	}
+	return result, out, nil
+}
+
 func (a agentResult) fields(returns Fields) map[string]any {
 	if a.structured != nil {
 		return a.structured

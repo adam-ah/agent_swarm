@@ -54,7 +54,7 @@ func TestSamplePromptReturns(t *testing.T) {
 		prompt string
 		want   Fields
 	}{
-		{prompt: "make-change/change", want: Fields{{"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
+		{prompt: "make-change/change", want: Fields{{"questions", "list"}, {"summary", "text"}, {"files_changed", "list"}, {"test_command", "text"}, {"commit_message", "text"}}},
 		{prompt: "make-change/review-change", want: Fields{{"verdict", "APPROVE | CHANGES"}, {"summary", "text"}, {"findings", "text"}}},
 		{prompt: "make-change/learn", want: Fields{{"summary", "text"}, {"notes", "list"}}},
 		{prompt: "edit-chain/edit-chain", want: Fields{{"summary", "text"}, {"files", "list"}}},

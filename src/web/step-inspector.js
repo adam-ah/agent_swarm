@@ -4,8 +4,9 @@ const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an
 function fieldsOf(step) {
   const kind = kindOf(step);
   if (kind === "agent") {
-    const returns = promptOf(editor.name, step.agent)?.returns || [];
-    return returns.length ? returns.map((f) => f.name) : ["output"];
+    const names = (promptOf(editor.name, step.agent)?.returns || []).map((f) => f.name);
+    if (names.includes("questions")) names.push("answers");
+    return names.length ? names : ["output"];
   }
   if (kind === "user") return ["decision", "note"];
   if (kind === "tool") return ["output"];

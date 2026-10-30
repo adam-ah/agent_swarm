@@ -18,6 +18,8 @@ The page and the `swarm` command are clients of the same server. Every read, sav
 
 ## Which agent runs
 
+An agent step whose prompt returns `questions` can stop and ask you what it needs to know; it waits for your answers, on the page or with `swarm answer`, and carries on in the same session until it has none left.
+
 Agent steps run Claude Code (`claude -p`), Codex (`codex exec`, with your own Codex config) or a command you add, such as `pi`. `settings.json` in `~/.swarm` or a project's `.swarm/` picks the default, and a step overrides it with `"runner"`. The Settings page, `swarm settings` and `swarm help` cover the details.
 
 ## For agents

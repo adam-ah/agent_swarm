@@ -82,11 +82,20 @@ func (m *mocks) runs(sr *StepRun) bool {
 	return false
 }
 
-func (m *mocks) next(sr *StepRun) (json.RawMessage, bool) {
-	key := sr.Path
-	if _, ok := m.answers[key]; !ok {
-		key = sr.ID
+func (m *mocks) key(sr *StepRun) string {
+	if _, ok := m.answers[sr.Path]; ok {
+		return sr.Path
 	}
+	return sr.ID
+}
+
+func (m *mocks) listed(sr *StepRun) bool {
+	var rounds []json.RawMessage
+	return json.Unmarshal(m.answers[m.key(sr)], &rounds) == nil
+}
+
+func (m *mocks) next(sr *StepRun) (json.RawMessage, bool) {
+	key := m.key(sr)
 	answer, ok := m.answers[key]
 	var rounds []json.RawMessage
 	if !ok || json.Unmarshal(answer, &rounds) != nil {
@@ -128,7 +137,7 @@ func (m *mocks) answer(lib *Library, chain *Chain, sr *StepRun, step Step, sc *s
 	}
 	switch step.Kind() {
 	case "agent":
-		return m.agentAnswer(sr, chain.Prompts[step.Agent].Returns, raw, mocked)
+		return m.agentRounds(sr, chain.Prompts[step.Agent], raw, mocked)
 	case "user":
 		return userAnswer(step, raw, mocked)
 	}
@@ -171,8 +180,34 @@ func (m *mocks) agentAnswer(sr *StepRun, returns Fields, raw json.RawMessage, mo
 	return out, nil
 }
 
+func (m *mocks) agentRounds(sr *StepRun, prompt Prompt, raw json.RawMessage, mocked bool) (map[string]any, error) {
+	out, err := m.agentAnswer(sr, prompt.Returns, raw, mocked)
+	var asks []*Ask
+	for err == nil && prompt.asks() {
+		questions := questionsIn(out)
+		if len(questions) == 0 {
+			out[answersField] = qaText(asks)
+			break
+		}
+		ask := &Ask{Questions: questions}
+		for i := range questions {
+			ask.Answers = append(ask.Answers, fmt.Sprintf("<answer %d>", i+1))
+		}
+		asks = append(asks, ask)
+		m.notes[sr] = append(m.notes[sr], "asks "+strings.Join(questions, " | ")+", and answers with its next mock")
+		raw, mocked = nil, false
+		if m.listed(sr) {
+			raw, mocked = m.next(sr)
+		}
+		out, err = m.agentAnswer(sr, prompt.Returns, raw, mocked)
+	}
+	return out, err
+}
+
 func example(id string, f Field) any {
 	switch kind := strings.TrimSpace(f.Value); {
+	case f.Name == questionsField:
+		return []any{}
 	case kind == "list":
 		return []any{"<" + id + "." + f.Name + ">"}
 	case kind == "number":

@@ -42,3 +42,6 @@ pre.diff .meta { color: var(--muted); font-weight: 650; }
 .round > .past { margin-left: 14px; }
 .past > summary:hover { background: var(--panel-2); }
 .past[open] .srow-line { white-space: normal; overflow-wrap: anywhere; }
+
+.answers .ask { display: flex; flex-direction: column; gap: 6px; }
+.ask-round + .ask-round { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }

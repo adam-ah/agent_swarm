@@ -42,6 +42,7 @@ function earlierPanel(run, earlier) {
       step.headline ? h("div", { class: "headline" }, step.headline) : null,
       step.error ? h("div", { class: "error-box" }, step.error) : null,
       stepFields(step),
+      asksPanel(run.id, step),
       step.log ? callPanel(run.id, step.log).el : null,
       step.asked_again ? callPanel(run.id, step.asked_again, ASKED_AGAIN_TITLE).el : null)));
 }
