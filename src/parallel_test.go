@@ -271,7 +271,7 @@ func TestDryRunRunsParallelItemsInOrder(t *testing.T) {
 	})
 	out := dryRun(t, "fan", "-mock", `{"list": {"items": ["one", "two", "three"]}, "ok": ["approve", "reject", "approve"]}`)
 	for _, want := range []string{
-		"✓ each (chain pick) pick ran 3 times: 2 done, 1 rejected\n    ! runs its items at the same time in a real run; this test runs them in order",
+		"✓ each (chain pick) pick ran 3 times: 2 done, 1 rejected\n    ! runs its items in parallel in a real run; this test runs them sequentially",
 		"✓ each.1.ok (user) mocked: decision=approve",
 		"✗ each.2.ok (user) mocked: decision=reject",
 		"✓ each.3.ok (user) mocked: decision=approve",

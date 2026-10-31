@@ -6,7 +6,7 @@ const sharedFunctions = [
   "h", "withProject", "api", "send", "itemURL", "putItem", "deleteItem", "clone", "kindOf", "duration", "seconds", "ago",
   "money", "fileURL", "loadLibrary", "loadRuns", "loadProjects", "renderProjects", "switchProject", "renderSide",
   "createItem", "closeStream", "refresh", "field", "textInput", "textArea", "selectBox", "linesInput", "rowsEditor",
-  "mapToRows", "rowsToMap", "usedBy", "listsPassed", "checkLater", "draftStatus",
+  "mapToRows", "rowsToMap", "usedBy", "callersOf", "usedByLine", "listsPassed", "checkLater", "draftStatus",
   "showHome", "waitingCard", "chainCard", "runList",
   "readCondition", "writeCondition", "describeCondition", "conditionEditor",
   "notApproved", "ifGroups", "outlineOf", "stepsIn", "sourceOf", "goLink", "sourceNote", "conditionLabel", "renderOutline",
@@ -26,7 +26,7 @@ const sharedFunctions = [
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
-  "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
+  "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "draftSteps", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
   "holdsSteps", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS", "LEFT_TO_AGENT", "answerOf",
 ];
 

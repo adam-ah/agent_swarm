@@ -329,13 +329,16 @@ test("new chains and tools are named through a prompt and opened", async () => {
   assert.equal(hash(), "#/tool/lint");
 });
 
-test("the sidebar lists chains, tools, waiting and recent runs", async () => {
+const withSubchain = () => [
+  library.chains[0],
+  { name: "broken", title: "Broken", steps: [], problems: ["no steps"], source: "shared" },
+  { name: "odd", title: "Odd", steps: [{ id: "a", title: "A", tool: "t" }, { id: "b", title: "B", chain: "part" }], warnings: ["unused input"] },
+  library.chains[1],
+];
+
+test("the sidebar lists chains, sub-chains, tools, waiting and recent runs", async () => {
   reset();
-  const chains = [
-    library.chains[0],
-    { name: "broken", title: "Broken", steps: [], problems: ["no steps"], source: "shared" },
-    { name: "odd", title: "Odd", steps: [{ id: "a", title: "A", tool: "t" }], warnings: ["unused input"] },
-  ];
+  const chains = withSubchain();
   route("GET", "/api/library", { ...library, chains });
   const run = (n, status) => ({ id: `1028-10${n}`, chain: "fix", title: "Fix a bug", subject: `Bug ${n}`, status, started_at: before(60 * n), inputs: {} });
   const runs = [run(0, "waiting"), ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => run(n, "done"))];
@@ -349,6 +352,10 @@ test("the sidebar lists chains, tools, waiting and recent runs", async () => {
   assert.deepEqual(texts("#chains .side-item .text"), ["Fix a bug", "Broken", "Odd"]);
   assert.deepEqual(texts("#chains .side-item .meta"), ["7", "!", "⚠"]);
   assert.deepEqual(texts("#chains .side-item .tag"), ["project"]);
+  assert.equal($("#subchains-section").hidden, false);
+  assert.deepEqual($$("#subchains .side-item").map((a) => a.getAttribute("href")), ["#/chain/part"]);
+  assert.deepEqual(texts("#subchains .side-item .sub"), ["used by Fix a bug, Odd"]);
+  assert.deepEqual(texts("#subchains .side-item .meta"), ["1"]);
   assert.equal($$("#runs .side-item").length, 6);
   assert.equal($("#runs .side-more").textContent, "All 9 runs");
   assert.match($("#runs .side-item .sub").textContent, /^Fix a bug · 1m ago$/);
@@ -363,19 +370,15 @@ test("the sidebar lists chains, tools, waiting and recent runs", async () => {
   assert.equal($("#home-meta").textContent, "");
   assert.equal($("#settings-meta").textContent, "");
   assert.deepEqual(texts("#chains .side-empty"), ["No chains"]);
+  assert.equal($("#subchains-section").hidden, true);
   assert.deepEqual(texts("#runs .side-empty"), ["No runs yet"]);
   assert.deepEqual(texts("#tools .side-empty"), ["No tools"]);
 });
 
 test("the home page shows runs waiting for a decision and a card per chain", async () => {
   reset();
-  const chains = [
-    library.chains[0],
-    { name: "broken", title: "Broken", steps: [], problems: ["no steps"], source: "shared" },
-    { name: "odd", title: "Odd", steps: [{ id: "a", title: "A", tool: "t" }], warnings: ["unused input"] },
-  ];
-  route("GET", "/api/library", { ...library, chains });
-  const waiting = { id: "1028-111111", chain: "fix", title: "Fix a bug", subject: "", status: "waiting", started_at: before(10), question: "Ship this change?", inputs: {} };
+  route("GET", "/api/library", { ...library, chains: withSubchain() });
+  const waiting ={ id: "1028-111111", chain: "fix", title: "Fix a bug", subject: "", status: "waiting", started_at: before(10), question: "Ship this change?", inputs: {} };
   const quiet = { ...waiting, id: "1028-121212", subject: "Quiet", question: "" };
   route("GET", "/api/runs", [waiting, quiet]);
   await page("loadRuns()");
@@ -393,10 +396,11 @@ test("the home page shows runs waiting for a decision and a card per chain", asy
   assert.equal(cards[0].querySelector(".btn").textContent, "Decide");
 
   const chainCards = $$('a.card-link[href^="#/chain/"]');
-  assert.deepEqual(chainCards.map((c) => c.getAttribute("href")), ["#/chain/fix", "#/chain/broken", "#/chain/odd"]);
+  assert.deepEqual(chainCards.map((c) => c.getAttribute("href")), ["#/chain/fix", "#/chain/broken", "#/chain/odd", "#/chain/part"]);
+  assert.deepEqual(chainCards.map((c) => c.closest(".section").querySelector("h2").textContent), ["Start a chain", "Start a chain", "Start a chain", "Sub-chains"]);
   assert.equal(chainCards[0].querySelector(".tag").textContent, "project");
   assert.equal(chainCards[0].querySelector(".card-link-text").textContent, "Plans and tests a fix.");
-  assert.deepEqual(chainCards.map((c) => c.querySelector(".hint").textContent), ["7 steps", "0 steps · cannot run", "1 steps · has warnings"]);
+  assert.deepEqual(chainCards.map((c) => c.querySelector(".hint").textContent), ["7 steps", "0 steps · cannot run", "2 steps · has warnings", "1 steps · used by Fix a bug, Odd"]);
   assert.equal(chainCards[1].querySelector(".card-link-text") === null, true);
   assert.equal(chainCards[1].querySelector(".tag") === null, true);
   assert.deepEqual($$(".run-line .run-line-status").map((s) => s.textContent), ["Waiting for you", "Waiting for you"]);

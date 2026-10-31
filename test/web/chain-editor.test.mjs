@@ -8,7 +8,7 @@ const savedChain = (saved, name = "make-change") => body(saved.findLast((c) => c
 const status = () => text($("#savebar .status"));
 const heading = () => $("#inspector .card-title, #inspector h2").textContent;
 
-test("the editor shows the chain's steps as a tree with branches, notes and read-only sub-chains", async () => {
+test("the editor shows the chain's steps as a tree with branches, notes and sub-chains", async () => {
   start();
   await open("#/chain/make-change");
 
@@ -22,7 +22,7 @@ test("the editor shows the chain's steps as a tree with branches, notes and read
   assert.deepEqual(rows().map((r) => r.querySelector(".id")?.textContent ?? ""),
     ["", "read_issue", "change", "test", "review", "approve", "merge", "ship", "tell", "cleanup"]);
   assert.ok(row("Title, inputs and values").classList.contains("selected"));
-  assert.deepEqual($$("#tree .tree-row.readonly .title").map((t) => t.textContent),
+  assert.deepEqual($$("#tree .tree-row.sub .title").map((t) => t.textContent),
     ["Apply one changeset", "Run solo", "Only step", "Back to shipping", "Apply one changeset", "Run solo", "Only step", "Back to shipping"]);
   assert.deepEqual($$(".tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files",
     "⤷ stops the run here if its exit_code > 0", "⤷ stops the run here if its exit_code > 0"]);
@@ -224,6 +224,35 @@ test("saving writes the edited tools and prompts before the chain", async () => 
   assert.equal(status(), "Saved");
   assert.equal(heading(), "Make the change");
   assert.ok(calls.findLast((c) => c.path === "/api/library"));
+});
+
+test("a sub-chain's steps are edited in place and saved with the chain that runs them", async () => {
+  const { saved } = start();
+  await open("#/chain/make-change");
+  const subRow = (title) => $$("#tree .tree-row.sub").find((r) => r.querySelector(".title").textContent === title);
+
+  click(subRow("Apply one changeset"));
+  assert.ok(subRow("Apply one changeset").classList.contains("selected"));
+  assert.equal(heading(), "Apply one changeset");
+  assert.equal(text($("#inspector .subchain-note")), "Part of the sub-chain Ship a changeset, chains/ship-changeset.json, only in this project. "
+    + "Saving changes it for every chain that runs it: Make a change, Solo. Open ship-changeset on its own →");
+  assert.equal(text($("#tree-actions .hint")), "Add a step to Ship a changeset, after the selected one:");
+
+  type(control("Title"), "Apply the changeset");
+  assert.equal($$("#tree .tree-row.sub .title").filter((t) => t.textContent === "Apply the changeset").length, 2);
+  assert.equal(status(), "Unsaved. Saving changes it for every project. Also saves chains/ship-changeset.json.");
+
+  click(button("Save"));
+  await settle();
+  assert.deepEqual(saved.map((c) => c.path), ["/api/items/chains/ship-changeset.json", "/api/items/chains/make-change.json"]);
+  assert.equal(savedChain(saved, "ship-changeset").steps[0].title, "Apply the changeset");
+  assert.equal(status(), "Saved");
+  assert.equal(heading(), "Apply the changeset");
+  assert.ok(subRow("Apply the changeset").classList.contains("selected"));
+
+  click(row("Title, inputs and values"));
+  assert.equal($("#inspector .subchain-note"), null);
+  assert.equal(text($("#tree-actions .hint")), "Add a step at the end:");
 });
 
 test("a refused save lists swarm's reasons and keeps the changes", async () => {

@@ -250,34 +250,6 @@ func readMemory(project string) string {
 	return string(raw)
 }
 
-func (lib *Library) catalog() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Agent steps run with %s unless a step sets runner. Agents available: %s.\n\n",
-		lib.Settings.defaultRunner(), strings.Join(lib.Settings.runners(), ", "))
-	b.WriteString("Chains:\n")
-	for _, c := range lib.sortedChains() {
-		fmt.Fprintf(&b, "- %s (%s): %s\n", c.Name, c.Source, c.Title)
-		for _, s := range c.Steps {
-			uses := strings.TrimSpace(s.Kind() + " " + s.Uses())
-			if s.Runner != "" {
-				uses += " via " + s.Runner
-			}
-			fmt.Fprintf(&b, "    %s: %s [%s]\n", s.ID, s.Title, uses)
-		}
-	}
-	b.WriteString("Tools:\n")
-	for _, name := range sortedKeys(lib.Tools) {
-		fmt.Fprintf(&b, "- %s (%s): %s\n", name, lib.Tools[name].Source, lib.Tools[name].Title)
-	}
-	b.WriteString("Prompts, each kept with its chain:\n")
-	for _, c := range lib.sortedChains() {
-		for _, name := range sortedKeys(c.Prompts) {
-			fmt.Fprintf(&b, "- chains/%s/%s.md: %s\n", c.Name, name, firstLine(c.Prompts[name].Text))
-		}
-	}
-	return b.String()
-}
-
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

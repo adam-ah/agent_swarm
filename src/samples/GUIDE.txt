@@ -30,7 +30,9 @@ COMMANDS
 
 All act on the current folder's project; -project DIR picks another.
 
-    swarm list                    chains (with steps), tools, prompts, layers
+    swarm list                    chains to start from, then sub-chains and
+                                  who uses them (with steps), tools,
+                                  prompts, layers
     swarm get PATH [-below]       print one; -below: the shared one it overrides
     swarm put PATH [-file F] [-scope project|shared]
                                   validate and save F or stdin, then warn about
@@ -62,7 +64,7 @@ All act on the current folder's project; -project DIR picks another.
                                   when the person tells you to
                                   these four take -step PATH (from swarm
                                   show, e.g. build.2.plan) when several
-                                  steps wait at once
+                                  steps are waiting
 
 A run has its own process; "swarm run" only follows it, so your command
 timing out leaves the run going. For long chains use -detach and poll
@@ -148,13 +150,13 @@ Each step has an id, a title saying what it does, and exactly one of:
     Runs a sub-chain that sees the caller's values; "with" fills its
     inputs, else their defaults. Its steps' fields are then readable by
     their ids. To run it per list item, make one "with" value just the
-    list, e.g. {"request": "{{split.changes}}"}: items run in turn, each
+    list, e.g. {"request": "{{split.changes}}"}: items run sequentially, each
     with its own run_folder; a reject or stop ends only that item, a
     failure fails the step after all items, and only {{<id>.summary}} is
     set ("make-change ran 3 times: 2 done, 1 rejected"). Never loop in a
-    tool. "parallel": true runs the items at the same time; the step
-    still ends once every item has, and several items can wait on the
-    person at once. "keep_going": true counts a failed item ("2 done,
+    tool. "parallel": true runs the items in parallel; the step still
+    ends once every item has, and several items can wait on the person
+    concurrently. "keep_going": true counts a failed item ("2 done,
     1 failed") without failing the step, so the run goes on. Both apply
     only to a step run per list item.
 
@@ -298,7 +300,7 @@ remember tool saving them.
 TESTING
 
 "swarm test CHAIN" walks the chain through the real engine (when, stop_if,
-repeat, revise, sub-chains, per-item runs, parallel ones in order) but
+repeat, revise, sub-chains, per-item runs, parallel ones sequentially) but
 runs no step. It prints each step in the order it ran, with its answer,
 the command a tool would run, placeholders nothing filled, and why skipped
 steps were skipped; each step's filled prompt, command or question is

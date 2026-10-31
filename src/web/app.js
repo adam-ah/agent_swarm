@@ -57,6 +57,9 @@ const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
 const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
 
+const callersOf = (chain) => lib.chains.filter((c) => c !== chain && (c.steps || []).some((s) => s.chain === chain.name));
+const usedByLine = (chain) => `used by ${callersOf(chain).map((c) => c.title).join(", ")}`;
+
 function listsPassed(step, steps, chainName) {
   return Object.values(step.with || {}).map((v) => LONE_PLACEHOLDER.exec(v)?.[1]).filter((name) => {
     const [id, field] = (name || "").split(".");
@@ -182,7 +185,11 @@ function renderSide() {
   document.getElementById("settings-meta").textContent = lib.default_runner ? `agents: ${lib.default_runner}` : "";
   document.getElementById("waiting-section").hidden = !waiting.length;
   document.getElementById("waiting").replaceChildren(...waiting.map(runItem));
-  list("chains", lib.chains.map((c) => item("chain", c.name, c.title, c.problems?.length ? "!" : c.warnings?.length ? "⚠" : `${c.steps?.length ?? 0}`, c.source)), "No chains");
+  const chainMeta = (c) => (c.problems?.length ? "!" : c.warnings?.length ? "⚠" : `${c.steps?.length ?? 0}`);
+  const subchains = lib.chains.filter((c) => callersOf(c).length);
+  list("chains", lib.chains.filter((c) => !subchains.includes(c)).map((c) => item("chain", c.name, c.title, chainMeta(c), c.source)), "No chains");
+  document.getElementById("subchains-section").hidden = !subchains.length;
+  document.getElementById("subchains").replaceChildren(...subchains.map((c) => item("chain", c.name, [c.title, h("span", { class: "sub" }, usedByLine(c))], chainMeta(c), c.source)));
   list("runs", [...recent.map(runItem), ...more], "No runs yet");
   list("tools", Object.keys(lib.tools).sort().map((n) => item("tool", n, n, null, lib.tools[n].source)), "No tools");
 }

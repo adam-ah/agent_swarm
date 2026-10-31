@@ -5,7 +5,7 @@ function stepFields(step) {
     h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, Array.isArray(v) ? h("ol", {}, v.map((item) => h("li", {}, asText(item)))) : asText(v))])));
 }
 
-function readsOf(def, chainName = editor?.name) {
+function readsOf(def, chainName) {
   const own = new Set(Object.keys(def.with || {}));
   const scoped = [def.tool ? lib.tools[def.tool]?.run : "", def.agent ? promptOf(chainName, def.agent)?.text : "", kindOf(def) === "user" ? [def.user, ...(def.show || [])].join("\n") : ""];
   const names = [...placeholdersIn(Object.values(def.with || {}).join("\n")), ...placeholdersIn(scoped.join("\n")).filter((n) => !own.has(n))];

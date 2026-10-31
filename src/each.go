@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const inOrderNote = "runs its items at the same time in a real run; this test runs them in order"
+const sequentialNote = "runs its items in parallel in a real run; this test runs them sequentially"
 
 func listInput(step Step, sc *scope) (string, []any, error) {
 	key := ""
@@ -58,7 +58,7 @@ func eachProblems(step Step, where string) []string {
 func eachHeadline(step Step, count int, source string) string {
 	at := ""
 	if step.Parallel && count > 1 {
-		at = " at once"
+		at = " in parallel"
 	}
 	headline := fmt.Sprintf("Runs %s %s%s, once per item of %s", step.Chain, times(count), at, source)
 	if step.KeepGoing {
@@ -82,7 +82,7 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 	})
 	together := step.Parallel && r.mocks == nil
 	if step.Parallel && r.mocks != nil {
-		r.mocks.notes[sr] = append(r.mocks.notes[sr], inOrderNote)
+		r.mocks.notes[sr] = append(r.mocks.notes[sr], sequentialNote)
 	}
 	folder, _ := p.sc.lookup("run_folder")
 	var mu sync.Mutex

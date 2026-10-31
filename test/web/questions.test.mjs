@@ -33,7 +33,7 @@ test("an agent that asks waits for an answer to each question, or for you to let
   assert.equal(button("Decide yourself").disabled, false);
 });
 
-test("items that wait at once each get their own answer, headed by their item", async () => {
+test("parallel items waiting concurrently each get their own answer, headed by their item", async () => {
   reset();
   route("POST", `/api/runs/${RUN}/decide`, { ok: "true" });
   const lib = structuredClone(runLibrary);
@@ -91,7 +91,7 @@ test("a prompt that returns questions says it can ask, and its step offers the a
   await open("#/prompt/make-change/change");
 
   assert.match($$(".panel-body.used-by")[1].lastChild.textContent, /^It can ask you questions and waits for your answers/);
-  page("editor = { name: 'make-change' }");
+  page("editor = { at: { name: 'make-change' } }");
   assert.deepEqual(page("fieldsOf")({ agent: "change" }), ["summary", "files", "verdict", "questions", "answers"]);
   page("editor = null");
 });

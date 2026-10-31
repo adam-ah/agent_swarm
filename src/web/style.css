@@ -140,7 +140,8 @@ input[type=checkbox] { width: auto; }
 .tree-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; user-select: none; min-width: 0; }
 .tree-row:hover { background: var(--panel-2); }
 .tree-row.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px #cfd8fb; }
-.tree-row.readonly { cursor: default; opacity: .7; }
+.tree-row.sub:not(.selected) { opacity: .7; }
+.subchain-note { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); border: 1px solid #cfd8fb; }
 .tree-row .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .id { color: var(--faint); font: 11.5px var(--mono); margin-left: auto; white-space: nowrap; }
 .tree-kids { margin-left: 15px; padding-left: 10px; border-left: 1px solid var(--line); }

@@ -170,12 +170,21 @@ func TestLibraryCatalog(t *testing.T) {
 	lib.Chains["fix"] = &Chain{Name: "fix", Title: "Fix bug", Source: "project", Steps: []Step{
 		{ID: "t", Title: "Test", Tool: "run_tests"},
 		{ID: "a", Title: "Agent", Agent: "triage", Runner: "pi"},
+		{ID: "s", Title: "Ship", Chain: "ship"},
 	}, Prompts: map[string]Prompt{"triage": {Text: "Triage the bug\nmore detail"}}}
+	lib.Chains["hotfix"] = &Chain{Name: "hotfix", Title: "Hotfix", Source: "shared", Steps: []Step{{ID: "s", Title: "Ship", Chain: "ship"}}}
+	lib.Chains["ship"] = &Chain{Name: "ship", Title: "Ship it", Source: "shared", Steps: []Step{{ID: "p", Title: "Push", Tool: "run_tests"}}}
 	want := "Agent steps run with codex unless a step sets runner. Agents available: claude, codex, pi.\n\n" +
-		"Chains:\n" +
+		"Chains to start from:\n" +
 		"- fix (project): Fix bug\n" +
 		"    t: Test [tool run_tests]\n" +
 		"    a: Agent [agent triage via pi]\n" +
+		"    s: Ship [chain ship]\n" +
+		"- hotfix (shared): Hotfix\n" +
+		"    s: Ship [chain ship]\n" +
+		"Sub-chains, run by other chains:\n" +
+		"- ship (shared): Ship it; used by fix, hotfix\n" +
+		"    p: Push [tool run_tests]\n" +
 		"Tools:\n" +
 		"- run_tests (shared): Run tests\n" +
 		"Prompts, each kept with its chain:\n" +

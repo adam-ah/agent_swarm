@@ -38,7 +38,7 @@ test("a chain that runs a looping sub-chain shows the sub-chain's loop the way t
 
   assert.deepEqual(parts($("#tree .ol-loop > .ol-label")),
     ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run fails if it still wants another round after the last"]);
-  assert.deepEqual($$("#tree .ol-loop .tree-row.readonly .title").map((t) => t.textContent), ["Make the change", "Run the tests", "Review it", "Review again"]);
+  assert.deepEqual($$("#tree .ol-loop .tree-row.sub .title").map((t) => t.textContent), ["Make the change", "Run the tests", "Review it", "Review again"]);
   assert.deepEqual($$("#tree .tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files"]);
 });
 

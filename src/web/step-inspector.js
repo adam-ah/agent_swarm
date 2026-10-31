@@ -4,7 +4,7 @@ const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an
 function fieldsOf(step) {
   const kind = kindOf(step);
   if (kind === "agent") {
-    const names = (promptOf(editor.name, step.agent)?.returns || []).map((f) => f.name);
+    const names = (promptOf(editor.at.name, step.agent)?.returns || []).map((f) => f.name);
     if (names.includes("questions")) names.push("answers");
     return names.length ? names : ["output"];
   }
@@ -15,16 +15,16 @@ function fieldsOf(step) {
 
 function stepInspector(step) {
   const kind = kindOf(step);
-  const at = editor.draft.steps.indexOf(step);
+  const at = editor.at.draft.steps.indexOf(step);
   const heading = h("span", { class: "card-title grow" }, step.title || "(untitled)");
   const idHint = h("span", { class: "hint" });
   const showID = () => { idHint.textContent = ` later steps read its fields as {{${step.id}.${fieldsOf(step)[0] || "field"}}}`; };
-  const idInput = textInput(step.id, (v) => { step.id = v; editor.fresh.delete(step); showID(); touch(); }, { class: "code" });
+  const idInput = textInput(step.id, (v) => { step.id = v; editor.at.fresh.delete(step); showID(); touch(); }, { class: "code" });
   showID();
   const setTitle = (v) => {
     step.title = v;
     heading.textContent = v || "(untitled)";
-    if (editor.fresh.has(step)) {
+    if (editor.at.fresh.has(step)) {
       step.id = uniqueID(slugOf(v), step);
       idInput.value = step.id;
       showID();
@@ -34,18 +34,19 @@ function stepInspector(step) {
   const setKind = (next) => {
     for (const key of ["tool", "agent", "user", "revise", "show", "chain", "parallel", "keep_going", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
-    if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
+    if (next === "agent") { step.agent = Object.keys(editor.at.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
     if (next === "user") step.user = "Continue?";
-    if (next === "chain") step.chain = lib.chains.map((c) => c.name).find((n) => n !== editor.name) || "";
-    if (next === "repeat") step.repeat = editor.draft.steps[at - 1].id;
+    if (next === "chain") step.chain = lib.chains.map((c) => c.name).find((n) => n !== editor.at.name) || "";
+    if (next === "repeat") step.repeat = editor.at.draft.steps[at - 1].id;
     touch(true);
   };
-  const what = kind === "repeat" ? `Repeat (${step.rounds || 3}× at most)` : "What it does";
+  const what = kind === "repeat" ? `Repeat (${step.rounds || 3}× at most)`
+    : kind === "chain" && listSource(step) ? `Repeat (${step.parallel ? "parallel" : "seq"})` : "What it does";
   return h("div", { class: "form" },
     h("div", { class: "inspector-head" },
       h("span", { class: `chip ${kind}` }, KIND_NAME[kind]), heading,
       h("button", { class: "btn small", type: "button", disabled: at === 0, onclick: () => move(-1), title: "Move up" }, "↑"),
-      h("button", { class: "btn small", type: "button", disabled: at === editor.draft.steps.length - 1, onclick: () => move(1), title: "Move down" }, "↓"),
+      h("button", { class: "btn small", type: "button", disabled: at === editor.at.draft.steps.length - 1, onclick: () => move(1), title: "Move down" }, "↓"),
       h("button", { class: "btn small danger", type: "button", onclick: removeStep }, "Delete")),
     h("div", { class: "row2" },
       field("Title", textInput(step.title, setTitle)),
@@ -58,7 +59,7 @@ function stepInspector(step) {
 }
 
 function repeatFields(step) {
-  const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
+  const earlier = editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step));
   const rounds = step.rounds || 3;
   const counts = [...new Set([2, 3, 4, 5, 6, 8, 10, rounds])].sort((a, b) => a - b);
   return h("div", { class: "form" },
@@ -79,7 +80,7 @@ const IDLE = { tool: ["10m", "no output and no CPU use"], agent: ["15m", "nothin
 
 function limitFields(step, kind) {
   const [stall, quiet] = IDLE[kind];
-  const later = editor.draft.steps.slice(editor.draft.steps.indexOf(step) + 1);
+  const later = editor.at.draft.steps.slice(editor.at.draft.steps.indexOf(step) + 1);
   return h("div", { class: "form" },
     h("div", { class: "row2" },
       field("Idle limit", textInput(step.stall, (v) => { step.stall = v.trim() || undefined; touch(); }, { placeholder: stall, class: "code" }),
@@ -100,7 +101,7 @@ function readsStrip(namesOf, label) {
   strip.draw = () => {
     const names = namesOf();
     strip.hidden = !names.length;
-    strip.replaceChildren(h("span", { class: "reads-label" }, label), readsList(names, editor.draft, editorGo));
+    strip.replaceChildren(h("span", { class: "reads-label" }, label), readsList(names, editor.at.draft, editorGo));
   };
   strip.draw();
   return strip;
@@ -118,8 +119,8 @@ function valuesGroup(label, body) {
 }
 
 function readersOf(name) {
-  const d = editor.draft;
-  const out = d.steps.filter((s) => readsOf(s).includes(name)).map((s) => ({ step: s }));
+  const d = editor.at.draft;
+  const out = d.steps.filter((s) => readsOf(s, editor.at.name).includes(name)).map((s) => ({ step: s }));
   const others = [["the run heading", d.subject], ["the run link", d.link], ...(d.vars || []).map((v) => [`the value ${v.name}`, v.value])];
   for (const [label, text] of others) if (placeholdersIn(text).includes(name)) out.push({ label });
   return out;
@@ -129,14 +130,14 @@ function setsSection(step) {
   const kind = kindOf(step);
   if (kind === "chain") return null;
   const prefix = `${step.id}.`;
-  const readByOthers = editor.draft.steps.flatMap(readsOf).filter((n) => n.startsWith(prefix)).map((n) => n.slice(prefix.length));
+  const readByOthers = editor.at.draft.steps.flatMap(readsOf).filter((n) => n.startsWith(prefix)).map((n) => n.slice(prefix.length));
   const fields = [...new Set([...fieldsOf(step), ...readByOthers])];
   if (!fields.length) return null;
   const own = new Set([readCondition(step.stop_if)?.name, ...placeholdersIn(step.stop)]);
   return inspectorSection("What it sets", "and what reads each field",
     h("div", { class: "reads-list" }, fields.map((f) => {
       const parts = readersOf(prefix + f).map((r) => (r.step
-        ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); select(editor.draft.steps.indexOf(r.step)); } }, r.step.title) : r.label));
+        ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); select(editor.at.draft.steps.indexOf(r.step)); } }, r.step.title) : r.label));
       if (own.has(f)) parts.push("its own stop condition");
       const shown = f === "summary" || f === "output";
       return h("div", { class: "read" }, h("code", { class: "ol-name" }, prefix + f),
@@ -146,8 +147,8 @@ function setsSection(step) {
 }
 
 function flowFields(step) {
-  const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
-  const names = [...[...(editor.draft.inputs || []), ...(editor.draft.vars || [])].map((v) => v.name).filter(Boolean),
+  const earlier = editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step));
+  const names = [...[...(editor.at.draft.inputs || []), ...(editor.at.draft.vars || [])].map((v) => v.name).filter(Boolean),
     ...earlier.flatMap((s) => fieldsOf(s).map((f) => `${s.id}.${f}`))];
   if (kindOf(step) === "repeat") {
     const back = conditionEditor(step.when, ["every round, until the rounds run out", "only when"], names, (v) => { step.when = v; touch(); });
@@ -156,7 +157,7 @@ function flowFields(step) {
   }
   const message = field("Message when it stops the run", textInput(step.stop, (v) => { step.stop = v || undefined; touch(); }, { placeholder: "e.g. Nothing was changed. {{summary}}" }));
   message.hidden = !step.stop_if && !step.stop;
-  const gate = approvalBefore(step, editor.draft.steps);
+  const gate = approvalBefore(step, editor.at.draft.steps);
   const runs = conditionEditor(step.when, ["every time the chain gets here", "only when"], names, (v) => { step.when = v; touch(); });
   return inspectorSection("When it runs", "",
     field("Runs", withReads(runs, () => [readCondition(step.when)?.name].filter(Boolean)),
@@ -168,8 +169,7 @@ function flowFields(step) {
       h("span", {}, "Also runs after a failure, a stop or a rejection, for cleanup")));
 }
 
-const usesCount = (match) => editor.draft.steps.filter(match).length
-  + lib.chains.filter((c) => c.name !== editor.name).reduce((n, c) => n + (c.steps || []).filter(match).length, 0);
+const usesCount = (match) => lib.chains.reduce((n, c) => n + draftSteps(c).filter(match).length, 0);
 
 function sharedEditor(path, uses, body) {
   return h("details", {
@@ -180,7 +180,7 @@ function sharedEditor(path, uses, body) {
 
 function kindFields(step, kind) {
   if (kind === "user") {
-    const earlier = editor.draft.steps.slice(0, editor.draft.steps.indexOf(step));
+    const earlier = editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step));
     return h("div", { class: "form" },
       field("Question", withReads(textArea(step.user, (v) => { step.user = v || "Continue?"; touch(); }, { rows: Math.max(3, step.user.split("\n").length + 1) }),
         () => placeholdersIn(step.user))),
@@ -190,19 +190,21 @@ function kindFields(step, kind) {
         "the person's note reaches every agent that runs again"));
   }
   if (kind === "chain") {
-    const sub = lib.chains.find((c) => c.name === step.chain);
-    const lists = listsPassed(step, editor.draft.steps, editor.name);
-    const perItem = Object.values(step.with || {}).some((v) => LONE_PLACEHOLDER.test(v));
+    const sub = editor.chains[step.chain]?.draft || lib.chains.find((c) => c.name === step.chain);
+    const lists = listsPassed(step, editor.at.draft.steps, editor.at.name);
+    const source = listSource(step);
     const option = (key, label) => h("label", { class: "toggle" },
       h("input", { type: "checkbox", checked: !!step[key], onchange: (e) => { step[key] = e.target.checked || undefined; touch(true); } }), h("span", {}, label));
     return h("div", { class: "form" },
-      field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
+      field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.at.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
       valuesGroup("Its inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
-      h("div", { class: "hint" }, lists.length
-        ? `Runs ${step.chain} once per item of ${lists.join(", ")}, ${step.parallel ? "all at the same time" : "one after another"}. A rejection or stop ends only that item's run; ${
-          step.keep_going ? "a failure is counted in the summary and the run goes on." : "a failure fails this step once every item has run."}`
+      h("div", { class: "hint" }, source
+        ? `Runs ${step.chain} once per item of ${source}${lists.length ? "" : " if it is a list when the step runs"}, ${step.parallel ? "in parallel" : "sequentially"}. A rejection or stop ends only that item's run; ${
+          step.keep_going ? "a failed item is counted and the run keeps going." : "a failed item fails this step once all items finish."}`
         : "Runs it once. To run it once per item of a list, set one input to just the list, e.g. {{split.changesets}}; any value that is a list when the step runs works."),
-      perItem || step.parallel || step.keep_going ? [option("parallel", "Runs the items at the same time"), option("keep_going", "Goes on when an item fails, counting it in the summary")] : null,
+      source || step.parallel || step.keep_going ? [
+        option("parallel", "Run in parallel (default: sequential)"),
+        option("keep_going", "Keep going if an item fails (default: a failed item fails the run)")] : null,
       step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open the ${step.chain} chain →`) : null);
   }
   if (kind === "agent") return agentFields(step);
@@ -222,12 +224,19 @@ function kindFields(step, kind) {
     valuesGroup("Values for the tool", values));
 }
 
+function listSource(step) {
+  return listsPassed(step, editor.at.draft.steps, editor.at.name)[0] || Object.values(step.with || {}).map((v) => LONE_PLACEHOLDER.exec(v)?.[1]).find((name) => {
+    const [id, field] = (name || "").split(".");
+    return field && !editor.at.draft.steps.find((s) => s.id === id)?.agent;
+  });
+}
+
 function agentFields(step) {
   const name = step.agent;
-  const returns = returnsText(promptOf(editor.name, name));
-  const path = `chains/${editor.name}/${name}.md`;
+  const returns = returnsText(promptOf(editor.at.name, name));
+  const path = `chains/${editor.at.name}/${name}.md`;
   const own = new Set(Object.keys(step.with || {}));
-  const promptReads = readsStrip(() => placeholdersIn(editor.prompts[name]).filter((n) => !own.has(n)), "the prompt reads");
+  const promptReads = readsStrip(() => placeholdersIn(editor.at.prompts[name]).filter((n) => !own.has(n)), "the prompt reads");
   const toolChecks = h("div", { class: "checks" }, lib.agent_tools.map((t) => {
     const on = (step.tools || []).includes(t);
     return h("label", { class: `check ${on ? "on" : ""}` },
@@ -241,12 +250,12 @@ function agentFields(step) {
   return h("div", { class: "form" },
     h("div", { class: "picked" }, field("Prompt", h("div", { class: "attached" }, promptPicker(step), promptReads)),
       name ? h("span", { class: "hint" }, returns ? `It returns ${returns}, from the prompt's ## Return section. ` : `It has no ## Return section, so it answers in free text, read as {{${step.id}.output}}. `,
-        h("a", { href: `#/prompt/${editor.name}/${name}` }, `Open ${path}`)) : null,
-      name ? sharedEditor(path, editor.draft.steps.filter((s) => s.agent === name).length,
-        textArea(editor.prompts[name], (v) => { editor.prompts[name] = v; editor.dirtyPrompts.add(name); touch(); promptReads.draw(); }, { class: "code prompt" })) : null),
+        h("a", { href: `#/prompt/${editor.at.name}/${name}` }, `Open ${path}`)) : null,
+      name ? sharedEditor(path, editor.at.draft.steps.filter((s) => s.agent === name).length,
+        textArea(editor.at.prompts[name], (v) => { editor.at.prompts[name] = v; editor.at.dirtyPrompts.add(name); touch(); promptReads.draw(); }, { class: "code prompt" })) : null),
     field("Runs with", selectBox([["", `the default (${lib.default_runner})`], ...lib.runners.map((n) => [n, n])], step.runner || "", (v) => { step.runner = v || undefined; touch(true); }),
       step.runner === "codex" || (!step.runner && lib.default_runner === "codex") ? "Codex uses your own Codex config and ignores the list below" : "change the default under Settings"),
-    field("Context", selectBox([["", "a new context"], ...editor.draft.steps.slice(0, editor.draft.steps.indexOf(step)).filter((s) => s.agent)
+    field("Context", selectBox([["", "a new context"], ...editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step)).filter((s) => s.agent)
       .map((s) => [s.id, `continue the session of ${s.title || s.id}`])], step.resume || "", (v) => { step.resume = v || undefined; touch(true); }),
     "continuing keeps all that agent saw and did; a blind review needs a new context. Sent back to by a person, an agent step continues its own last attempt with the note either way (claude and codex)"),
     h("div", { class: "field" }, h("span", {}, "What the agent may use"), toolChecks));
@@ -257,7 +266,7 @@ function toolValues(tool) {
 }
 
 function valuesEditor(step, wanted) {
-  const chainNames = new Set([...(editor.draft.inputs || []), ...(editor.draft.vars || [])].map((v) => v.name));
+  const chainNames = new Set([...(editor.at.draft.inputs || []), ...(editor.at.draft.vars || [])].map((v) => v.name));
   const known = new Set(wanted.map((w) => w.name));
   const extra = Object.keys(step.with || {}).filter((k) => !known.has(k));
   const set = (key, value) => {
@@ -293,14 +302,14 @@ function toolPicker(step) {
 }
 
 function promptPicker(step) {
-  const names = Object.keys(editor.prompts).sort();
+  const names = Object.keys(editor.at.prompts).sort();
   return selectBox([...names.map((n) => [n, `${n}.md`]), ["__new", "+ New prompt…"]], step.agent, (v) => {
     if (v === "__new") {
       const name = prompt("Name for the new prompt (lowercase letters, digits, - and _)", step.id);
       if (!name) { touch(true); return; }
-      editor.prompts[name] = NEW_PROMPT;
-      editor.dirtyPrompts.add(name);
-      editor.openShared.add(`chains/${editor.name}/${name}.md`);
+      editor.at.prompts[name] = NEW_PROMPT;
+      editor.at.dirtyPrompts.add(name);
+      editor.openShared.add(`chains/${editor.at.name}/${name}.md`);
       v = name;
     }
     step.agent = v;

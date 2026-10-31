@@ -97,7 +97,7 @@ test("a chain with problems cannot start, and a chain without inputs shows no fi
 test("only steps after an approval, and not cleanup steps, wait for it", async () => {
   start();
   await open("#/chain/make-change");
-  const gate = (id) => page(`approvalBefore(editor.draft.steps.find((s) => s.id === ${JSON.stringify(id)}), editor.draft.steps)?.id ?? null`);
+  const gate = (id) => page(`approvalBefore(editor.at.draft.steps.find((s) => s.id === ${JSON.stringify(id)}), editor.at.draft.steps)?.id ?? null`);
   assert.equal(gate("review"), null);
   assert.equal(gate("approve"), null);
   assert.equal(gate("merge"), "approve");

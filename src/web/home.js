@@ -1,12 +1,14 @@
 function showHome() {
   const waiting = runsCache.filter((r) => r.status === "waiting");
+  const subchains = lib.chains.filter((c) => callersOf(c).length);
   main.replaceChildren(h("div", { class: "page" },
     h("div", { class: "eyebrow" }, project),
     h("h1", {}, project.split("/").filter(Boolean).pop() || "swarm"),
     waiting.length ? h("section", { class: "section" }, h("h2", {}, "Waiting for you"), h("div", { class: "cards" }, waiting.map(waitingCard))) : null,
     h("section", { class: "section" }, h("h2", {}, "Start a chain"),
-      lib.chains.length ? h("div", { class: "cards" }, lib.chains.map(chainCard))
+      lib.chains.length ? h("div", { class: "cards" }, lib.chains.filter((c) => !subchains.includes(c)).map(chainCard))
         : h("p", { class: "hint" }, "No chains yet. Use + next to Chains, or run ", h("code", {}, "swarm samples"), " in a terminal for the sample chains.")),
+    subchains.length ? h("section", { class: "section" }, h("h2", {}, "Sub-chains"), h("div", { class: "cards" }, subchains.map(chainCard))) : null,
     h("section", { class: "section" }, h("h2", {}, "Runs"), runList(runsCache, "No runs in this project yet."))));
 }
 
@@ -23,7 +25,8 @@ function chainCard(chain) {
   return h("a", { class: "panel card-link", href: `#/chain/${chain.name}` },
     h("span", { class: "card-link-title" }, chain.title, TAG[chain.source] ? h("span", { class: "tag" }, TAG[chain.source][0]) : null),
     first ? h("span", { class: "card-link-text clamp" }, first) : null,
-    h("span", { class: "hint" }, `${chain.steps?.length || 0} steps`, chain.problems?.length ? " · cannot run" : chain.warnings?.length ? " · has warnings" : ""));
+    h("span", { class: "hint" }, `${chain.steps?.length || 0} steps`, chain.problems?.length ? " · cannot run" : chain.warnings?.length ? " · has warnings" : "",
+      callersOf(chain).length ? ` · ${usedByLine(chain)}` : ""));
 }
 
 function runList(runs, empty) {
