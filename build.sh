@@ -2,6 +2,14 @@
 set -uo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
 
+case "$*" in
+  "" | install) ;;
+  *)
+    echo "build.sh: unknown argument \"$*\"; run ./build.sh or ./build.sh install" >&2
+    exit 2
+    ;;
+esac
+
 min_coverage=80
 
 check_comments() {
