@@ -95,7 +95,7 @@ func TestServerDecideAndStop(t *testing.T) {
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodPost, decide, strings.NewReader("[")), http.StatusBadRequest, "error")
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodPost, decide, strings.NewReader(`{"choice": "maybe"}`)), http.StatusBadRequest, "choice must be")
 	surfaceExpect(t, surfaceRequest(t, core, http.MethodPost, decide, strings.NewReader(`{"choice": "approve", "note": "fine"}`)), http.StatusOK, "ok")
-	if !core.store.hasSignal(waiting.ID, decisionFile) {
+	if !core.store.hasSignal(waiting.ID, decisionFile("greet")) {
 		t.Error("no decision written")
 	}
 

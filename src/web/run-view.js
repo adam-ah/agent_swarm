@@ -1,6 +1,6 @@
 function showRun(id) {
   main.replaceChildren(h("div", { class: "page" }, h("div", { class: "empty" }, "Loading…")));
-  runView = { id, entries: new Map(), status: null, decisionKey: null, slots: new Map(), blocks: [], grouped: new Set(), values: [], rounds: [] };
+  runView = { id, entries: new Map(), status: null, decisionKey: null, decisions: new Map(), slots: new Map(), blocks: [], grouped: new Set(), values: [], rounds: [] };
   stream = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
   stream.onmessage = (event) => renderRun(JSON.parse(event.data));
 }
@@ -26,7 +26,7 @@ function renderRun(run) {
       h("div", { class: "panel steps", id: "steps" }, skeleton(run.chain, "")),
       h("div", { id: "stopped" }));
     main.replaceChildren(page);
-    Object.assign(runView, { entries: new Map(), decisionKey: null });
+    Object.assign(runView, { entries: new Map(), decisionKey: null, decisions: new Map() });
   }
   const label = run.subject || Object.values(run.inputs || {}).find((v) => v) || run.title;
   const subject = page.querySelector("#subject");
@@ -80,17 +80,6 @@ function outcomeBanner(run) {
   const at = h("a", { href: `#/run/${run.id}`, onclick: (e) => { e.preventDefault(); focusRow(keyOf(step)); } }, step.title);
   const said = run.status === "stopped" ? step.ended : run.status === "rejected" ? step.output?.note : "";
   return h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status]), " at ", at, said ? `: ${said}` : "");
-}
-
-function renderDecision(run, el) {
-  const step = run.status === "waiting" ? findStepIn(run.steps, (s) => s.status === "waiting") : null;
-  const ask = step && openAsk(step);
-  const key = step ? `${keyOf(step)}:${step.round || 0}:${(step.asks || []).length}:${JSON.stringify(step.artifacts || [])}` : "";
-  if (key === runView.decisionKey) return;
-  runView.decisionKey = key;
-  el.replaceChildren(step ? h("section", { class: "decision" },
-    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), ask ? `${step.title} asks you` : step.title),
-    ask ? questionsForm(run.id, ask) : [stepShows(run.id, step), decideForm(run.id, step)]) : "");
 }
 
 const keyOf = (step) => step.path || step.id;
@@ -294,23 +283,6 @@ function editLinks(step, chain) {
     target && step.uses ? h("a", { href: `#/${target[0]}/${page}` }, target[1]) : null,
     chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}` }, "Edit this step") : null,
   ];
-}
-
-function decideForm(runID, step) {
-  const note = h("textarea", { rows: 2, placeholder: step.revise ? `Note: what to change. Needed to send it back to ${step.revise}.` : "Optional note" });
-  const decide = async (choice, button) => {
-    if (choice === "revise" && !note.value.trim()) {
-      note.placeholder = "Say what to change, then send it back";
-      note.focus();
-      return;
-    }
-    button.disabled = true;
-    try { await send("POST", `/api/runs/${encodeURIComponent(runID)}/decide`, { choice, note: note.value }); } catch (err) { alert(err.message); button.disabled = false; }
-  };
-  return h("div", { class: "decide" }, note, h("div", { class: "row" },
-    h("button", { class: "btn approve", type: "button", onclick: (e) => decide("approve", e.target) }, "Approve"),
-    step.revise ? h("button", { class: "btn", type: "button", onclick: (e) => decide("revise", e.target) }, `Send back to ${step.revise}`) : null,
-    h("button", { class: "btn danger", type: "button", onclick: (e) => decide("reject", e.target) }, "Reject")));
 }
 
 async function stopRun(id) {

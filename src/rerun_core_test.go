@@ -185,7 +185,7 @@ func TestResumeRefuses(t *testing.T) {
 		t.Error("resumed a missing run")
 	}
 	stuck := finishedRun(t, core, project, "flaky", flakySteps())
-	if err := os.MkdirAll(filepath.Join(core.store.runDir(stuck), decisionFile, "inside"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(core.store.runDir(stuck), decisionFile("flaky"), "inside"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := core.runner.resume(lib, chain, stuck, ""); err == nil {

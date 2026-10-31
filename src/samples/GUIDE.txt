@@ -60,6 +60,9 @@ All act on the current folder's project; -project DIR picks another.
     swarm answer RUN -a TEXT...   answer an agent's questions, one -a per
     swarm answer RUN -decide      question in order, or let it decide; only
                                   when the person tells you to
+                                  these four take -step PATH (from swarm
+                                  show, e.g. build.2.plan) when several
+                                  steps wait at once
 
 A run has its own process; "swarm run" only follows it, so your command
 timing out leaves the run going. For long chains use -detach and poll
@@ -149,7 +152,11 @@ Each step has an id, a title saying what it does, and exactly one of:
     with its own run_folder; a reject or stop ends only that item, a
     failure fails the step after all items, and only {{<id>.summary}} is
     set ("make-change ran 3 times: 2 done, 1 rejected"). Never loop in a
-    tool.
+    tool. "parallel": true runs the items at the same time; the step
+    still ends once every item has, and several items can wait on the
+    person at once. "keep_going": true counts a failed item ("2 done,
+    1 failed") without failing the step, so the run goes on. Both apply
+    only to a step run per list item.
 
 "repeat": "<earlier step>"
     Goes back to that step and reruns everything from there: the steps in
@@ -291,10 +298,11 @@ remember tool saving them.
 TESTING
 
 "swarm test CHAIN" walks the chain through the real engine (when, stop_if,
-repeat, revise, sub-chains, per-item runs) but runs no step. It prints each
-step in the order it ran, with its answer, the command a tool would run,
-placeholders nothing filled, and why skipped steps were skipped; each
-step's filled prompt, command or question is saved in the folder it names.
+repeat, revise, sub-chains, per-item runs, parallel ones in order) but
+runs no step. It prints each step in the order it ran, with its answer,
+the command a tool would run, placeholders nothing filled, and why skipped
+steps were skipped; each step's filled prompt, command or question is
+saved in the folder it names.
 Default answers: an agent returns its ## Return fields as examples (the
 first choice, "<id.field>" for text), a user step approves, a tool returns
 "<id.field>" for every field the chain reads from it. -mock picks other

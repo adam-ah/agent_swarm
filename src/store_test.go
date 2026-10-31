@@ -215,10 +215,10 @@ func TestStoreSignals(t *testing.T) {
 	if err := store.signal(id, cancelFile, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.signal(id, decisionFile, []byte(`{"choice":"approve"}`)); err != nil {
+	if err := store.signal(id, decisionFile("check"), []byte(`{"choice":"approve"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if !store.hasSignal(id, cancelFile) || !store.hasSignal(id, decisionFile) {
+	if !store.hasSignal(id, cancelFile) || !store.hasSignal(id, decisionFile("check")) {
 		t.Error("signals were not kept")
 	}
 	for range 2 {
@@ -226,7 +226,7 @@ func TestStoreSignals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if store.hasSignal(id, cancelFile) || store.hasSignal(id, decisionFile) {
+	if store.hasSignal(id, cancelFile) || store.hasSignal(id, decisionFile("check")) {
 		t.Error("signals were not cleared")
 	}
 	if err := os.MkdirAll(filepath.Join(store.runDir(id), cancelFile, "inside"), 0o755); err != nil {

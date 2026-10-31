@@ -45,10 +45,7 @@ func executeWith(t *testing.T, lib *Library, chain *Chain, decisions ...decision
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &Run{ID: id, Project: lib.Project, Status: "running", Steps: expand(lib, chain, ""), decisions: make(chan decision, len(decisions))}
-	for _, d := range decisions {
-		run.decisions <- d
-	}
+	run := &Run{ID: id, Project: lib.Project, Status: "running", Steps: expand(lib, chain, ""), inbox: newInbox(decisions...)}
 	r := &Runner{store: store, swarm: "true", home: t.TempDir()}
 	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": store.logDir(run)}))
 	return run, store.logDir(run)

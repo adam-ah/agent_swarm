@@ -171,7 +171,7 @@ func (r *Runner) noteStopped(run *Run, when string, stopped []string) {
 func (r *Runner) work(lib *Library, chain *Chain, run *Run) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	run.cancel, run.decisions = cancel, make(chan decision, 1)
+	run.cancel, run.inbox = cancel, newInbox()
 	r.store.update(run, func() {
 		run.PID = os.Getpid()
 		if run.ResumedAt == nil {
@@ -225,7 +225,6 @@ func (r *Runner) values(lib *Library, run *Run) map[string]string {
 }
 
 func (r *Runner) listen(run *Run, every time.Duration, finished <-chan struct{}) {
-	answer := filepath.Join(r.store.runDir(run.ID), decisionFile)
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -237,12 +236,12 @@ func (r *Runner) listen(run *Run, every time.Duration, finished <-chan struct{})
 		if r.store.hasSignal(run.ID, cancelFile) {
 			run.cancel()
 		}
-		var d decision
-		if readJSON(answer, &d) == nil {
-			_ = os.Remove(answer)
-			select {
-			case run.decisions <- d:
-			default:
+		files, _ := filepath.Glob(filepath.Join(r.store.runDir(run.ID), decisionFile("*")))
+		for _, file := range files {
+			var d decision
+			if readJSON(file, &d) == nil {
+				_ = os.Remove(file)
+				run.inbox.post(d)
 			}
 		}
 	}

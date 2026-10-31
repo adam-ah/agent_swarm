@@ -157,7 +157,7 @@ test("a waiting run takes a decision: send back with a note, approve, or reject"
   type(note, "Check the expiry too");
   click(button("Send back to plan"));
   await settle();
-  assert.deepEqual(posted(`/api/runs/${RUN}/decide`), [{ choice: "revise", note: "Check the expiry too" }]);
+  assert.deepEqual(posted(`/api/runs/${RUN}/decide`), [{ choice: "revise", note: "Check the expiry too", step: "review" }]);
   assert.equal(button("Send back to plan").disabled, true);
 
   source.send(waiting({}));
@@ -168,7 +168,7 @@ test("a waiting run takes a decision: send back with a note, approve, or reject"
   assert.ok(texts(row("review"), ".chip").includes("attempt 2"));
   click(button("Approve"));
   await settle();
-  assert.deepEqual(posted(`/api/runs/${RUN}/decide`).at(-1), { choice: "approve", note: "" });
+  assert.deepEqual(posted(`/api/runs/${RUN}/decide`).at(-1), { choice: "approve", note: "", step: "review" });
 
   source.send(waiting({ round: 2, revise: "" }));
   assert.deepEqual(texts($(".decision .row"), "button"), ["Approve", "Reject"]);
@@ -176,7 +176,7 @@ test("a waiting run takes a decision: send back with a note, approve, or reject"
   route("POST", `/api/runs/${RUN}/decide`, fail(409, "the run is not waiting"));
   click(button("Reject"));
   await settle();
-  assert.deepEqual(posted(`/api/runs/${RUN}/decide`).at(-1), { choice: "reject", note: "" });
+  assert.deepEqual(posted(`/api/runs/${RUN}/decide`).at(-1), { choice: "reject", note: "", step: "review" });
   assert.deepEqual(dialogs.alert, ["the run is not waiting"]);
   assert.equal(button("Reject").disabled, false);
 

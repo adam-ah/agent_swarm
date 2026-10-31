@@ -61,6 +61,8 @@ validated before saving; * marks commands that write.
   swarm reject RUN [-note T]    *
   swarm answer RUN -a TEXT...   * answer the questions an agent step asks, one -a per question
   swarm answer RUN -decide      * let the agent decide them itself
+                                  these four take -step PATH (e.g. build.2.plan) when several
+                                  steps wait at once
   swarm cancel RUN              * stop a run; "always" steps still run
 
   swarm serve [PORT] [-host IP]   the page, on 127.0.0.1:7070; -host 0.0.0.0 for every interface

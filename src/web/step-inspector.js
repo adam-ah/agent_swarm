@@ -32,7 +32,7 @@ function stepInspector(step) {
     touch();
   };
   const setKind = (next) => {
-    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
+    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "parallel", "keep_going", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
     if (next === "agent") { step.agent = Object.keys(editor.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
     if (next === "user") step.user = "Continue?";
@@ -192,12 +192,17 @@ function kindFields(step, kind) {
   if (kind === "chain") {
     const sub = lib.chains.find((c) => c.name === step.chain);
     const lists = listsPassed(step, editor.draft.steps, editor.name);
+    const perItem = Object.values(step.with || {}).some((v) => LONE_PLACEHOLDER.test(v));
+    const option = (key, label) => h("label", { class: "toggle" },
+      h("input", { type: "checkbox", checked: !!step[key], onchange: (e) => { step[key] = e.target.checked || undefined; touch(true); } }), h("span", {}, label));
     return h("div", { class: "form" },
       field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
       valuesGroup("Its inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
       h("div", { class: "hint" }, lists.length
-        ? `Runs ${step.chain} once per item of ${lists.join(", ")}, one after another. A rejection or stop ends only that item's run; a failure fails this step once every item has run.`
+        ? `Runs ${step.chain} once per item of ${lists.join(", ")}, ${step.parallel ? "all at the same time" : "one after another"}. A rejection or stop ends only that item's run; ${
+          step.keep_going ? "a failure is counted in the summary and the run goes on." : "a failure fails this step once every item has run."}`
         : "Runs it once. To run it once per item of a list, set one input to just the list, e.g. {{split.changesets}}; any value that is a list when the step runs works."),
+      perItem || step.parallel || step.keep_going ? [option("parallel", "Runs the items at the same time"), option("keep_going", "Goes on when an item fails, counting it in the summary")] : null,
       step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open the ${step.chain} chain →`) : null);
   }
   if (kind === "agent") return agentFields(step);

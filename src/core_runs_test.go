@@ -16,7 +16,7 @@ func fakeRunAt(t *testing.T, core *Core, status, revise string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	step := &StepRun{ID: "check", Title: "Check", Kind: "user", Status: "done", Revise: revise}
+	step := &StepRun{ID: "check", Path: "check", Title: "Check", Kind: "user", Status: "done", Revise: revise}
 	if status == "waiting" {
 		step.Status = "waiting"
 	}
@@ -50,7 +50,7 @@ func TestDecideRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got decision
-	if err := readJSON(filepath.Join(core.store.runDir(waiting), decisionFile), &got); err != nil || !reflect.DeepEqual(got, decision{Choice: "reject", Note: "no"}) {
+	if err := readJSON(filepath.Join(core.store.runDir(waiting), decisionFile("check")), &got); err != nil || !reflect.DeepEqual(got, decision{Step: "check", Choice: "reject", Note: "no"}) {
 		t.Errorf("decision file = %+v, %v", got, err)
 	}
 	if err := core.Decide(waiting, decision{Choice: "approve"}); err == nil || !strings.Contains(err.Error(), "already being applied") {

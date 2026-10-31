@@ -237,7 +237,7 @@ func TestWorkTakesDecisionsFromTheRunFolder(t *testing.T) {
 	if done.Status != "done" || done.Feedback != "shorter" || done.Steps[0].SentBack != "shorter" || done.Steps[1].Headline != "Approved: fine" {
 		t.Errorf("run = %s, feedback %q, steps %+v %+v", done.Status, done.Feedback, done.Steps[0], done.Steps[1])
 	}
-	if core.store.hasSignal(run.ID, decisionFile) {
+	if core.store.hasSignal(run.ID, decisionFile("check")) {
 		t.Error("the decision file was left behind")
 	}
 }

@@ -64,6 +64,8 @@ type Step struct {
 	Rounds    int               `json:"rounds,omitempty"`
 	Fail      string            `json:"fail,omitempty"`
 	Always    bool              `json:"always,omitempty"`
+	Parallel  bool              `json:"parallel,omitempty"`
+	KeepGoing bool              `json:"keep_going,omitempty"`
 }
 
 func (s Step) Kind() string {

@@ -127,17 +127,20 @@ func (r *Runner) askPerson(ctx context.Context, run *Run, sr *StepRun, questions
 		r.store.update(run, func() { sr.Asks = append(sr.Asks, ask) })
 		return ask, nil
 	}
+	answers, done := run.inbox.await(sr.Path)
+	defer done()
 	r.store.update(run, func() {
 		sr.Asks = append(sr.Asks, ask)
 		sr.Status, run.Status = "waiting", "waiting"
 	})
 	select {
-	case d := <-run.decisions:
+	case d := <-answers:
 		now := time.Now()
 		blank := !slices.ContainsFunc(d.Answers, func(a string) bool { return strings.TrimSpace(a) != "" })
 		r.store.update(run, func() {
 			ask.Answers, ask.Decided, ask.AnsweredAt = d.Answers, d.Choice == "decide" || blank, &now
-			sr.Status, run.Status = "running", "running"
+			sr.Status = "running"
+			run.refreshStatus()
 		})
 		return ask, nil
 	case <-ctx.Done():

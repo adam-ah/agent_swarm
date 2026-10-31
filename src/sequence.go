@@ -2,12 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"maps"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -254,113 +249,12 @@ func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (
 	return out, nil
 }
 
-func listInput(step Step, sc *scope) (string, []any, error) {
-	key := ""
-	var items []any
-	for _, k := range sortedKeys(step.With) {
-		name, lone := lonePlaceholder(step.With[k])
-		if !lone {
-			continue
-		}
-		v, _ := sc.value(name)
-		list, isList := v.([]any)
-		if !isList {
-			continue
-		}
-		if key != "" {
-			return "", nil, fmt.Errorf("%s and %s are both lists; a step runs its chain once per item of only one", step.With[key], step.With[k])
-		}
-		key, items = k, list
-	}
-	return key, items, nil
-}
-
-func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, values map[string]string, key string, items []any) (map[string]any, error) {
-	sub := p.lib.Chains[step.Chain]
-	source, _ := lonePlaceholder(step.With[key])
-	r.store.update(p.run, func() {
-		if !sameItems(sr.Children, items, sub) {
-			sr.Children = make([]*StepRun, len(items))
-			for i, item := range items {
-				path := fmt.Sprintf("%s.%d", sr.Path, i+1)
-				sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
-			}
-		}
-		sr.Headline = fmt.Sprintf("Runs %s %s, once per item of %s", step.Chain, times(len(items)), source)
-	})
-	folder, _ := p.sc.lookup("run_folder")
-	ended := map[string]int{}
-	ran := 0
-	for i, item := range items {
-		group := sr.Children[i]
-		if group.Status == "done" {
-			ran++
-			ended["done"]++
-			continue
-		}
-		if ctx.Err() != nil {
-			r.store.update(p.run, func() { skipAll(group) })
-			continue
-		}
-		ran++
-		end := &runEnd{status: "done"}
-		started := time.Now()
-		r.store.update(p.run, func() { group.Status, group.StartedAt = "running", &started })
-		own := maps.Clone(values)
-		own[key] = text(item)
-		if folder != "" {
-			own["run_folder"] = filepath.Join(folder, group.Path)
-			if err := os.MkdirAll(own["run_folder"], 0o755); err != nil {
-				return nil, err
-			}
-		}
-		r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: group.Children, sc: p.sc.child(own), end: end, feedback: &group.Feedback})
-		finished := time.Now()
-		r.store.update(p.run, func() {
-			group.Status, group.Headline, group.EndedAt = end.status, end.reason, &finished
-			group.Cost = costOf(group.Children)
-			sr.Cost = costOf(sr.Children)
-		})
-		ended[end.status]++
-	}
-
-	summary := fmt.Sprintf("%s did not run: %s is empty", step.Chain, source)
-	if len(items) > 0 {
-		var counts []string
-		for _, status := range []string{"done", "rejected", "stopped", "failed"} {
-			if ended[status] > 0 {
-				counts = append(counts, fmt.Sprintf("%d %s", ended[status], status))
-			}
-		}
-		if ran < len(items) {
-			counts = append(counts, fmt.Sprintf("%d not started", len(items)-ran))
-		}
-		summary = fmt.Sprintf("%s ran %s: %s", step.Chain, times(ran), strings.Join(counts, ", "))
-	}
-	r.store.update(p.run, func() { sr.Headline = summary })
-	out := map[string]any{"summary": summary}
-	if ctx.Err() != nil {
-		return out, errors.New("stopped")
-	}
-	if ended["failed"] > 0 {
-		return out, fmt.Errorf("%d of %d failed", ended["failed"], len(items))
-	}
-	return out, nil
-}
-
 func costOf(steps []*StepRun) float64 {
 	total := 0.0
 	for _, s := range steps {
 		total += s.Cost
 	}
 	return total
-}
-
-func times(n int) string {
-	if n == 1 {
-		return "once"
-	}
-	return fmt.Sprintf("%d times", n)
 }
 
 func (r *Runner) refreshSubject(chain *Chain, run *Run, sc *scope) {

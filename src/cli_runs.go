@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,6 +54,7 @@ func (c *cli) decide() error {
 	if c.command == "answer" && c.leave {
 		d = decision{Choice: "decide"}
 	}
+	d.Step = c.step
 	if err := c.core.Decide(id, d); err != nil {
 		return err
 	}
@@ -135,6 +137,7 @@ func stepLine(s *StepRun, indent, link string) string {
 		if s.Revise != "" {
 			answers = "swarm approve / swarm revise -note TEXT (back to " + s.Revise + ") / swarm reject"
 		}
+		answers += stepFlag(s)
 		if link != "" {
 			answers += ", or on the page: " + link
 		}
@@ -159,12 +162,21 @@ func askLine(s *StepRun, ask *Ask, indent, link string) string {
 	for i, q := range ask.Questions {
 		fmt.Fprintf(&b, "%s  %d. %s\n", indent, i+1, q)
 	}
-	how := "swarm answer RUN -a TEXT (once per question, in order) / swarm answer RUN -decide (it chooses)"
+	how := "swarm answer RUN -a TEXT (once per question, in order) / swarm answer RUN -decide (it chooses)" + stepFlag(s)
 	if link != "" {
 		how += ", or on the page: " + link
 	}
 	fmt.Fprintf(&b, "%s  answer with %s\n", indent, how)
 	return b.String()
+}
+
+func stepFlag(s *StepRun) string {
+	for _, part := range strings.Split(s.Path, ".") {
+		if _, err := strconv.Atoi(part); err == nil {
+			return ", adding -step " + s.Path
+		}
+	}
+	return ""
 }
 
 func suffix(text string) string {

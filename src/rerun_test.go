@@ -16,10 +16,10 @@ func rerunFailed(t *testing.T, lib *Library, chain *Chain, run *Run, folder stri
 	}
 	rewind(run.Steps)
 	run.Status = "running"
-	run.decisions = make(chan decision, len(decisions))
+	run.inbox = newInbox()
 	for _, d := range decisions {
 		choice, note, _ := strings.Cut(d, ":")
-		run.decisions <- decision{Choice: choice, Note: note}
+		run.inbox.post(decision{Choice: choice, Note: note})
 	}
 	r := &Runner{store: openStore(filepath.Dir(folder)), swarm: "true", home: t.TempDir()}
 	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": folder}))

@@ -71,6 +71,8 @@ func (r *Runner) runTool(ctx context.Context, lib *Library, run *Run, sr *StepRu
 }
 
 func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, sc *scope) (map[string]any, error) {
+	answers, done := run.inbox.await(sr.Path)
+	defer done()
 	r.store.update(run, func() {
 		sr.Status = "waiting"
 		sr.Question = stepScope(step, sc, nil).fill(step.User, false)
@@ -78,12 +80,15 @@ func (r *Runner) askUser(ctx context.Context, run *Run, sr *StepRun, step Step, 
 		run.Status = "waiting"
 	})
 	select {
-	case d := <-run.decisions:
+	case d := <-answers:
 		headline := map[string]string{"approve": "Approved", "reject": "Rejected", "revise": "Sent back to " + sr.Revise}[d.Choice]
 		if d.Note != "" {
 			headline += ": " + d.Note
 		}
-		r.store.update(run, func() { run.Status = "running"; sr.Headline = headline })
+		r.store.update(run, func() {
+			sr.Status, sr.Headline = "running", headline
+			run.refreshStatus()
+		})
 		return map[string]any{"decision": d.Choice, "note": d.Note}, nil
 	case <-ctx.Done():
 		return nil, errors.New("stopped")

@@ -97,8 +97,8 @@ type Run struct {
 	Stopped   []string          `json:"stopped,omitempty"`
 	Steps     []*StepRun        `json:"steps"`
 
-	decisions chan decision
-	cancel    context.CancelFunc
+	inbox  *inbox
+	cancel context.CancelFunc
 }
 
 func (run *Run) going() bool {
@@ -106,15 +106,15 @@ func (run *Run) going() bool {
 }
 
 type decision struct {
+	Step    string   `json:"step,omitempty"`
 	Choice  string   `json:"choice"`
 	Note    string   `json:"note"`
 	Answers []string `json:"answers,omitempty"`
 }
 
 const (
-	decisionFile = "decision.json"
-	cancelFile   = "cancel"
-	startGrace   = 30 * time.Second
+	cancelFile = "cancel"
+	startGrace = 30 * time.Second
 )
 
 var runID = regexp.MustCompile(`^[0-9]{4}-[0-9]{6}(-[0-9]+)?$`)
@@ -318,8 +318,9 @@ func (s *Store) signal(id, name string, raw []byte) error {
 }
 
 func (s *Store) clearSignals(id string) error {
-	for _, name := range []string{decisionFile, cancelFile} {
-		if err := os.Remove(filepath.Join(s.runDir(id), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	decisions, _ := filepath.Glob(filepath.Join(s.runDir(id), decisionFile("*")))
+	for _, file := range append(decisions, filepath.Join(s.runDir(id), cancelFile)) {
+		if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}

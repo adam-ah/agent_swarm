@@ -242,6 +242,30 @@ test("a sub-chain step fills the inputs of the chain it runs", async () => {
   assert.deepEqual(step, { id: "ship", title: "Ship each changeset", chain: "solo" });
 });
 
+test("a sub-chain step run per item can run its items at once and go on past a failed item", async () => {
+  const { saved } = start();
+  await open("#/chain/make-change/ship");
+  const hint = () => text($("#inspector .subpanel > .form > .hint"));
+  const toggle = (label) => $$("#inspector .form .toggle").find((t) => text(t) === label)?.querySelector("input");
+  const together = "Runs the items at the same time";
+  const onward = "Goes on when an item fails, counting it in the summary";
+
+  assert.equal(toggle(together).checked, false);
+  assert.equal(toggle(onward).checked, false);
+  click(toggle(together));
+  assert.match(hint(), /^Runs ship-changeset once per item of change\.files, all at the same time\. .* a failure fails this step once every item has run\.$/);
+  click(toggle(onward));
+  assert.match(hint(), /a failure is counted in the summary and the run goes on\.$/);
+  assert.ok($$(".tree-note").map(text).includes("⤷ runs ship-changeset once per item of change.files, all at once, going on past a failed item"));
+  let step = await savedStep(saved, "ship");
+  assert.equal(step.parallel, true);
+  assert.equal(step.keep_going, true);
+
+  choose($("#inspector details.advanced select"), "tool");
+  step = await savedStep(saved, "ship");
+  assert.equal("parallel" in step || "keep_going" in step, false);
+});
+
 test("changing what kind of step it is resets the fields of the old kind", async () => {
   const { saved } = start();
   await open("#/chain/make-change/read_issue");

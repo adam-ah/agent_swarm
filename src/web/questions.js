@@ -7,17 +7,60 @@ function openAsk(step) {
 
 const answerOf = (ask, i) => (ask.answers?.[i] || "").trim() || LEFT_TO_AGENT;
 
-function questionsForm(runID, ask) {
-  const boxes = ask.questions.map(() => h("textarea", { rows: 2, placeholder: `Your answer; leave it empty and it is ${LEFT_TO_AGENT}` }));
-  const post = async (body, button) => {
-    button.disabled = true;
-    try { await send("POST", `/api/runs/${encodeURIComponent(runID)}/decide`, body); } catch (err) { alert(err.message); button.disabled = false; }
+function waitingSteps(steps, items = []) {
+  return (steps || []).flatMap((step) => [
+    ...(step.status === "waiting" ? [{ step, items }] : []),
+    ...waitingSteps(step.children, step.kind === "item" ? [...items, step.title] : items),
+  ]);
+}
+
+function renderDecision(run, el) {
+  const sections = (run.status === "waiting" ? waitingSteps(run.steps) : []).map(({ step, items }) => {
+    const key = `${keyOf(step)}:${step.round || 0}:${(step.asks || []).length}:${JSON.stringify(step.artifacts || [])}`;
+    return [key, runView.decisions.get(key) || decisionSection(run.id, step, items)];
+  });
+  runView.decisions = new Map(sections);
+  const keys = sections.map(([key]) => key).join("|");
+  if (keys === runView.decisionKey) return;
+  runView.decisionKey = keys;
+  el.replaceChildren(...sections.map(([, section]) => section));
+}
+
+function decisionSection(runID, step, items) {
+  const ask = openAsk(step);
+  return h("section", { class: "decision" },
+    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), [...items, ask ? `${step.title} asks you` : step.title].join(" · ")),
+    ask ? questionsForm(runID, step, ask) : [stepShows(runID, step), decideForm(runID, step)]);
+}
+
+async function postDecision(runID, step, body, button) {
+  button.disabled = true;
+  try { await send("POST", `/api/runs/${encodeURIComponent(runID)}/decide`, { ...body, step: keyOf(step) }); } catch (err) { alert(err.message); button.disabled = false; }
+}
+
+function decideForm(runID, step) {
+  const note = h("textarea", { rows: 2, placeholder: step.revise ? `Note: what to change. Needed to send it back to ${step.revise}.` : "Optional note" });
+  const decide = (choice, button) => {
+    if (choice === "revise" && !note.value.trim()) {
+      note.placeholder = "Say what to change, then send it back";
+      note.focus();
+      return;
+    }
+    postDecision(runID, step, { choice, note: note.value }, button);
   };
+  return h("div", { class: "decide" }, note, h("div", { class: "row" },
+    h("button", { class: "btn approve", type: "button", onclick: (e) => decide("approve", e.target) }, "Approve"),
+    step.revise ? h("button", { class: "btn", type: "button", onclick: (e) => decide("revise", e.target) }, `Send back to ${step.revise}`) : null,
+    h("button", { class: "btn danger", type: "button", onclick: (e) => decide("reject", e.target) }, "Reject")));
+}
+
+function questionsForm(runID, step, ask) {
+  const boxes = ask.questions.map(() => h("textarea", { rows: 2, placeholder: `Your answer; leave it empty and it is ${LEFT_TO_AGENT}` }));
   return h("div", { class: "decide answers" },
     ask.questions.map((q, i) => h("label", { class: "ask" }, h("span", { class: "question" }, q), boxes[i])),
     h("div", { class: "row" },
-      h("button", { class: "btn approve", type: "button", onclick: (e) => post({ choice: "answer", answers: boxes.map((b) => b.value) }, e.target) }, "Send answers"),
-      h("button", { class: "btn", type: "button", title: "It makes the call on every question itself and goes on", onclick: (e) => post({ choice: "decide" }, e.target) }, "Decide yourself")));
+      h("button", { class: "btn approve", type: "button", onclick: (e) => postDecision(runID, step, { choice: "answer", answers: boxes.map((b) => b.value) }, e.target) }, "Send answers"),
+      h("button", { class: "btn", type: "button", title: "It makes the call on every question itself and goes on", onclick: (e) => postDecision(runID, step, { choice: "decide" }, e.target) }, "Decide yourself")));
 }
 
 function asksPanel(runID, step) {

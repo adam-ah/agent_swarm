@@ -206,7 +206,7 @@ function stepRows(step, steps, chainName, row, depth) {
   return [
     row,
     step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
-    lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}`) : null,
+    lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}${step.parallel ? ", all at once" : ""}${step.keep_going ? ", going on past a failed item" : ""}`) : null,
     step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
     step.chain ? subchainRows(step.chain, depth + 1) : null,
   ];

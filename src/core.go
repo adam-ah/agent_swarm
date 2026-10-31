@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -233,7 +234,28 @@ func (c *Core) Memory(project string) string {
 }
 
 func (c *Core) SetMemory(project, text string) error {
+	unlock, err := lockMemory(project)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	return writeFile(memoryPath(project), []byte(text))
+}
+
+func lockMemory(project string) (func(), error) {
+	dir := filepath.Dir(memoryPath(project))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	folder, err := syscall.Open(dir, syscall.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(folder, syscall.LOCK_EX); err != nil {
+		_ = syscall.Close(folder)
+		return nil, err
+	}
+	return func() { _ = syscall.Close(folder) }, nil
 }
 
 func (c *Core) RememberNotes(project, about string, notes []string) (int, error) {
@@ -250,8 +272,11 @@ func (c *Core) RememberNotes(project, about string, notes []string) (int, error)
 	if len(kept) == 0 {
 		return 0, nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	unlock, err := lockMemory(project)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	heading := time.Now().Format("2006-01-02")
 	if about = strings.TrimSpace(firstLine(about)); about != "" {
 		heading += " · " + about
@@ -270,28 +295,6 @@ func (c *Core) StartRun(project, chainName string, inputs map[string]string) (*R
 		return nil, fmt.Errorf("no chain named %s", chainName)
 	}
 	return c.runner.start(lib, chain, inputs)
-}
-
-func (c *Core) Decide(id string, d decision) error {
-	run := c.store.load(id)
-	if run == nil {
-		return fmt.Errorf("no run %s", id)
-	}
-	step := findStep(run.Steps, func(s *StepRun) bool { return s.Status == "waiting" })
-	if run.Status != "waiting" || step == nil {
-		return errors.New("the run is not waiting for you")
-	}
-	if err := d.check(step); err != nil {
-		return err
-	}
-	if c.store.hasSignal(id, decisionFile) {
-		return errors.New("a decision is already being applied")
-	}
-	raw, err := json.Marshal(d)
-	if err != nil {
-		return err
-	}
-	return c.store.signal(id, decisionFile, raw)
 }
 
 func (c *Core) Stop(id string) error {

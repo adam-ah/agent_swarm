@@ -91,7 +91,7 @@ func TestAskingStopsWithTheRun(t *testing.T) {
 	store := openStore(filepath.Join(t.TempDir(), "runs"))
 	id, _ := store.claim()
 	sr := &StepRun{ID: "do"}
-	run := &Run{ID: id, Status: "running", Steps: []*StepRun{sr}, decisions: make(chan decision)}
+	run := &Run{ID: id, Status: "running", Steps: []*StepRun{sr}, inbox: newInbox()}
 	_, err := (&Runner{store: store}).askPerson(ctx, run, sr, []string{"Which?"})
 	if err == nil || err.Error() != "stopped" || sr.Status != "waiting" || sr.openAsk() == nil {
 		t.Errorf("err = %v, step = %s, open = %v", err, sr.Status, sr.openAsk())
@@ -139,7 +139,7 @@ func TestDecideWritesTheAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got decision
-	if err := readJSON(filepath.Join(core.store.runDir(id), decisionFile), &got); err != nil || !reflect.DeepEqual(got.Answers, []string{"that one"}) {
+	if err := readJSON(filepath.Join(core.store.runDir(id), decisionFile("check")), &got); err != nil || !reflect.DeepEqual(got.Answers, []string{"that one"}) {
 		t.Errorf("decision file = %+v, %v", got, err)
 	}
 }
@@ -214,9 +214,9 @@ func TestCLIAnswer(t *testing.T) {
 	surfaceFails(t, err, "it asked 2 questions and got 1 answers")
 	out, err = surfaceCLI(t, "answer", run.ID, "-a", "this", "-a", "now")
 	surfaceContains(t, out, err, "answered "+run.ID)
-	file := filepath.Join(core.store.runDir(run.ID), decisionFile)
+	file := filepath.Join(core.store.runDir(run.ID), decisionFile("greet"))
 	var got decision
-	if readErr := readJSON(file, &got); readErr != nil || !reflect.DeepEqual(got, decision{Choice: "answer", Answers: []string{"this", "now"}}) {
+	if readErr := readJSON(file, &got); readErr != nil || !reflect.DeepEqual(got, decision{Step: "greet", Choice: "answer", Answers: []string{"this", "now"}}) {
 		t.Errorf("decision = %+v, %v", got, readErr)
 	}
 	_ = os.Remove(file)

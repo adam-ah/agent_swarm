@@ -33,6 +33,7 @@ type cli struct {
 	scope      string
 	note       string
 	about      string
+	step       string
 	below      bool
 	detach     bool
 	mock       string
@@ -84,6 +85,7 @@ func parseCommand(command string, args []string) (*cli, error) {
 	flags.StringVar(&c.scope, "scope", "", "put: project or shared; default is where it already lives, else project")
 	flags.StringVar(&c.note, "note", "", "approve, revise, reject: a note for the record; revise needs one")
 	flags.StringVar(&c.about, "about", "", "memory add: what the notes came from")
+	flags.StringVar(&c.step, "step", "", "approve, revise, reject, answer: the waiting step, such as build.2.plan, when more than one waits")
 	flags.BoolVar(&c.detach, "detach", false, "run: print the run's id and return; the run keeps going")
 	flags.Var(c.inputs, "input", "run, test: a chain input as name=value; repeat for more")
 	flags.Var(&c.answers, "a", "answer: the answer to one question; repeat once per question, in order")

@@ -40,6 +40,7 @@ func (lib *Library) stepProblems(chain *Chain, step Step, seen map[string]bool) 
 		problems = append(problems, where+": needs exactly one of tool, agent, user, chain or repeat")
 	}
 	problems = append(problems, loopProblems(step, where, seen)...)
+	problems = append(problems, eachProblems(step, where)...)
 	problems = append(problems, lib.referenceProblems(chain, step, where)...)
 	problems = append(problems, fieldProblems(chain, step, where, seen)...)
 	problems = append(problems, conditionProblems(step, where)...)
