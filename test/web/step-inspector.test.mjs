@@ -23,32 +23,32 @@ test("a tool step shows its tool, the values the tool needs and what reads its o
 
   assert.equal(chip(), "tool");
   assert.equal(heading(), "Read the issue");
-  assert.equal(text(labelled("ID").querySelector(".hint")), "later steps read its fields as {{read_issue.output}}");
-  assert.deepEqual(sections(), ["What it does", "What it sets", "When it runs", "When swarm stops it"]);
+  assert.equal(text(labelled("ID").querySelector(".hint")), "fields: {{read_issue.output}}");
+  assert.deepEqual(sections(), ["What it does", "What it sets", "When it runs", "Limits"]);
   const picker = control("Tool");
   assert.equal(shown(picker), "read_issue");
   assert.deepEqual(options(picker), [["cleanup", "cleanup: Clean up"], ["merge", "merge: Merge the branch"], ["read_issue", "read_issue: Read an issue"],
     ["run_tests", "run_tests: Run the tests"], ["__new", "+ New tool…"]]);
   assert.equal(text($("#inspector .picked > .hint")), "Read an issue. Open tools/read_issue.json");
   assert.equal($("#inspector .picked > .hint a").getAttribute("href"), "#/tool/read_issue");
-  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/read_issue.json here · used by 2 steps, a change applies to all of them");
+  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/read_issue.json here · used by 2 steps; edits apply to all");
   assert.equal(picker.closest(".attached").querySelector(".reads-strip").hidden, true);
   assert.equal(control("issue").value, "{{request}}");
-  assert.deepEqual(strip(control("issue")), [["request", "asked when the run starts: “What should change?”"]]);
+  assert.deepEqual(strip(control("issue")), [["request", "input “What should change?”"]]);
   assert.deepEqual(sets(), [["read_issue.output", "read by the value issue_text", false]]);
 
   choose(picker, "merge");
-  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/merge.json here · used by 3 steps, a change applies to all of them");
+  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/merge.json here · used by 3 steps; edits apply to all");
   assert.equal(control("branch").placeholder, "empty: this chain's {{branch}}");
-  assert.deepEqual(strip(control("branch")), [["branch", "worked out when the run starts"]]);
-  assert.deepEqual(strip(control("Tool")), [["run_folder", "filled in by swarm"]]);
-  assert.equal(text($("#inspector .group-body .hint")), "issue: {{request}} is not read any more remove");
+  assert.deepEqual(strip(control("branch")), [["branch", "var, computed at start"]]);
+  assert.deepEqual(strip(control("Tool")), [["run_folder", "built-in"]]);
+  assert.equal(text($("#inspector .group-body .hint")), "issue: {{request}} is unused remove");
 
   click(button("remove"));
   assert.equal($("#inspector .group-body .hint"), null);
   type(control("What it does"), "Merge into a branch");
   type(control("Command"), "git merge {{branch}} --into {{target}}");
-  assert.equal(control("target").placeholder, "needs a value, e.g. {{step_id.field}}");
+  assert.equal(control("target").placeholder, "required, e.g. {{step_id.field}}");
   assert.equal(control("Tool").closest(".attached").querySelector(".reads-strip").hidden, true);
   type(control("target"), "main");
   type(control("branch"), "{{read_issue.output}}");
@@ -66,7 +66,7 @@ test("a new tool is made from the tool picker and saved with the chain", async (
   await open("#/chain/make-change/merge");
 
   choose(control("Tool"), "__new");
-  assert.deepEqual(dialogs.prompt, ["Name for the new tool"]);
+  assert.deepEqual(dialogs.prompt, ["New tool name ([a-z0-9_-])"]);
   assert.equal(shown(control("Tool")), "merge");
   assert.equal(page("editor.dirty"), true);
 
@@ -74,9 +74,9 @@ test("a new tool is made from the tool picker and saved with the chain", async (
   choose(control("Tool"), "__new");
   assert.equal(shown(control("Tool")), "lint");
   assert.equal(text($("#inspector .picked > .hint")), "lint. Open tools/lint.json");
-  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/lint.json here · only this step uses it");
+  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/lint.json here · used only here");
   assert.equal($("#inspector .shared-edit").open, true);
-  assert.equal(text($("#inspector .group-body")), "It needs no values from this step.");
+  assert.equal(text($("#inspector .group-body")), "No inputs.");
 
   const step = await savedStep(saved, "merge");
   assert.deepEqual(step, { id: "merge", title: "Merge", tool: "lint" });
@@ -98,21 +98,21 @@ test("an agent step picks its prompt, runner, context and the tools it may use",
   assert.equal(shown(picker), "review-change");
   assert.deepEqual(options(picker), [["change", "change.md"], ["review-change", "review-change.md"], ["__new", "+ New prompt…"]]);
   assert.equal(text($("#inspector .picked > .hint")),
-    "It returns verdict (APPROVE | CHANGES), notes, from the prompt's ## Return section. Open chains/make-change/review-change.md");
-  assert.deepEqual(strip(picker), [["change.summary", "set by Make the change"], ["run_folder", "filled in by swarm"]]);
-  assert.equal(text($("#inspector .shared-edit summary")), "Edit chains/make-change/review-change.md here · only this step uses it");
+    "Returns verdict (APPROVE | CHANGES), notes (## Return). Open chains/make-change/review-change.md");
+  assert.deepEqual(strip(picker), [["change.summary", "set by Make the change"], ["run_folder", "built-in"]]);
+  assert.equal(text($("#inspector .shared-edit summary")), "Edit chains/make-change/review-change.md here · used only here");
   assert.deepEqual(sets(), [["review.verdict", "nothing reads it", true], ["review.notes", "nothing reads it", true]]);
 
   const runner = control("Runs with");
   assert.deepEqual(options(runner), [["", "the default (claude)"], ["claude", "claude"], ["codex", "codex"], ["sonnet", "sonnet"]]);
   assert.equal(shown(runner), "sonnet");
-  assert.equal(text(labelled("Runs with").querySelector(".hint")), "change the default under Settings");
+  assert.equal(text(labelled("Runs with").querySelector(".hint")), "default set in Settings");
   choose(runner, "codex");
-  assert.equal(text(labelled("Runs with").querySelector(".hint")), "Codex uses your own Codex config and ignores the list below");
+  assert.equal(text(labelled("Runs with").querySelector(".hint")), "Codex uses your Codex config; the list below is ignored");
   choose(control("Runs with"), "");
 
-  const context = control("Context");
-  assert.deepEqual(options(context), [["", "a new context"], ["change", "continue the session of Make the change"]]);
+  const context = control("Session");
+  assert.deepEqual(options(context), [["", "new session"], ["change", "resume the session of Make the change"]]);
   choose(context, "change");
   assert.deepEqual($$(".tree-note").map(text).filter((n) => n.includes("session")), ["⤷ continues the session of Make the change"]);
 
@@ -123,7 +123,7 @@ test("an agent step picks its prompt, runner, context and the tools it may use",
   assert.deepEqual(checks().filter(([, on]) => on).map(([name]) => name), ["Bash", "Read"]);
 
   type($("#inspector textarea.prompt"), "Review {{change.summary}} against {{issue_text}}.\n\n## Return\n\n- `verdict`: `APPROVE` or `CHANGES`\n");
-  assert.deepEqual(strip(control("Prompt")), [["change.summary", "set by Make the change"], ["issue_text", "worked out when the run starts"]]);
+  assert.deepEqual(strip(control("Prompt")), [["change.summary", "set by Make the change"], ["issue_text", "var, computed at start"]]);
 
   const step = await savedStep(saved, "review");
   assert.deepEqual(step, { id: "review", title: "Review it", agent: "review-change", tools: ["Bash", "Read"], resume: "change" });
@@ -136,7 +136,7 @@ test("the codex default runner explains that the tool list is ignored", async ()
   lib.default_runner = "codex";
   await open("#/chain/make-change/change");
   assert.equal(shown(control("Runs with")), "");
-  assert.equal(text(labelled("Runs with").querySelector(".hint")), "Codex uses your own Codex config and ignores the list below");
+  assert.equal(text(labelled("Runs with").querySelector(".hint")), "Codex uses your Codex config; the list below is ignored");
 });
 
 test("a new prompt starts from the template and an agent without returns answers in free text", async () => {
@@ -149,16 +149,16 @@ test("a new prompt starts from the template and an agent without returns answers
     ["change.verdict", "read by Run the tests", false],
   ]);
   choose(control("Prompt"), "__new");
-  assert.deepEqual(dialogs.prompt, ["Name for the new prompt (lowercase letters, digits, - and _)"]);
+  assert.deepEqual(dialogs.prompt, ["New prompt name ([a-z0-9_-])"]);
   assert.equal(shown(control("Prompt")), "change");
 
   answers.prompt = "plan";
   choose(control("Prompt"), "__new");
   assert.equal(shown(control("Prompt")), "plan");
-  assert.equal(text($("#inspector .picked > .hint")), "It has no ## Return section, so it answers in free text, read as {{change.output}}. Open chains/make-change/plan.md");
+  assert.equal(text($("#inspector .picked > .hint")), "No ## Return: free text in {{change.output}}. Open chains/make-change/plan.md");
   assert.equal($("#inspector textarea.prompt").value, page("NEW_PROMPT"));
   assert.equal($("#inspector .shared-edit").open, true);
-  assert.equal(text(labelled("ID").querySelector(".hint")), "later steps read its fields as {{change.output}}");
+  assert.equal(text(labelled("ID").querySelector(".hint")), "fields: {{change.output}}");
   assert.deepEqual(sets(), [
     ["change.output", "shown on the run page", false],
     ["change.files", "read by Run the tests, Ship each changeset", false],
@@ -185,10 +185,10 @@ test("a user step asks a question, shows files and can send the run back", async
   assert.equal(question.value, "Merge it? {{change.summary}}");
   assert.equal(question.getAttribute("rows"), "3");
   assert.deepEqual(strip(question), [["change.summary", "set by Make the change"]]);
-  assert.equal(control("Files to show with it").value, "{{run_folder}}/change.diff");
-  assert.deepEqual(strip(control("Files to show with it")), [["run_folder", "filled in by swarm"]]);
+  assert.equal(control("Files to show").value, "{{run_folder}}/change.diff");
+  assert.deepEqual(strip(control("Files to show")), [["run_folder", "built-in"]]);
   const back = control("Send back to");
-  assert.deepEqual(options(back), [["", "nowhere: only approve or reject"], ["read_issue", "Read the issue"], ["change", "Make the change"], ["test", "Run the tests"], ["review", "Review it"]]);
+  assert.deepEqual(options(back), [["", "none (approve or reject only)"], ["read_issue", "Read the issue"], ["change", "Make the change"], ["test", "Run the tests"], ["review", "Review it"]]);
   assert.equal(shown(back), "change");
   assert.deepEqual(sets(), [["approve.decision", "read by Tell the team", false], ["approve.note", "nothing reads it", false]]);
 
@@ -199,8 +199,8 @@ test("a user step asks a question, shows files and can send the run back", async
 
   type(control("Question"), "");
   assert.equal(control("Question").closest(".attached").querySelector(".reads-strip").hidden, true);
-  type(control("Files to show with it"), "  \n{{run_folder}}/demo.mp4\n");
-  type(control("Files to show with it"), "");
+  type(control("Files to show"), "  \n{{run_folder}}/demo.mp4\n");
+  type(control("Files to show"), "");
   choose(control("Send back to"), "");
   assert.equal($(".ol-revise"), null);
 
@@ -218,26 +218,26 @@ test("a sub-chain step fills the inputs of the chain it runs", async () => {
   assert.deepEqual(options(chain), [["ship-changeset", "Ship a changeset"], ["solo", "Solo"]]);
   assert.equal(shown(chain), "ship-changeset");
   assert.equal(control("Changeset to apply").value, "{{change.files}}");
-  assert.equal(control("Changeset to apply").placeholder, "needs a value, e.g. {{step_id.field}}");
+  assert.equal(control("Changeset to apply").placeholder, "required, e.g. {{step_id.field}}");
   assert.equal(control("Dry run").placeholder, "empty: optional");
   assert.equal(control("target").placeholder, "empty: main");
   assert.match(text($("#inspector .subpanel > .form > .hint")), /^Runs ship-changeset once per item of change\.files, sequentially\./);
-  assert.equal($("#inspector a[href=\"#/chain/ship-changeset\"]").textContent, "Open the ship-changeset chain →");
-  assert.equal(shown(control("Stops the run after it")), "off");
+  assert.equal($("#inspector a[href=\"#/chain/ship-changeset\"]").textContent, "Open ship-changeset →");
+  assert.equal(shown(control("Stop the run after it")), "off");
 
   type(control("Changeset to apply"), "{{request}}");
-  assert.deepEqual(strip(control("Changeset to apply")), [["request", "asked when the run starts: “What should change?”"]]);
+  assert.deepEqual(strip(control("Changeset to apply")), [["request", "input “What should change?”"]]);
   assert.equal($$(".tree-note").some((n) => n.textContent.includes("once per item")), false);
   type(control("Dry run"), "yes");
   type(control("Dry run"), "");
 
   choose(control("Chain to run"), "solo");
-  assert.match(text($("#inspector .subpanel > .form > .hint")), /^Runs it once\. To run it once per item of a list/);
+  assert.match(text($("#inspector .subpanel > .form > .hint")), /^Runs once\. To run per list item/);
   assert.equal(sections()[0], "What it does");
-  assert.equal($("#inspector a[href=\"#/chain/solo\"]").textContent, "Open the solo chain →");
-  assert.equal(text($("#inspector .group-body .hint")), "changeset: {{request}} is not read any more remove");
+  assert.equal($("#inspector a[href=\"#/chain/solo\"]").textContent, "Open solo →");
+  assert.equal(text($("#inspector .group-body .hint")), "changeset: {{request}} is unused remove");
   click(button("remove"));
-  assert.equal(text($("#inspector .group-body")), "It needs no values from this step.");
+  assert.equal(text($("#inspector .group-body")), "No inputs.");
 
   const step = await savedStep(saved, "ship");
   assert.deepEqual(step, { id: "ship", title: "Ship each changeset", chain: "solo" });
@@ -255,9 +255,9 @@ test("a sub-chain step run per item can run in parallel and keep going past a fa
   assert.equal(toggle(keepGoing).checked, false);
   click(toggle(parallel));
   assert.equal(sections()[0], "Repeat (parallel)");
-  assert.match(hint(), /^Runs ship-changeset once per item of change\.files, in parallel\. .* a failed item fails this step once all items finish\.$/);
+  assert.match(hint(), /^Runs ship-changeset once per item of change\.files, in parallel\. .* a failed item fails this step after all items finish\.$/);
   click(toggle(keepGoing));
-  assert.match(hint(), /a failed item is counted and the run keeps going\.$/);
+  assert.match(hint(), /failed items are counted and the run continues\.$/);
   assert.ok($$(".tree-note").map(text).includes("⤷ runs ship-changeset once per item of change.files, in parallel, keep going on failure"));
   let step = await savedStep(saved, "ship");
   assert.equal(step.parallel, true);
@@ -295,17 +295,17 @@ test("a step after an approval runs only once it is approved, and can stop the r
   const { saved } = start();
   await open("#/chain/make-change/merge");
 
-  assert.equal(text(labelled("Runs").querySelector(":scope > span > .hint")), "only once you approve \"Approve the change\": a rejection ends the run before it");
-  const message = labelled("Message when it stops the run");
+  assert.equal(text(labelled("Runs").querySelector(":scope > span > .hint")), "only after \"Approve the change\" is approved");
+  const message = labelled("Stop message");
   assert.equal(message.hidden, true);
-  const stop = labelled("Stops the run after it");
+  const stop = labelled("Stop the run after it");
   choose(stop.querySelector("select"), "on");
   assert.equal(message.hidden, true);
   assert.deepEqual([...stop.querySelectorAll("datalist option")].map((o) => o.value), ["output"]);
   type(stop.querySelector("input"), "output");
   assert.equal(message.hidden, false);
   type(stop.querySelectorAll("input")[1], "conflict");
-  type(control("Message when it stops the run"), "Merge conflict: {{merge.output}}");
+  type(control("Stop message"), "Merge conflict: {{merge.output}}");
   assert.deepEqual($$(".tree-note").map(text).filter((n) => n.includes("conflict")), ["⤷ stops the run here if its output is conflict"]);
   assert.deepEqual(sets(), [["merge.output", "shown on the run page", false]]);
 
@@ -317,22 +317,22 @@ test("a step after an approval runs only once it is approved, and can stop the r
   assert.deepEqual(sets(), [["merge.output", "read by its own stop condition", false]]);
   assert.equal(text(labelled("Runs").querySelector(":scope > span > .hint")), undefined);
 
-  choose(labelled("Stops the run after it").querySelector("select"), "off");
-  assert.equal(labelled("Message when it stops the run").hidden, false);
-  type(control("Message when it stops the run"), "");
+  choose(labelled("Stop the run after it").querySelector("select"), "off");
+  assert.equal(labelled("Stop message").hidden, false);
+  type(control("Stop message"), "");
   click($("#inspector .toggle input"));
   step = await savedStep(saved, "merge");
   assert.deepEqual(step, { id: "merge", title: "Merge", tool: "merge" });
-  choose(labelled("Stops the run after it").querySelector("select"), "on");
-  choose(labelled("Stops the run after it").querySelector("select"), "off");
-  assert.equal(labelled("Message when it stops the run").hidden, true);
+  choose(labelled("Stop the run after it").querySelector("select"), "on");
+  choose(labelled("Stop the run after it").querySelector("select"), "off");
+  assert.equal(labelled("Stop message").hidden, true);
 });
 
 test("an open shared editor stays open across saves and is forgotten once closed", async () => {
   start();
   await open("#/chain/make-change/test");
   const shared = () => $("#inspector .shared-edit");
-  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/run_tests.json here · only this step uses it");
+  assert.equal(text($("#inspector .shared-edit summary")), "Edit tools/run_tests.json here · used only here");
   assert.deepEqual(sets(), [["test.output", "read by its own stop condition", false]]);
 
   shared().open = true;

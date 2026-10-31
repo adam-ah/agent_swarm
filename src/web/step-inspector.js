@@ -1,5 +1,5 @@
-const KIND_CHOICES = [["tool", "Tool: run a named action"], ["agent", "Agent: an agent CLI with a prompt"], ["user", "User: wait for a person to approve"], ["chain", "Sub-chain: run another chain"],
-  ["repeat", "Repeat: go back to an earlier step"]];
+const KIND_CHOICES = [["tool", "Tool: shell command"], ["agent", "Agent: agent CLI + prompt"], ["user", "User: approval gate"], ["chain", "Sub-chain"],
+  ["repeat", "Repeat: loop back to an earlier step"]];
 
 function fieldsOf(step) {
   const kind = kindOf(step);
@@ -18,7 +18,7 @@ function stepInspector(step) {
   const at = editor.at.draft.steps.indexOf(step);
   const heading = h("span", { class: "card-title grow" }, step.title || "(untitled)");
   const idHint = h("span", { class: "hint" });
-  const showID = () => { idHint.textContent = ` later steps read its fields as {{${step.id}.${fieldsOf(step)[0] || "field"}}}`; };
+  const showID = () => { idHint.textContent = ` fields: {{${step.id}.${fieldsOf(step)[0] || "field"}}}`; };
   const idInput = textInput(step.id, (v) => { step.id = v; editor.at.fresh.delete(step); showID(); touch(); }, { class: "code" });
   showID();
   const setTitle = (v) => {
@@ -54,8 +54,8 @@ function stepInspector(step) {
     inspectorSection(what, "", kindFields(step, kind)),
     setsSection(step),
     flowFields(step),
-    kind === "tool" || kind === "agent" ? inspectorSection("When swarm stops it", "", limitFields(step, kind)) : null,
-    h("details", { class: "advanced" }, h("summary", {}, "Change what kind of step this is"), selectBox(KIND_CHOICES.filter(([k]) => k !== "repeat" || at > 0), kind, setKind)));
+    kind === "tool" || kind === "agent" ? inspectorSection("Limits", "", limitFields(step, kind)) : null,
+    h("details", { class: "advanced" }, h("summary", {}, "Change step kind"), selectBox(KIND_CHOICES.filter(([k]) => k !== "repeat" || at > 0), kind, setKind)));
 }
 
 function repeatFields(step) {
@@ -64,16 +64,16 @@ function repeatFields(step) {
   const counts = [...new Set([2, 3, 4, 5, 6, 8, 10, rounds])].sort((a, b) => a - b);
   return h("div", { class: "form" },
     field("Go back to", selectBox(earlier.map((s) => [s.id, s.title || s.id]), step.repeat, (v) => { step.repeat = v; touch(true); }),
-      "every step from there to here runs again"),
-    field("At most", selectBox(counts.map((n) => [String(n), `${n}×${n === 3 ? " (the default)" : ""}`]), String(rounds), (v) => { step.rounds = v === "3" ? undefined : Number(v); touch(true); }),
-      "rounds, counting the first"),
+      "reruns every step from there to here"),
+    field("At most", selectBox(counts.map((n) => [String(n), `${n}×${n === 3 ? " (default)" : ""}`]), String(rounds), (v) => { step.rounds = v === "3" ? undefined : Number(v); touch(true); }),
+      "rounds, including the first"),
     field("When the loop ends", selectBox(Object.entries(LOOP_ENDS), step.fail || "", (v) => { step.fail = v || undefined; touch(true); })));
 }
 
 const LOOP_ENDS = {
-  "": "the run goes on either way",
-  out_of_rounds: "the run fails if it still wants another round after the last",
-  ended_early: "the run fails if the loop ends before the last round",
+  "": "the run continues either way",
+  out_of_rounds: "fail the run if rounds run out",
+  ended_early: "fail the run if the loop exits early",
 };
 
 const IDLE = { tool: ["10m", "no output and no CPU use"], agent: ["15m", "nothing new from the agent"] };
@@ -84,12 +84,12 @@ function limitFields(step, kind) {
   return h("div", { class: "form" },
     h("div", { class: "row2" },
       field("Idle limit", textInput(step.stall, (v) => { step.stall = v.trim() || undefined; touch(); }, { placeholder: stall, class: "code" }),
-        `stopped after ${quiet} for this long; empty means ${stall}, 0 never`),
+        `killed after this long with ${quiet}; default ${stall}, 0 = no limit`),
       field("Time limit", textInput(step.timeout, (v) => { step.timeout = v.trim() || undefined; touch(); }, { placeholder: "2h", class: "code" }),
-        "stopped after this long in all; empty means 2h, 0 never")),
-    kind === "tool" ? field("What it leaves running", selectBox([["", "is stopped when this step ends"], ...later.map((s) => [s.id, `keeps running until ${s.title || s.id} ends`])], step.keep_until || "", (v) => { step.keep_until = v || undefined; touch(true); }),
-      "for a server that later steps need; whatever is left is stopped when the run ends") : null,
-    h("div", { class: "hint" }, "Every process the step starts is stopped when it ends, including ones it leaves in the background."));
+        "killed after this long in total; default 2h, 0 = no limit")),
+    kind === "tool" ? field("Background processes", selectBox([["", "killed when this step ends"], ...later.map((s) => [s.id, `kept until ${s.title || s.id} ends`])], step.keep_until || "", (v) => { step.keep_until = v || undefined; touch(true); }),
+      "e.g. a server later steps need; killed at run end at the latest") : null,
+    h("div", { class: "hint" }, "Every process a step starts, background ones included, is killed when the step ends."));
 }
 
 function inspectorSection(title, hint, ...children) {
@@ -151,22 +151,22 @@ function flowFields(step) {
   const names = [...[...(editor.at.draft.inputs || []), ...(editor.at.draft.vars || [])].map((v) => v.name).filter(Boolean),
     ...earlier.flatMap((s) => fieldsOf(s).map((f) => `${s.id}.${f}`))];
   if (kindOf(step) === "repeat") {
-    const back = conditionEditor(step.when, ["every round, until the rounds run out", "only when"], names, (v) => { step.when = v; touch(); });
-    return inspectorSection("When it goes back", "",
-      field("Goes back", withReads(back, () => [readCondition(step.when)?.name].filter(Boolean)), "otherwise the loop ends here and the run goes on"));
+    const back = conditionEditor(step.when, ["always, until rounds run out", "only when"], names, (v) => { step.when = v; touch(); });
+    return inspectorSection("Loop condition", "",
+      field("Goes back", withReads(back, () => [readCondition(step.when)?.name].filter(Boolean)), "otherwise the loop exits and the run continues"));
   }
-  const message = field("Message when it stops the run", textInput(step.stop, (v) => { step.stop = v || undefined; touch(); }, { placeholder: "e.g. Nothing was changed. {{summary}}" }));
+  const message = field("Stop message", textInput(step.stop, (v) => { step.stop = v || undefined; touch(); }, { placeholder: "e.g. Nothing was changed. {{summary}}" }));
   message.hidden = !step.stop_if && !step.stop;
   const gate = approvalBefore(step, editor.at.draft.steps);
-  const runs = conditionEditor(step.when, ["every time the chain gets here", "only when"], names, (v) => { step.when = v; touch(); });
+  const runs = conditionEditor(step.when, ["always", "only when"], names, (v) => { step.when = v; touch(); });
   return inspectorSection("When it runs", "",
     field("Runs", withReads(runs, () => [readCondition(step.when)?.name].filter(Boolean)),
-      gate ? `only once you approve "${gate.title}": a rejection ends the run before it` : ""),
-    field("Stops the run after it", conditionEditor(step.stop_if, ["never", "when its"], fieldsOf(step), (v) => { step.stop_if = v; message.hidden = !v && !step.stop; touch(); })),
+      gate ? `only after "${gate.title}" is approved` : ""),
+    field("Stop the run after it", conditionEditor(step.stop_if, ["never", "when its"], fieldsOf(step), (v) => { step.stop_if = v; message.hidden = !v && !step.stop; touch(); })),
     message,
     h("label", { class: "toggle" },
       h("input", { type: "checkbox", checked: !!step.always, onchange: (e) => { step.always = e.target.checked || undefined; touch(); } }),
-      h("span", {}, "Also runs after a failure, a stop or a rejection, for cleanup")));
+      h("span", {}, "Always run, also after failure, stop or reject (cleanup)")));
 }
 
 const usesCount = (match) => lib.chains.reduce((n, c) => n + draftSteps(c).filter(match).length, 0);
@@ -175,7 +175,7 @@ function sharedEditor(path, uses, body) {
   return h("details", {
     class: "shared-edit", open: editor.openShared.has(path),
     ontoggle: (e) => { if (e.target.open) editor.openShared.add(path); else editor.openShared.delete(path); },
-  }, h("summary", {}, `Edit ${path} here`, h("span", { class: "hint" }, uses > 1 ? ` · used by ${uses} steps, a change applies to all of them` : " · only this step uses it")), body);
+  }, h("summary", {}, `Edit ${path} here`, h("span", { class: "hint" }, uses > 1 ? ` · used by ${uses} steps; edits apply to all` : " · used only here")), body);
 }
 
 function kindFields(step, kind) {
@@ -184,10 +184,10 @@ function kindFields(step, kind) {
     return h("div", { class: "form" },
       field("Question", withReads(textArea(step.user, (v) => { step.user = v || "Continue?"; touch(); }, { rows: Math.max(3, step.user.split("\n").length + 1) }),
         () => placeholdersIn(step.user))),
-      field("Files to show with it", withReads(linesInput(step.show, (v) => { step.show = v.length ? v : undefined; touch(); }, { placeholder: "e.g. {{run_folder}}/change.diff" }),
-        () => placeholdersIn((step.show || []).join("\n"))), "one per line, written by an earlier step; videos, images, markdown and diffs show inline"),
-      field("Send back to", selectBox([["", "nowhere: only approve or reject"], ...earlier.map((s) => [s.id, s.title || s.id])], step.revise || "", (v) => { step.revise = v || undefined; touch(true); }),
-        "the person's note reaches every agent that runs again"));
+      field("Files to show", withReads(linesInput(step.show, (v) => { step.show = v.length ? v : undefined; touch(); }, { placeholder: "e.g. {{run_folder}}/change.diff" }),
+        () => placeholdersIn((step.show || []).join("\n"))), "one glob per line; video, images, .md and .diff render inline"),
+      field("Send back to", selectBox([["", "none (approve or reject only)"], ...earlier.map((s) => [s.id, s.title || s.id])], step.revise || "", (v) => { step.revise = v || undefined; touch(true); }),
+        "the note goes to every agent step that reruns"));
   }
   if (kind === "chain") {
     const sub = editor.chains[step.chain]?.draft || lib.chains.find((c) => c.name === step.chain);
@@ -197,15 +197,15 @@ function kindFields(step, kind) {
       h("input", { type: "checkbox", checked: !!step[key], onchange: (e) => { step[key] = e.target.checked || undefined; touch(true); } }), h("span", {}, label));
     return h("div", { class: "form" },
       field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.at.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
-      valuesGroup("Its inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
+      valuesGroup("Inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
       h("div", { class: "hint" }, source
-        ? `Runs ${step.chain} once per item of ${source}${lists.length ? "" : " if it is a list when the step runs"}, ${step.parallel ? "in parallel" : "sequentially"}. A rejection or stop ends only that item's run; ${
-          step.keep_going ? "a failed item is counted and the run keeps going." : "a failed item fails this step once all items finish."}`
-        : "Runs it once. To run it once per item of a list, set one input to just the list, e.g. {{split.changesets}}; any value that is a list when the step runs works."),
+        ? `Runs ${step.chain} once per item of ${source}${lists.length ? "" : " if it is a list when the step runs"}, ${step.parallel ? "in parallel" : "sequentially"}. A reject or stop ends only that item; ${
+          step.keep_going ? "failed items are counted and the run continues." : "a failed item fails this step after all items finish."}`
+        : "Runs once. To run per list item, set one input to just the list, e.g. {{split.changesets}}."),
       source || step.parallel || step.keep_going ? [
         option("parallel", "Run in parallel (default: sequential)"),
         option("keep_going", "Keep going if an item fails (default: a failed item fails the run)")] : null,
-      step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open the ${step.chain} chain →`) : null);
+      step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open ${step.chain} →`) : null);
   }
   if (kind === "agent") return agentFields(step);
   if (kind === "repeat") return repeatFields(step);
@@ -220,8 +220,8 @@ function kindFields(step, kind) {
       tool ? h("span", { class: "hint" }, `${tool.title}. `, h("a", { href: `#/tool/${name}` }, `Open tools/${name}.json`)) : null,
       tool ? sharedEditor(`tools/${name}.json`, usesCount((s) => s.tool === name), h("div", { class: "form" },
         field("What it does", textInput(tool.title, (v) => { tool.title = v; editor.dirtyTools.add(name); touch(); })),
-        field("Command", textArea(tool.run, (v) => { tool.run = v; editor.dirtyTools.add(name); touch(); drawValues(); }, { class: "code", rows: 6 }), "runs in the project folder"))) : null),
-    valuesGroup("Values for the tool", values));
+        field("Command", textArea(tool.run, (v) => { tool.run = v; editor.dirtyTools.add(name); touch(); drawValues(); }, { class: "code", rows: 6 }), "bash, cwd: project folder"))) : null),
+    valuesGroup("Tool inputs", values));
 }
 
 function listSource(step) {
@@ -249,16 +249,16 @@ function agentFields(step) {
   }));
   return h("div", { class: "form" },
     h("div", { class: "picked" }, field("Prompt", h("div", { class: "attached" }, promptPicker(step), promptReads)),
-      name ? h("span", { class: "hint" }, returns ? `It returns ${returns}, from the prompt's ## Return section. ` : `It has no ## Return section, so it answers in free text, read as {{${step.id}.output}}. `,
+      name ? h("span", { class: "hint" }, returns ? `Returns ${returns} (## Return). ` : `No ## Return: free text in {{${step.id}.output}}. `,
         h("a", { href: `#/prompt/${editor.at.name}/${name}` }, `Open ${path}`)) : null,
       name ? sharedEditor(path, editor.at.draft.steps.filter((s) => s.agent === name).length,
         textArea(editor.at.prompts[name], (v) => { editor.at.prompts[name] = v; editor.at.dirtyPrompts.add(name); touch(); promptReads.draw(); }, { class: "code prompt" })) : null),
     field("Runs with", selectBox([["", `the default (${lib.default_runner})`], ...lib.runners.map((n) => [n, n])], step.runner || "", (v) => { step.runner = v || undefined; touch(true); }),
-      step.runner === "codex" || (!step.runner && lib.default_runner === "codex") ? "Codex uses your own Codex config and ignores the list below" : "change the default under Settings"),
-    field("Context", selectBox([["", "a new context"], ...editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step)).filter((s) => s.agent)
-      .map((s) => [s.id, `continue the session of ${s.title || s.id}`])], step.resume || "", (v) => { step.resume = v || undefined; touch(true); }),
-    "continuing keeps all that agent saw and did; a blind review needs a new context. Sent back to by a person, an agent step continues its own last attempt with the note either way (claude and codex)"),
-    h("div", { class: "field" }, h("span", {}, "What the agent may use"), toolChecks));
+      step.runner === "codex" || (!step.runner && lib.default_runner === "codex") ? "Codex uses your Codex config; the list below is ignored" : "default set in Settings"),
+    field("Session", selectBox([["", "new session"], ...editor.at.draft.steps.slice(0, editor.at.draft.steps.indexOf(step)).filter((s) => s.agent)
+      .map((s) => [s.id, `resume the session of ${s.title || s.id}`])], step.resume || "", (v) => { step.resume = v || undefined; touch(true); }),
+    "resuming keeps the agent's context; use a new session for blind reviews. On send-back, claude and codex steps resume their own last session with the note"),
+    h("div", { class: "field" }, h("span", {}, "Allowed tools"), toolChecks));
 }
 
 function toolValues(tool) {
@@ -274,14 +274,14 @@ function valuesEditor(step, wanted) {
     if (!value) delete step.with[key];
     touch();
   };
-  if (!wanted.length && !extra.length) return h("span", { class: "hint" }, "It needs no values from this step.");
+  if (!wanted.length && !extra.length) return h("span", { class: "hint" }, "No inputs.");
   return h("div", { class: "form" },
     wanted.map((w) => {
-      const placeholder = chainNames.has(w.name) ? `empty: this chain's {{${w.name}}}` : w.fallback ? `empty: ${w.fallback}` : "needs a value, e.g. {{step_id.field}}";
+      const placeholder = chainNames.has(w.name) ? `empty: this chain's {{${w.name}}}` : w.fallback ? `empty: ${w.fallback}` : "required, e.g. {{step_id.field}}";
       const readsNow = () => placeholdersIn(step.with?.[w.name] || (chainNames.has(w.name) ? `{{${w.name}}}` : ""));
       return field(w.label, withReads(textInput(step.with?.[w.name], (v) => set(w.name, v), { class: "code", placeholder }), readsNow));
     }),
-    extra.map((k) => h("div", { class: "hint" }, h("code", {}, `${k}: ${step.with[k]}`), " is not read any more ",
+    extra.map((k) => h("div", { class: "hint" }, h("code", {}, `${k}: ${step.with[k]}`), " is unused ",
       h("button", { class: "linkish", type: "button", onclick: () => { set(k, ""); touch(true); } }, "remove"))));
 }
 
@@ -289,7 +289,7 @@ function toolPicker(step) {
   const names = Object.keys(editor.tools).sort();
   return selectBox([...names.map((n) => [n, `${n}: ${editor.tools[n].title || ""}`]), ["__new", "+ New tool…"]], step.tool, (v) => {
     if (v === "__new") {
-      const name = prompt("Name for the new tool");
+      const name = prompt("New tool name ([a-z0-9_-])");
       if (!name) { touch(true); return; }
       editor.tools[name] = { title: name, run: "echo hello" };
       editor.dirtyTools.add(name);
@@ -305,7 +305,7 @@ function promptPicker(step) {
   const names = Object.keys(editor.at.prompts).sort();
   return selectBox([...names.map((n) => [n, `${n}.md`]), ["__new", "+ New prompt…"]], step.agent, (v) => {
     if (v === "__new") {
-      const name = prompt("Name for the new prompt (lowercase letters, digits, - and _)", step.id);
+      const name = prompt("New prompt name ([a-z0-9_-])", step.id);
       if (!name) { touch(true); return; }
       editor.at.prompts[name] = NEW_PROMPT;
       editor.at.dirtyPrompts.add(name);

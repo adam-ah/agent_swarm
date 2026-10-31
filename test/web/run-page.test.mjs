@@ -80,7 +80,7 @@ test("rows open on click or key, and a failed step opens by itself", async () =>
   assert.equal(isOpen("plan"), false);
   click(head("plan"));
   assert.equal(head("plan").getAttribute("aria-expanded"), "true");
-  const returned = panel(row("plan"), "What the agent returned");
+  const returned = panel(row("plan"), "Fields");
   assert.equal(returned.open, true);
   assert.deepEqual(texts(returned, "dt"), ["files"]);
   assert.deepEqual(texts(returned, "li"), ["auth.go", "auth_test.go"]);
@@ -111,7 +111,7 @@ test("opening a step of a live run shows how it was called", async () => {
   await openRun(runOf("running", { plan: planDone, test: { status: "running", started_at: at(15, 42), log: "test" } }));
   click(head("plan"));
   await settle(20);
-  const call = panel(row("plan"), "How it was called");
+  const call = panel(row("plan"), "Call");
   assert.equal(call.open, true);
   assert.ok(calls.some((c) => c.path === `/api/runs/${RUN}/call` && c.query.log === "plan"));
   assert.equal(call.querySelector(".cmd-line").textContent, "$ claude");
@@ -123,7 +123,7 @@ test("opening a step after the run ended leaves how it was called closed", async
   await openRun(runOf("done", { plan: planDone, test: testDone }, { ended_at: at(16) }));
   click(head("plan"));
   await settle(20);
-  const call = panel(row("plan"), "How it was called");
+  const call = panel(row("plan"), "Call");
   assert.equal(call.open, false);
   assert.equal(calls.filter((c) => c.path.endsWith("/call")).length, 0);
 
@@ -144,15 +144,15 @@ test("a waiting run takes a decision: send back with a note, approve, or reject"
   assert.equal($(".decision .decision-head").textContent, "Review the change");
   assert.equal($(".decision .question").textContent, "Ship this change?");
   assert.equal($$(".decision .stills img").length, 1);
-  assert.equal(row("review").querySelector(".srow-line").textContent, "Waiting for your answer above");
+  assert.equal(row("review").querySelector(".srow-line").textContent, "Waiting: decision above");
   const note = $(".decision textarea");
-  assert.equal(note.placeholder, "Note: what to change. Needed to send it back to plan.");
+  assert.equal(note.placeholder, "Note (required to send back to plan)");
   assert.deepEqual(texts($(".decision .row"), "button"), ["Approve", "Send back to plan", "Reject"]);
 
   click(button("Send back to plan"));
   await settle();
   assert.deepEqual(posted(`/api/runs/${RUN}/decide`), []);
-  assert.equal(note.placeholder, "Say what to change, then send it back");
+  assert.equal(note.placeholder, "Note required to send back");
 
   type(note, "Check the expiry too");
   click(button("Send back to plan"));
@@ -172,7 +172,7 @@ test("a waiting run takes a decision: send back with a note, approve, or reject"
 
   source.send(waiting({ round: 2, revise: "" }));
   assert.deepEqual(texts($(".decision .row"), "button"), ["Approve", "Reject"]);
-  assert.equal($(".decision textarea").placeholder, "Optional note");
+  assert.equal($(".decision textarea").placeholder, "Note (optional)");
   route("POST", `/api/runs/${RUN}/decide`, fail(409, "the run is not waiting"));
   click(button("Reject"));
   await settle();
@@ -194,7 +194,7 @@ test("the stop button asks first and reports a refusal", async () => {
   click(button("Stop run"));
   await settle();
   assert.equal(stops().length, 0);
-  assert.match(dialogs.confirm[0], /Stop this run\?/);
+  assert.match(dialogs.confirm[0], /Stop run\?/);
 
   answers.confirm = true;
   click(button("Stop run"));
@@ -324,7 +324,7 @@ test("a finished run can be deleted after confirming", async () => {
   assert.equal(deletes().length, 2);
   assert.equal(deletes()[1].path, `/api/runs/${RUN}`);
   assert.equal(hash(), "#/");
-  assert.match(dialogs.confirm[0], /Delete this run/);
+  assert.match(dialogs.confirm[0], /Delete run and its logs/);
 });
 
 test("sub-chains nest their rows, and per-item runs replace the outline", async () => {
@@ -351,8 +351,8 @@ test("sub-chains nest their rows, and per-item runs replace the outline", async 
   assert.equal(has(row("build.1"), '[id="row-build.1.compile"]'), true);
 
   click(head("build.1.compile"));
-  const reads = panel(row("build.1.compile"), "What it read");
-  assert.match(reads.textContent, /asked when the run starts: “Part”/);
+  const reads = panel(row("build.1.compile"), "Reads");
+  assert.match(reads.textContent, /input “Part”/);
   assert.equal(has(reads, ".ol-value"), false);
   assert.deepEqual([...row("build.1.compile").querySelectorAll(".srow-links a")].map((a) => a.getAttribute("href")), ["#/tool/compile", "#/chain/part/compile"]);
 

@@ -44,10 +44,10 @@ function renderRun(run) {
     run.cost ? h("span", {}, money(run.cost)) : null,
     h("span", { class: "row push-right" },
       live ? h("button", { class: "btn small danger", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
-      unfinished ? h("button", { class: "btn small", type: "button", title: "Keeps every step that finished and starts again at the one that did not", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
-      unfinished ? rerunPoints(run).map(({ step, level }) => h("button", { class: "btn small", type: "button", title: `Keeps every step before ${step.title} and runs it and everything after it again`,
+      unfinished ? h("button", { class: "btn small", type: "button", title: "Keep finished steps; rerun from the first unfinished one", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
+      unfinished ? rerunPoints(run).map(({ step, level }) => h("button", { class: "btn small", type: "button", title: `Keep steps before ${step.title}; rerun from it`,
         onclick: () => rerunRun(run.id, "step", keyOf(step)) }, `Rerun from ${step.title} (${level})`)) : null,
-      unfinished ? h("button", { class: "btn small", type: "button", title: "Starts a new run of this chain with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Rerun from scratch") : null,
+      unfinished ? h("button", { class: "btn small", type: "button", title: "New run with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Rerun from scratch") : null,
       live ? null : h("button", { class: "btn small danger", type: "button", onclick: () => deleteRun(run.id).then((gone) => { if (gone) location.hash = "#/"; }) }, "Delete run")),
   ].filter(Boolean));
 
@@ -69,7 +69,7 @@ function renderStopped(run, el) {
   if (el.dataset.count === String(stopped.length)) return;
   el.dataset.count = String(stopped.length);
   el.replaceChildren(stopped.length ? h("details", { class: "output stopped-list", open: el.querySelector("details")?.open || false },
-    h("summary", {}, `Processes swarm stopped outside a step (${stopped.length})`),
+    h("summary", {}, `Killed outside a step (${stopped.length})`),
     h("pre", {}, stopped.join("\n"))) : "");
 }
 
@@ -233,10 +233,10 @@ function stepRow(entry) {
   h("span", { class: "srow-text" },
     h("span", { class: "srow-title" }, step.title,
       step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
-      step.resumed ? h("span", { class: "chip flag", title: `Continues the session of ${step.resumed}` }, "continues") : null,
-      step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "asked again") : null,
-      step.asks?.length ? h("span", { class: "chip flag", title: "It asked you questions before it answered" }, "asked you") : null,
-      step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Runs even after a failure, a stop or a rejection" }, "always") : null),
+      step.resumed ? h("span", { class: "chip flag", title: `Resumes the session of ${step.resumed}` }, "resumed") : null,
+      step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "re-prompted") : null,
+      step.asks?.length ? h("span", { class: "chip flag", title: "Asked questions before answering" }, "asked") : null,
+      step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Also runs after failure, stop or reject" }, "always") : null),
     summaryLine(step, open)),
   h("span", { class: "srow-stats" }, stepStats(step)),
   h("span", { class: "srow-caret" }, expandable ? (open ? "▾" : "▸") : ""));
@@ -251,7 +251,7 @@ function summaryLine(step, open) {
     return h("span", { class: "srow-line working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
       `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at)));
   }
-  if (step.status === "waiting") return h("span", { class: "srow-line" }, openAsk(step) ? "Asking you questions above" : "Waiting for your answer above");
+  if (step.status === "waiting") return h("span", { class: "srow-line" }, openAsk(step) ? "Waiting: questions above" : "Waiting: decision above");
   const text = step.headline || (open ? "" : firstLine(step.error) || step.ended);
   return text ? h("span", { class: "srow-line" }, text) : null;
 }
@@ -262,8 +262,8 @@ function stepBody(run, step, entry) {
     step.ended ? h("div", { class: "ended-box" }, h("strong", {}, "Ended the run: "), step.ended) : null,
     step.sent_back ? h("div", { class: "hint" }, h("strong", {}, "Sent back with: "), step.sent_back) : null,
     step.loop ? h("div", { class: "hint" }, step.loop) : null,
-    step.kind === "agent" && step.ended_at ? h("div", { class: "hint" }, step.resumed ? `Continued the session of ${step.resumed}` : "New context",
-      step.session ? ` · session ${step.session}` : " · no session id, so it cannot be continued") : null,
+    step.kind === "agent" && step.ended_at ? h("div", { class: "hint" }, step.resumed ? `Resumed the session of ${step.resumed}` : "New session",
+      step.session ? ` · session ${step.session}` : " · no session id, not resumable") : null,
     entry.arts,
     stepFields(step),
     asksPanel(run.id, step),
@@ -277,16 +277,16 @@ function stepBody(run, step, entry) {
 }
 
 function editLinks(step, chain) {
-  const target = { tool: ["tool", `Open the tool ${step.uses}`], agent: ["prompt", `Open the prompt ${step.uses}`] }[step.kind];
+  const target = { tool: ["tool", `Open tool ${step.uses}`], agent: ["prompt", `Open prompt ${step.uses}`] }[step.kind];
   const page = step.kind === "agent" ? `${encodeURIComponent(chain)}/${encodeURIComponent(step.uses)}` : encodeURIComponent(step.uses);
   return [
     target && step.uses ? h("a", { href: `#/${target[0]}/${page}` }, target[1]) : null,
-    chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}` }, "Edit this step") : null,
+    chain ? h("a", { href: `#/chain/${encodeURIComponent(chain)}/${step.id}` }, "Edit step") : null,
   ];
 }
 
 async function stopRun(id) {
-  if (!confirm("Stop this run? Steps marked \"always\" still run.")) return;
+  if (!confirm("Stop run? \"always\" steps still run.")) return;
   try { await api(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }); } catch (err) { alert(err.message); }
 }
 
@@ -331,7 +331,7 @@ async function rerunRun(id, from, step) {
 }
 
 async function deleteRun(id) {
-  if (!confirm("Delete this run and everything it recorded?")) return false;
+  if (!confirm("Delete run and its logs?")) return false;
   try {
     await api(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
   } catch (err) {

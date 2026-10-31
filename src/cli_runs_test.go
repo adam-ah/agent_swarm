@@ -15,7 +15,7 @@ func TestCLIRunFollowsToTheEnd(t *testing.T) {
 	surfaceFails(t, err, "no chain named ghost")
 
 	out, err := surfaceCLI(t, "run", "hello")
-	surfaceContains(t, out, err, "watching it", "✓ Greet: hello", "\ndone\n")
+	surfaceContains(t, out, err, "following; Ctrl-C detaches", "✓ Greet: hello", "\ndone\n")
 	if strings.Contains(out, "on the page") {
 		t.Errorf("no page is running, but: %s", out)
 	}
@@ -39,7 +39,7 @@ func TestCLIRunFollowsToTheEnd(t *testing.T) {
 func TestCLIRunDetachedAndApproved(t *testing.T) {
 	core, project := surfaceProject(t)
 	out, err := surfaceCLI(t, "run", "ask", "-detach")
-	surfaceContains(t, out, err, "it runs in the background")
+	surfaceContains(t, out, err, "detached; poll with swarm show ")
 	id := strings.TrimPrefix(strings.SplitN(out, "\n", 2)[0], "run ")
 	surfaceWait(t, core, id, "waiting")
 

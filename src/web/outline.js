@@ -87,11 +87,11 @@ function goLink(text, target, go) {
 function sourceNote(from, go) {
   if (from.kind === "step") return h("span", { class: "ol-from" }, "set by ", goLink(from.step.title, from, go));
   if (from.kind === "input") {
-    return h("span", { class: "ol-from" }, "asked when the run starts: ", goLink(`“${from.input.label || from.input.name}”`, from, go),
-      lib.input_values?.[from.input.name] ? [", this project's value is in ", h("a", { href: "#/settings" }, "Settings")] : null);
+    return h("span", { class: "ol-from" }, "input ", goLink(`“${from.input.label || from.input.name}”`, from, go),
+      lib.input_values?.[from.input.name] ? [", project default in ", h("a", { href: "#/settings" }, "Settings")] : null);
   }
-  if (from.kind === "var") return h("span", { class: "ol-from" }, goLink("worked out when the run starts", from, go));
-  if (from.kind === "builtin") return h("span", { class: "ol-from" }, "filled in by swarm", from.name === "memory" ? [" from ", h("a", { href: "#/memory" }, "Memory")] : null);
+  if (from.kind === "var") return h("span", { class: "ol-from" }, goLink("var, computed at start", from, go));
+  if (from.kind === "builtin") return h("span", { class: "ol-from" }, "built-in", from.name === "memory" ? [" from ", h("a", { href: "#/memory" }, "Memory")] : null);
   return h("span", { class: "ol-from missing" }, "nothing sets it");
 }
 
@@ -118,7 +118,7 @@ function renderOutline(nodes, view, blocks = [], inAlways = false) {
   return nodes.map((node) => {
     if (node.type === "step") return view.step(node.step, inAlways);
     if (node.type === "if") return group("ol-if", [word("If"), conditionLabel(node.cond, view.chain, view.go, view.value)], node.children);
-    if (node.type === "always") return group("ol-always", [word("Then, always"), note("even after a failure, a stop or a rejection")], node.children, true);
+    if (node.type === "always") return group("ol-always", [word("Then, always"), note("also after failure, stop or reject")], node.children, true);
     if (node.type === "loop") {
       const r = node.step;
       return group("ol-loop", [word("Repeat"), note(`(${r.rounds || 3}× at most)`),
@@ -126,13 +126,13 @@ function renderOutline(nodes, view, blocks = [], inAlways = false) {
         note(`· ${LOOP_ENDS[r.fail || ""] || r.fail}`)], node.children, inAlways, view.rounds?.(node));
     }
     const everyRejected = node.rejected.length && node.rejected.every((n) => readCondition(n.step.when)?.op === "isnt");
-    const after = node.always ? "only the steps under THEN, ALWAYS run" : "nothing more runs";
+    const after = node.always ? "only THEN, ALWAYS steps run" : "nothing more runs";
     return [
       view.step(node.step, inAlways),
       h("div", { class: "ol-branches" },
         group("ol-approved", [word("Approved"), node.approved.length ? null : note("nothing more runs")], node.approved),
         node.back ? h("div", { class: "ol-block ol-revise" }, h("div", { class: "ol-label" }, word("Sent back"),
-          note("⟲ runs again from ", goLink(`“${node.back.title}”`, { kind: "step", step: node.back }, view.go), ", with your note"))) : null,
+          note("⟲ reruns from ", goLink(`“${node.back.title}”`, { kind: "step", step: node.back }, view.go), " with the note"))) : null,
         group("ol-rejected", [word("Rejected"), note(everyRejected ? "or an earlier step failed or stopped" : node.rejected.length ? "" : after)], node.rejected, true)),
     ];
   });

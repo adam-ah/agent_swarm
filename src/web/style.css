@@ -111,6 +111,7 @@ input[type=checkbox] { width: auto; }
 .start { padding: 16px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
 .start-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .start-fields .wide { grid-column: 1 / -1; }
+.start-fields textarea { min-height: 0; resize: none; overflow: hidden; }
 .start-cli pre { margin: 4px 0 0; overflow-wrap: anywhere; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .problems { color: var(--bad); background: var(--bad-soft); border: 1px solid #f3c4c4; border-radius: 10px; margin: 0 0 18px; padding: 10px 14px; }

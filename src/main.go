@@ -204,9 +204,9 @@ func overview() {
 	}
 	if serving {
 		fmt.Println("  open              http://" + addr)
-		fmt.Println("  swarm stop        close the page; runs keep going")
+		fmt.Println("  swarm stop        shut down the web UI; runs keep going")
 	} else {
-		fmt.Println("  swarm serve       the page, in a terminal you keep open")
+		fmt.Println("  swarm serve       start the web UI (foreground)")
 	}
 	fmt.Println("  swarm help        every command")
 }

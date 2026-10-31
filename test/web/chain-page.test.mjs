@@ -16,11 +16,15 @@ test("the start form asks for the chain's inputs, starting from this project's v
     ["field", "Test command optional · from Settings", "input"],
   ]);
   const [request, testCommand] = $$("form.start .start-fields textarea, form.start .start-fields input");
-  assert.equal(request.placeholder, "Describe it in plain words");
   assert.equal(request.value, "");
+  assert.equal(Number(request.rows), 1);
+  type(request, "line one\nline two\nline three");
+  assert.equal(Number(request.rows), 3);
+  type(request, "");
+  assert.equal(Number(request.rows), 1);
   assert.equal(testCommand.value, "make test");
-  assert.equal(testCommand.placeholder, "leave empty to skip");
-  assert.equal($("form.start .hint[title]").getAttribute("title"), "This project's starting value, set in Settings");
+  assert.equal($("form.start .hint[title]").getAttribute("title"), "Project input default (Settings)");
+  assert.equal($("form.start .start-cli .hint").textContent, "CLI:");
   assert.equal(startButton().disabled, false);
 });
 
@@ -75,7 +79,7 @@ test("a run cannot start while the chain has unsaved changes", async () => {
   type(control("Title"), "Make a bigger change");
   click(startButton());
   await settle();
-  assert.equal($("form.start .error-text").textContent, "Save or discard your changes to the chain first.");
+  assert.equal($("form.start .error-text").textContent, "Unsaved chain changes: save or discard first.");
   assert.equal(calls.some((c) => c.method === "POST"), false);
 });
 

@@ -5,7 +5,7 @@ import { RUN, at, callRecord, has, head, isOpen, library, openRun, panel, planDo
 
 const hash = () => globalThis.location.hash;
 const callsTo = (log, part) => calls.filter((c) => c.path === `/api/runs/${RUN}/call` && c.query.log === log && c.query.part === part);
-const callOf = (path) => panel(row(path), "How it was called");
+const callOf = (path) => panel(row(path), "Call");
 
 test("the call panel shows the command, tool calls, output and stream, and keeps what was opened", async () => {
   reset();
@@ -231,8 +231,8 @@ test("a question renders as markdown, shows the files it links in place and mark
     ["pr", "https://github.com/o/r/pull/1", "_blank"],
     ["top", null, null],
   ]);
-  assert.deepEqual(texts(asked, ".missing"), ["screenshots/after-9.png is not among the files this step shows", "gone link"]);
-  assert.equal(asked.querySelector(".missing:last-child").title, "nowhere.txt is not among the files this step shows");
+  assert.deepEqual(texts(asked, ".missing"), ["screenshots/after-9.png is not in this step's show list", "gone link"]);
+  assert.equal(asked.querySelector(".missing:last-child").title, "nowhere.txt is not in this step's show list");
 
   const below = $(".decision .question + .artifacts");
   assert.deepEqual([...below.querySelectorAll(".stills img")].map((img) => img.getAttribute("alt")), ["extra.png"]);
@@ -273,7 +273,7 @@ test("an open step shows its fields, what it read, how it was asked again, and w
   };
   await openRun(runOf("done", steps, { ended_at: at(17) }));
 
-  assert.deepEqual(texts(row("plan"), ".chip"), ["attempt 2", "continues", "asked again"]);
+  assert.deepEqual(texts(row("plan"), ".chip"), ["attempt 2", "resumed", "re-prompted"]);
   assert.equal(row("test").querySelector(".srow-line").textContent, "Stopped: the tests are flaky");
   assert.equal(row("test").querySelector(".srow-stats").textContent, "8.0s · 0.9k tokens");
   assert.equal(row("learn").querySelector(".srow-stats").textContent, "5.0s · 12k tokens");
@@ -282,26 +282,26 @@ test("an open step shows its fields, what it read, how it was asked again, and w
   click(head("plan"));
   const body = row("plan").querySelector(".srow-body");
   const hints = [...body.children].filter((e) => e.classList.contains("hint")).map((e) => e.textContent);
-  assert.deepEqual(hints.slice(0, 2), ["Sent back with: Check the expiry too", "Continued the session of plan · session sess-2"]);
-  assert.match(hints[2], /^Its answer had no JSON object with every field/);
-  const askedAgain = panel(body, "How it was asked again for its fields");
+  assert.deepEqual(hints.slice(0, 2), ["Sent back with: Check the expiry too", "Resumed the session of plan · session sess-2"]);
+  assert.match(hints[2], /^The answer lacked a JSON object with every field/);
+  const askedAgain = panel(body, "Re-prompt call");
   click(askedAgain.querySelector("summary"));
   await settle(20);
   assert.ok(calls.some((c) => c.path === `/api/runs/${RUN}/call` && c.query.log === "plan.again"));
 
-  const reads = panel(body, "What it read (2)");
+  const reads = panel(body, "Reads (2)");
   const lines = [...reads.querySelectorAll(".read")];
   assert.deepEqual(lines.map((l) => l.querySelector(".ol-name").textContent), ["request", "memory"]);
-  assert.equal(lines[0].querySelector(".ol-from").textContent, "asked when the run starts: “What to fix”");
+  assert.equal(lines[0].querySelector(".ol-from").textContent, "input “What to fix”");
   assert.equal(lines[0].querySelector(".ol-value").textContent, "value “Login fails”");
-  assert.equal(lines[1].querySelector(".ol-from").textContent, "filled in by swarm from Memory");
+  assert.equal(lines[1].querySelector(".ol-from").textContent, "built-in from Memory");
   assert.equal(lines[1].querySelector(".ol-from a").getAttribute("href"), "#/memory");
   assert.equal(has(lines[1], ".ol-value"), false);
   assert.deepEqual([...body.querySelectorAll(".srow-links a")].map((a) => [a.textContent, a.getAttribute("href")]),
-    [["Open the prompt plan", "#/prompt/fix/plan"], ["Edit this step", "#/chain/fix/plan"]]);
+    [["Open prompt plan", "#/prompt/fix/plan"], ["Edit step", "#/chain/fix/plan"]]);
 
   click(head("learn"));
-  assert.equal(row("learn").querySelector(".srow-body > .hint").textContent, "New context · no session id, so it cannot be continued");
+  assert.equal(row("learn").querySelector(".srow-body > .hint").textContent, "New session · no session id, not resumable");
 
   click(head("test"));
   const testBody = row("test").querySelector(".srow-body");
@@ -310,7 +310,7 @@ test("an open step shows its fields, what it read, how it was asked again, and w
   assert.equal(output.open, false);
   assert.deepEqual(texts(output, "dt"), ["verdict"]);
   assert.deepEqual([...testBody.querySelectorAll(".srow-links a")].map((a) => a.getAttribute("href")), ["#/tool/test", "#/chain/fix/test"]);
-  const read = panel(testBody, "What it read (1)").querySelector(".read");
+  const read = panel(testBody, "Reads (1)").querySelector(".read");
   assert.equal(read.querySelector(".ol-from").textContent, "set by Plan the fix");
   assert.equal(read.querySelector(".ol-value").textContent, "value “auth.go, auth_test.go”");
 
@@ -324,14 +324,14 @@ test("an open step shows its fields, what it read, how it was asked again, and w
   assert.equal(reviewBody.querySelector(".question").textContent, "Ship this change?");
   assert.equal(panel(reviewBody, "Output") === undefined, true);
   assert.deepEqual(texts(reviewBody, ".read .ol-name"), ["plan.summary", "request"]);
-  assert.deepEqual(texts(reviewBody, ".srow-links a"), ["Edit this step"]);
+  assert.deepEqual(texts(reviewBody, ".srow-links a"), ["Edit step"]);
 
   click(head("cleanup"));
   const cleanup = row("cleanup").querySelector(".srow-body");
-  assert.deepEqual(texts(cleanup, ".read .ol-from"), ["worked out when the run starts", "nothing sets it"]);
+  assert.deepEqual(texts(cleanup, ".read .ol-from"), ["var, computed at start", "nothing sets it"]);
   assert.equal(has(cleanup, ".ol-from.missing"), true);
 
-  click(panel(row("plan"), "What it read").querySelector(".read .ol-from a"));
+  click(panel(row("plan"), "Reads").querySelector(".read .ol-from a"));
   await settle(30);
   assert.equal(hash(), "#/chain/fix");
 });
@@ -342,8 +342,8 @@ test("a project value for an input and a long value are both shown", async () =>
   const run = runOf("running", { plan: { status: "running", started_at: at(15) } }, { inputs: { request } });
   await openRun(run, { ...library, input_values: { request: "Login fails" } });
   click(head("plan"));
-  const read = panel(row("plan"), "What it read").querySelector(".read");
-  assert.equal(read.querySelector(".ol-from").textContent, "asked when the run starts: “What to fix”, this project's value is in Settings");
+  const read = panel(row("plan"), "Reads").querySelector(".read");
+  assert.equal(read.querySelector(".ol-from").textContent, "input “What to fix”, project default in Settings");
   assert.equal(read.querySelector(".ol-value").textContent, `value “${"r".repeat(80)}…”`);
 });
 
@@ -362,7 +362,7 @@ test("earlier attempts list each try with its own call", async () => {
   assert.equal(attempts[0].querySelector(".headline").textContent, "First plan");
   assert.equal(attempts[0].querySelector(".error-box").textContent, "no JSON in the answer");
   assert.deepEqual(texts(attempts[0], "dt"), ["reason"]);
-  assert.deepEqual(texts(attempts[0], "details.call > summary"), ["How it was called", "How it was asked again for its fields"]);
+  assert.deepEqual(texts(attempts[0], "details.call > summary"), ["Call", "Re-prompt call"]);
   assert.equal(has(attempts[1], "details.call"), false);
 
   click(attempts[0].querySelector("details.call > summary"));
@@ -378,6 +378,6 @@ test("a run of a chain that is gone still lists its steps", async () => {
   assert.equal(row("plan").parentElement.id, "steps");
   assert.deepEqual(texts(row("cleanup"), ".chip"), ["always"]);
   click(head("plan"));
-  assert.equal(panel(row("plan"), "What it read") === undefined, true);
+  assert.equal(panel(row("plan"), "Reads") === undefined, true);
   assert.deepEqual([...row("plan").querySelectorAll(".srow-links a")].map((a) => a.getAttribute("href")), ["#/prompt/gone/plan", "#/chain/gone/plan"]);
 });

@@ -1,13 +1,24 @@
 function chainProblems(problems = [], warnings = [], draft = false) {
   if (problems.length) {
-    return h("div", { class: "problems" }, h("strong", {}, draft ? "Not saved yet, and swarm would refuse it:" : "This chain cannot run:"), h("ul", {}, problems.map((p) => h("li", {}, p))));
+    return h("div", { class: "problems" }, h("strong", {}, draft ? "Unsaved; swarm check fails:" : "Cannot run:"), h("ul", {}, problems.map((p) => h("li", {}, p))));
   }
   if (warnings.length) {
-    return h("div", { class: "problems warnings" }, h("strong", {}, draft ? "Not saved yet. It would run, but these look wrong:" : "This chain runs, but these look wrong:"),
+    return h("div", { class: "problems warnings" }, h("strong", {}, draft ? "Unsaved; warnings:" : "Warnings:"),
       h("ul", {}, warnings.map((w) => h("li", {}, w))));
   }
-  if (draft) return h("div", { class: "hint" }, "Not saved yet. swarm finds nothing wrong with it.");
+  if (draft) return h("div", { class: "hint" }, "Unsaved; swarm check passes.");
   return null;
+}
+
+function growing(el) {
+  const fit = () => {
+    el.rows = Math.max(1, el.value.split("\n").length);
+    el.style.height = "auto";
+    if (el.scrollHeight > el.clientHeight) el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  };
+  el.addEventListener("input", fit);
+  fit();
+  return el;
 }
 
 function startForm(chain) {
@@ -15,9 +26,7 @@ function startForm(chain) {
   const controls = (chain.inputs || []).map((i) => {
     const fromSettings = lib.input_values?.[i.name];
     const value = fromSettings || i.default || "";
-    const el = i.optional
-      ? h("input", { value, autocomplete: "off", placeholder: "leave empty to skip" })
-      : h("textarea", { rows: 6, placeholder: "Describe it in plain words" }, value);
+    const el = i.optional ? h("input", { value, autocomplete: "off" }) : growing(h("textarea", {}, value));
     return { input: i, el, fromSettings };
   });
   const command = h("pre", { class: "example" });
@@ -25,7 +34,7 @@ function startForm(chain) {
   showCommand();
   const submit = async (e) => {
     e.preventDefault();
-    message.textContent = editor?.dirty ? "Save or discard your changes to the chain first." : "";
+    message.textContent = editor?.dirty ? "Unsaved chain changes: save or discard first." : "";
     if (editor?.dirty) return;
     try {
       const values = Object.fromEntries(controls.map((c) => [c.input.name, c.el.value]));
@@ -42,10 +51,10 @@ function startForm(chain) {
       h("label", { class: `field ${input.optional ? "" : "wide"}` },
         h("span", {}, input.label || input.name,
           input.optional ? h("span", { class: "hint" }, " optional") : null,
-          fromSettings ? h("span", { class: "hint", title: "This project's starting value, set in Settings" }, " · from Settings") : null),
+          fromSettings ? h("span", { class: "hint", title: "Project input default (Settings)" }, " · from Settings") : null),
         el))) : null,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: !!chain.problems?.length }, "Start run"), message),
-    h("div", { class: "start-cli" }, h("span", { class: "hint" }, "Or from a terminal, with the values above:"), command));
+    h("div", { class: "start-cli" }, h("span", { class: "hint" }, "CLI:"), command));
 }
 
 function cliCommand(chain, controls) {

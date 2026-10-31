@@ -1,7 +1,7 @@
 function stepFields(step) {
   const fields = Object.entries(step.output || {}).filter(([k, v]) => k !== "summary" && asText(v) !== "" && !(step.kind === "tool" && k === "output" && Object.keys(step.output).length > 1));
   if (!fields.length || step.kind === "user") return null;
-  return h("details", { class: "output", open: step.kind === "agent" }, h("summary", {}, step.kind === "agent" ? "What the agent returned" : "Output"),
+  return h("details", { class: "output", open: step.kind === "agent" }, h("summary", {}, step.kind === "agent" ? "Fields" : "Output"),
     h("dl", { class: "fields" }, fields.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, Array.isArray(v) ? h("ol", {}, v.map((item) => h("li", {}, asText(item)))) : asText(v))])));
 }
 
@@ -31,7 +31,7 @@ function readsPanel(run, step, chainName) {
   const names = def ? readsOf(def, chainName) : [];
   if (!names.length) return null;
   const prefix = keyOf(step).slice(0, -step.id.length);
-  return h("details", { class: "output reads", open: true }, h("summary", {}, `What it read (${names.length})`),
+  return h("details", { class: "output reads", open: true }, h("summary", {}, `Reads (${names.length})`),
     readsList(names, chain, runGo(chainName, prefix), (name, from) => valueNow({ name, from, prefix }, run)));
 }
 
@@ -47,8 +47,8 @@ function earlierPanel(run, earlier) {
       step.asked_again ? callPanel(run.id, step.asked_again, ASKED_AGAIN_TITLE).el : null)));
 }
 
-const ASKED_AGAIN = "Its answer had no JSON object with every field, so it was asked for them again in the same session";
-const ASKED_AGAIN_TITLE = "How it was asked again for its fields";
+const ASKED_AGAIN = "The answer lacked a JSON object with every field; re-prompted in the same session";
+const ASKED_AGAIN_TITLE = "Re-prompt call";
 
 const sizeOf = (text) => (text.length < 1024 ? `${text.length} chars` : `${(text.length / 1024).toFixed(1)} KB`);
 const shellWord = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`);
@@ -109,8 +109,8 @@ function callView(runID, log, call, opened) {
     block("stdin", call.stdin, opened),
   ];
   if (call.error) out.push(h("div", { class: "error-box" }, call.error));
-  if (call.stopped?.length) out.push(processList(`Processes swarm stopped when the step ended (${call.stopped.length})`, call.stopped, opened));
-  if (call.kept?.length) out.push(processList(`Left running until ${call.kept_until} ends (${call.kept.length})`, call.kept, opened));
+  if (call.stopped?.length) out.push(processList(`Killed at step end (${call.stopped.length})`, call.stopped, opened));
+  if (call.kept?.length) out.push(processList(`Kept until ${call.kept_until} ends (${call.kept.length})`, call.kept, opened));
   if (call.actions?.length) {
     out.push(h("div", { class: "actions-head" }, `Tool calls (${call.actions.length})`),
       h("div", { class: "actions" }, call.actions.map((a, n) => remembered(
@@ -140,7 +140,7 @@ function processList(title, processes, opened) {
   return remembered(h("details", { class: "block" }, h("summary", {}, title), h("pre", {}, processes.join("\n"))), title, opened);
 }
 
-function callPanel(runID, log, title = "How it was called") {
+function callPanel(runID, log, title = "Call") {
   const opened = new Map();
   const body = h("div", { class: "call-body" }, "Loading…");
   const el = h("details", { class: "output call" }, h("summary", {}, title), body);
@@ -187,7 +187,7 @@ function linkFiles(container, runID, artifacts, base) {
     }
     const file = fileAt(artifacts, base, target);
     if (!file) {
-      const why = `${target} is not among the files this step shows`;
+      const why = `${target} is not in this step's show list`;
       el.replaceWith(h("span", { class: "missing", title: why }, image ? why : el.textContent));
     } else if (!image) {
       Object.assign(el, { href: fileURL(runID, file.path), target: "_blank", rel: "noreferrer" });

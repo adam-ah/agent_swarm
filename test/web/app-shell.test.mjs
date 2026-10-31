@@ -122,10 +122,10 @@ test("the router opens each kind of page", async () => {
   route("GET", "/api/settings", { project: {}, shared: {}, default: "claude", installed: { claude: "/usr/bin/claude" } });
 
   await go("#/memory");
-  assert.equal($("h1").textContent, "What this project has learned");
+  assert.equal($("h1").textContent, "Project memory");
   assert.ok($("#memory-link").classList.contains("active"));
   await go("#/settings");
-  assert.equal($("h1").textContent, "Agents and starting values");
+  assert.equal($("h1").textContent, "Agents and input defaults");
   assert.ok($("#settings-link").classList.contains("active"));
   assert.equal($("#settings-meta").textContent, "agents: claude");
   await go("#/tool/test");
@@ -167,7 +167,7 @@ test("unsaved editor changes hold back navigation until confirmed", async () => 
   page("editor.dirty = true");
   answers.confirm = false;
   await go("#/memory");
-  assert.deepEqual(dialogs.confirm, ["You have unsaved changes. Leave without saving?"]);
+  assert.deepEqual(dialogs.confirm, ["Discard unsaved changes?"]);
   assert.equal(hash(), "#/chain/fix");
   assert.equal($("#chain-title").textContent, "Fix a bug");
 
@@ -175,7 +175,7 @@ test("unsaved editor changes hold back navigation until confirmed", async () => 
   answers.confirm = true;
   await go("#/memory");
   assert.equal(dialogs.confirm.length, 2);
-  assert.equal($("h1").textContent, "What this project has learned");
+  assert.equal($("h1").textContent, "Project memory");
   assert.equal(page("editor"), null);
 });
 
@@ -216,7 +216,7 @@ test("switching projects reloads runs and the page, and asks first about unsaved
   page("editor.dirty = true");
   answers.confirm = false;
   type(select, "/work/other");
-  assert.deepEqual(dialogs.confirm, ["You have unsaved changes. Switch projects without saving?"]);
+  assert.deepEqual(dialogs.confirm, ["Discard unsaved changes and switch project?"]);
   assert.equal(page("project"), "/work/demo");
   assert.equal($("#project-select").value, "/work/demo");
   assert.equal(hash(), "#/chain/fix");
@@ -244,7 +244,7 @@ test("a project folder is added through a prompt", async () => {
 
   click($("#add-project"));
   await settle();
-  assert.deepEqual(dialogs.prompt, ["Full path of a project folder"]);
+  assert.deepEqual(dialogs.prompt, ["Project folder (absolute path)"]);
   assert.equal(calls.filter((c) => c.method === "POST").length, 0);
 
   answers.prompt = "/work/new";
@@ -303,7 +303,7 @@ test("new chains and tools are named through a prompt and opened", async () => {
 
   click($('[data-new="chain"]'));
   await settle();
-  assert.match(dialogs.prompt[0], /^Name for the new chain/);
+  assert.match(dialogs.prompt[0], /^New chain name/);
   assert.equal(puts().length, 0);
 
   answers.prompt = "deploy";
@@ -371,7 +371,7 @@ test("the sidebar lists chains, sub-chains, tools, waiting and recent runs", asy
   assert.equal($("#settings-meta").textContent, "");
   assert.deepEqual(texts("#chains .side-empty"), ["No chains"]);
   assert.equal($("#subchains-section").hidden, true);
-  assert.deepEqual(texts("#runs .side-empty"), ["No runs yet"]);
+  assert.deepEqual(texts("#runs .side-empty"), ["No runs"]);
   assert.deepEqual(texts("#tools .side-empty"), ["No tools"]);
 });
 
@@ -400,7 +400,7 @@ test("the home page shows runs waiting for a decision and a card per chain", asy
   assert.deepEqual(chainCards.map((c) => c.closest(".section").querySelector("h2").textContent), ["Start a chain", "Start a chain", "Start a chain", "Sub-chains"]);
   assert.equal(chainCards[0].querySelector(".tag").textContent, "project");
   assert.equal(chainCards[0].querySelector(".card-link-text").textContent, "Plans and tests a fix.");
-  assert.deepEqual(chainCards.map((c) => c.querySelector(".hint").textContent), ["7 steps", "0 steps · cannot run", "2 steps · has warnings", "1 steps · used by Fix a bug, Odd"]);
+  assert.deepEqual(chainCards.map((c) => c.querySelector(".hint").textContent), ["7 steps", "0 steps · cannot run", "2 steps · warnings", "1 steps · used by Fix a bug, Odd"]);
   assert.equal(chainCards[1].querySelector(".card-link-text") === null, true);
   assert.equal(chainCards[1].querySelector(".tag") === null, true);
   assert.deepEqual($$(".run-line .run-line-status").map((s) => s.textContent), ["Waiting for you", "Waiting for you"]);
@@ -409,8 +409,8 @@ test("the home page shows runs waiting for a decision and a card per chain", asy
   await page("loadRuns()");
   await go("#/tool/x");
   await go("#/");
-  assert.match($("#main .section .hint").textContent, /^No chains yet\. Use \+ next to Chains, or run swarm samples in a terminal/);
-  assert.equal($$("#main .section").at(-1).querySelector(".hint").textContent, "No runs in this project yet.");
+  assert.match($("#main .section .hint").textContent, /^No chains\. Add one with \+, or run swarm samples\./);
+  assert.equal($$("#main .section").at(-1).querySelector(".hint").textContent, "No runs.");
 });
 
 test("the home list deletes a finished run only after confirming", async () => {
@@ -514,5 +514,5 @@ test("usedBy links each chain and step that matches", async () => {
   assert.equal(usedBy((s) => s.agent)[0].querySelector(".use-steps").textContent, "Plan the fix, Learn from it");
   const none = usedBy(() => false);
   assert.equal(none.length, 1);
-  assert.equal(none[0].textContent, "Not used by any chain yet");
+  assert.equal(none[0].textContent, "Unused");
 });

@@ -7,9 +7,9 @@ function showHome() {
     waiting.length ? h("section", { class: "section" }, h("h2", {}, "Waiting for you"), h("div", { class: "cards" }, waiting.map(waitingCard))) : null,
     h("section", { class: "section" }, h("h2", {}, "Start a chain"),
       lib.chains.length ? h("div", { class: "cards" }, lib.chains.filter((c) => !subchains.includes(c)).map(chainCard))
-        : h("p", { class: "hint" }, "No chains yet. Use + next to Chains, or run ", h("code", {}, "swarm samples"), " in a terminal for the sample chains.")),
+        : h("p", { class: "hint" }, "No chains. Add one with +, or run ", h("code", {}, "swarm samples"), ".")),
     subchains.length ? h("section", { class: "section" }, h("h2", {}, "Sub-chains"), h("div", { class: "cards" }, subchains.map(chainCard))) : null,
-    h("section", { class: "section" }, h("h2", {}, "Runs"), runList(runsCache, "No runs in this project yet."))));
+    h("section", { class: "section" }, h("h2", {}, "Runs"), runList(runsCache, "No runs."))));
 }
 
 function waitingCard(run) {
@@ -25,7 +25,7 @@ function chainCard(chain) {
   return h("a", { class: "panel card-link", href: `#/chain/${chain.name}` },
     h("span", { class: "card-link-title" }, chain.title, TAG[chain.source] ? h("span", { class: "tag" }, TAG[chain.source][0]) : null),
     first ? h("span", { class: "card-link-text clamp" }, first) : null,
-    h("span", { class: "hint" }, `${chain.steps?.length || 0} steps`, chain.problems?.length ? " · cannot run" : chain.warnings?.length ? " · has warnings" : "",
+    h("span", { class: "hint" }, `${chain.steps?.length || 0} steps`, chain.problems?.length ? " · cannot run" : chain.warnings?.length ? " · warnings" : "",
       callersOf(chain).length ? ` · ${usedByLine(chain)}` : ""));
 }
 
@@ -37,7 +37,7 @@ function runList(runs, empty) {
     h("span", { class: `run-line-status ${r.status}` }, STATUS_LABEL[r.status] || r.status),
     h("span", { class: "run-line-when" }, ago(r.started_at), r.ended_at ? ` · ${duration(r.started_at, r.ended_at)}` : ""),
     r.status === "running" || r.status === "waiting" ? h("span", { class: "run-line-delete" }) : h("button", {
-      class: "linkish danger run-line-delete", type: "button", title: "Delete this run",
+      class: "linkish danger run-line-delete", type: "button", title: "Delete run",
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); deleteRun(r.id); },
     }, "Delete"))));
 }

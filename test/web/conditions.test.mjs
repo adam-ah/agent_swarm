@@ -113,13 +113,13 @@ test("a condition the editor cannot read is kept as text and edited as text", as
   const raw = runs.querySelector(".cond input");
   assert.equal(raw.value, "{{ready}} == yes");
   assert.equal(raw.className, "code wide");
-  assert.equal(text(runs.querySelector(".cond .hint")), "write it as name == value or name != value");
-  assert.equal(labelled("Stops the run after it").querySelector(".cond input").value, "exit_code > 0");
-  assert.equal(labelled("Message when it stops the run").hidden, false);
+  assert.equal(text(runs.querySelector(".cond .hint")), "name == value or name != value");
+  assert.equal(labelled("Stop the run after it").querySelector(".cond input").value, "exit_code > 0");
+  assert.equal(labelled("Stop message").hidden, false);
 
   type(raw, "ready == yes");
   assert.deepEqual([...$(".ol-if > .ol-label").children].map(text), ["If", "ready", "is yes", "nothing sets it"]);
-  type(labelled("Stops the run after it").querySelector(".cond input"), "only.output == ");
+  type(labelled("Stop the run after it").querySelector(".cond input"), "only.output == ");
   assert.deepEqual(own(".tree-note").map(text), ["⤷ stops the run here if its only.output is empty"]);
 
   click(button("Save"));

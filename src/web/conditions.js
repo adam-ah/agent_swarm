@@ -30,11 +30,11 @@ function conditionEditor(text, [offLabel, onLabel], names, onChange) {
   const draw = () => {
     const parts = [selectBox([["off", offLabel], ["on", onLabel]], state.on ? "on" : "off", (v) => { state.on = v === "on"; emit(); draw(); })];
     if (state.on && state.raw) {
-      parts.push(textInput(state.raw, (v) => { state.raw = v; emit(); }, { class: "code wide" }), h("span", { class: "hint" }, "write it as name == value or name != value"));
+      parts.push(textInput(state.raw, (v) => { state.raw = v; emit(); }, { class: "code wide" }), h("span", { class: "hint" }, "name == value or name != value"));
     } else if (state.on) {
       const wantsValue = state.cond.op === "is" || state.cond.op === "isnt";
       parts.push(
-        textInput(state.cond.name, (v) => { state.cond.name = v.trim(); emit(); }, { class: "code", list: listID, placeholder: names[0] || "a value's name" }),
+        textInput(state.cond.name, (v) => { state.cond.name = v.trim(); emit(); }, { class: "code", list: listID, placeholder: names[0] || "name" }),
         selectBox(CONDITION_OPS, state.cond.op, (v) => { state.cond.op = v; emit(); draw(); }),
         wantsValue ? textInput(state.cond.value, (v) => { state.cond.value = v; emit(); }, { class: "code", placeholder: "e.g. APPROVE" }) : null,
         h("datalist", { id: listID }, names.map((n) => h("option", { value: n }))));

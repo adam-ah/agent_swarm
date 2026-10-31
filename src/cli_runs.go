@@ -35,10 +35,10 @@ func (c *cli) run(project string) error {
 		fmt.Println("on the page: " + link)
 	}
 	if c.detach {
-		fmt.Println("it runs in the background; follow it with swarm show " + run.ID)
+		fmt.Println("detached; poll with swarm show " + run.ID)
 		return nil
 	}
-	fmt.Println("watching it; stopping this command leaves the run going (swarm cancel " + run.ID + " stops it)")
+	fmt.Println("following; Ctrl-C detaches, swarm cancel " + run.ID + " stops the run")
 	return c.follow(run.ID)
 }
 
@@ -70,7 +70,7 @@ func (c *cli) cancel() error {
 	if err := c.core.Stop(id); err != nil {
 		return err
 	}
-	fmt.Println("stopping " + id + "; its cleanup steps still run")
+	fmt.Println("stopping " + id + "; always steps still run")
 	return nil
 }
 

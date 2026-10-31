@@ -12,10 +12,10 @@ test("the editor shows the chain's steps as a tree with branches, notes and sub-
   start();
   await open("#/chain/make-change");
 
-  assert.equal(text($(".eyebrow")), "Chain · chains/make-change.json · shared by every project");
+  assert.equal(text($(".eyebrow")), "Chain · chains/make-change.json · shared, all projects");
   assert.equal($("#chain-title").textContent, "Make a change");
   assert.equal(text($(".lead")), "Change the code, test it, review it and ask before merging.");
-  assert.equal(text($("#problems")), "This chain runs, but these look wrong:approve: nothing reads approve.note");
+  assert.equal(text($("#problems")), "Warnings:approve: nothing reads approve.note");
   assert.deepEqual(rows().map((r) => r.querySelector(".title").textContent),
     ["Title, inputs and values", "Read the issue", "Make the change", "Run the tests", "Review it", "Approve the change", "Merge", "Ship each changeset", "Tell the team", "Clean up"]);
   assert.deepEqual(rows().map((r) => r.querySelector(".kind").textContent), ["≡", "T", "A", "T", "A", "U", "T", "C", "T", "T"]);
@@ -29,11 +29,11 @@ test("the editor shows the chain's steps as a tree with branches, notes and sub-
   assert.deepEqual($$(".subchain .ol-if > .ol-label").map(text), ["If{{ready}} == yes", "If{{ready}} == yes"]);
 
   assert.deepEqual(parts($(".ol-if > .ol-label")), ["If", "change.verdict", "is DONE", "set by Make the change"]);
-  assert.equal(text($(".ol-revise")), "Sent back⟲ runs again from “Make the change”, with your note");
+  assert.equal(text($(".ol-revise")), "Sent back⟲ reruns from “Make the change” with the note");
   assert.deepEqual(parts($(".ol-rejected > .ol-label")), ["Rejected", "or an earlier step failed or stopped"]);
-  assert.deepEqual(parts($(".ol-always > .ol-label")), ["Then, always", "even after a failure, a stop or a rejection"]);
+  assert.deepEqual(parts($(".ol-always > .ol-label")), ["Then, always", "also after failure, stop or reject"]);
   assert.deepEqual($$(".ol-approved > .ol-kids > .tree-row .title").map((t) => t.textContent), ["Merge", "Ship each changeset"]);
-  assert.equal(text($("#tree-actions .hint")), "Add a step at the end:");
+  assert.equal(text($("#tree-actions .hint")), "Add step at the end:");
   assert.equal(button("Save").disabled, true);
   assert.equal(button("Discard").disabled, true);
   assert.equal($("#savebar .status"), null);
@@ -41,7 +41,7 @@ test("the editor shows the chain's steps as a tree with branches, notes and sub-
   click($(".ol-if .ol-from a"));
   assert.equal(heading(), "Make the change");
   assert.ok(row("Make the change").classList.contains("selected"));
-  assert.equal(text($("#tree-actions .hint")), "Add a step after the selected one:");
+  assert.equal(text($("#tree-actions .hint")), "Add step after the selected one:");
 
   click(row("Title, inputs and values"));
   assert.equal(heading(), "The chain");
@@ -68,7 +68,7 @@ test("adding a step of each kind puts it after the selected step with a unique i
   assert.ok(row("New tool step").classList.contains("selected"));
   assert.deepEqual($$(".ol-approved > .ol-kids > .tree-row .title").map((t) => t.textContent), ["Merge", "Ship each changeset", "New tool step"]);
   assert.equal(control("Tool").value, "cleanup");
-  assert.equal(status(), "Unsaved. Saving changes it for every project.");
+  assert.equal(status(), "Unsaved; shared chain, saving affects all projects.");
   assert.equal(text($("#problems")), "");
   assert.equal(button("Save").disabled, false);
 
@@ -106,7 +106,7 @@ test("a new step takes its id from its title until the id is edited by hand", as
   type(control("Title"), "2nd pass!");
   assert.equal(control("ID").value, "step_2nd_pass");
   assert.equal(heading(), "2nd pass!");
-  assert.equal(text(labelled("ID").querySelector(".hint")), "later steps read its fields as {{step_2nd_pass.output}}");
+  assert.equal(text(labelled("ID").querySelector(".hint")), "fields: {{step_2nd_pass.output}}");
   type(control("Title"), "Merge");
   assert.equal(control("ID").value, "merge_2");
   type(control("Title"), "");
@@ -137,7 +137,7 @@ test("steps move up and down and are removed after a confirmation", async () => 
 
   answers.confirm = false;
   click(button("Delete"));
-  assert.deepEqual(dialogs.confirm, ["Delete the step \"Clean up\"?"]);
+  assert.deepEqual(dialogs.confirm, ["Delete step \"Clean up\"?"]);
   assert.ok(row("Clean up"));
   answers.confirm = true;
   click(button("Delete"));
@@ -234,13 +234,13 @@ test("a sub-chain's steps are edited in place and saved with the chain that runs
   click(subRow("Apply one changeset"));
   assert.ok(subRow("Apply one changeset").classList.contains("selected"));
   assert.equal(heading(), "Apply one changeset");
-  assert.equal(text($("#inspector .subchain-note")), "Part of the sub-chain Ship a changeset, chains/ship-changeset.json, only in this project. "
-    + "Saving changes it for every chain that runs it: Make a change, Solo. Open ship-changeset on its own →");
-  assert.equal(text($("#tree-actions .hint")), "Add a step to Ship a changeset, after the selected one:");
+  assert.equal(text($("#inspector .subchain-note")), "Sub-chain Ship a changeset (chains/ship-changeset.json, this project only). "
+    + "Saving affects every chain that uses it: Make a change, Solo. Open ship-changeset →");
+  assert.equal(text($("#tree-actions .hint")), "Add step to Ship a changeset, after the selected one:");
 
   type(control("Title"), "Apply the changeset");
   assert.equal($$("#tree .tree-row.sub .title").filter((t) => t.textContent === "Apply the changeset").length, 2);
-  assert.equal(status(), "Unsaved. Saving changes it for every project. Also saves chains/ship-changeset.json.");
+  assert.equal(status(), "Unsaved; shared chain, saving affects all projects. Also saves chains/ship-changeset.json.");
 
   click(button("Save"));
   await settle();
@@ -252,7 +252,7 @@ test("a sub-chain's steps are edited in place and saved with the chain that runs
 
   click(row("Title, inputs and values"));
   assert.equal($("#inspector .subchain-note"), null);
-  assert.equal(text($("#tree-actions .hint")), "Add a step at the end:");
+  assert.equal(text($("#tree-actions .hint")), "Add step at the end:");
 });
 
 test("a refused save lists swarm's reasons and keeps the changes", async () => {
@@ -263,9 +263,9 @@ test("a refused save lists swarm's reasons and keeps the changes", async () => {
   type(control("Title"), "Broken");
   click(button("Save"));
   await settle();
-  assert.equal(text($("#problems strong")), "Not saved. swarm refused it because:");
+  assert.equal(text($("#problems strong")), "Save refused:");
   assert.deepEqual($$("#problems li").map(text), ["merge: there is no tool named merge2", "ship: the chain ship-changeset needs changeset"]);
-  assert.equal(status(), "Unsaved. Saving changes it for every project.");
+  assert.equal(status(), "Unsaved; shared chain, saving affects all projects.");
   assert.equal(button("Save").disabled, false);
   assert.equal($("#chain-title").textContent, "Broken");
 
@@ -280,15 +280,15 @@ test("a shared chain can be saved as a copy for this project only", async () => 
   await open("#/chain/make-change/change");
 
   type($("#inspector textarea.prompt"), "Change {{request}} carefully.");
-  click(button("Save as a copy for this project only"));
+  click(button("Save as project copy"));
   await settle();
   assert.deepEqual(saved.map((c) => [c.path, c.query.scope]),
     [["/api/items/chains/make-change/change.md", "project"], ["/api/items/chains/make-change.json", "project"]]);
-  assert.equal(status(), "Saved as this project's copy");
+  assert.equal(status(), "Saved as project copy");
   assert.equal(lib.chains[0].source, "project");
-  assert.equal(text($(".eyebrow")), "Chain · chains/make-change.json · only in this project");
-  assert.equal(button("Save as a copy for this project only"), undefined);
-  assert.ok(button("Delete this project's copy"));
+  assert.equal(text($(".eyebrow")), "Chain · chains/make-change.json · this project only");
+  assert.equal(button("Save as project copy"), undefined);
+  assert.ok(button("Delete project copy"));
   assert.equal($("#chains a[href=\"#/chain/make-change\"] .tag").textContent, "project");
 });
 
@@ -302,7 +302,7 @@ test("discarding reloads the saved chain and keeps the selected step", async () 
   await settle();
   assert.equal(heading(), "Review it");
   assert.equal(button("Discard").disabled, true);
-  assert.equal(text($("#problems")), "This chain runs, but these look wrong:approve: nothing reads approve.note");
+  assert.equal(text($("#problems")), "Warnings:approve: nothing reads approve.note");
 });
 
 test("a project chain with problems shows them and deletes only this project's copy", async () => {
@@ -310,17 +310,17 @@ test("a project chain with problems shows them and deletes only this project's c
   const deleted = [];
   await open("#/chain/solo");
 
-  assert.equal(text($("#problems strong")), "This chain cannot run:");
+  assert.equal(text($("#problems strong")), "Cannot run:");
   assert.deepEqual($$("#problems li").map(text), ["only: the tool read_issue needs a value for issue"]);
 
   answers.confirm = false;
-  click(button("Delete this project's copy"));
-  assert.deepEqual(dialogs.confirm, ["Delete the chain \"Solo\"? This removes this project's copy."]);
+  click(button("Delete project copy"));
+  assert.deepEqual(dialogs.confirm, ["Delete chain \"Solo\"? Removes the project copy."]);
   assert.equal(calls.some((c) => c.method === "DELETE"), false);
 
   answers.confirm = true;
   route("DELETE", "/api/items/chains/solo.json", fail(422, "refused", ["chains/solo.json is used by ship-changeset"]));
-  click(button("Delete this project's copy"));
+  click(button("Delete project copy"));
   await settle();
   assert.deepEqual(dialogs.alert, ["Refused:\n- chains/solo.json is used by ship-changeset"]);
   assert.equal(globalThis.location.hash, "#/chain/solo");
@@ -329,7 +329,7 @@ test("a project chain with problems shows them and deletes only this project's c
     deleted.push(call);
     return { ok: "true" };
   });
-  click(button("Delete this project's copy"));
+  click(button("Delete project copy"));
   await settle(30);
   assert.equal(deleted.length, 1);
   assert.equal(globalThis.location.hash, "#/");
@@ -339,18 +339,18 @@ test("deleting a shared chain warns that every project loses it", async () => {
   start();
   route("DELETE", "/api/items/chains/make-change.json", { ok: "true" });
   await open("#/chain/make-change");
-  click(button("Delete this chain for every project"));
+  click(button("Delete (all projects)"));
   await settle(30);
-  assert.deepEqual(dialogs.confirm, ["Delete the chain \"Make a change\"? This removes the shared chain, for every project."]);
+  assert.deepEqual(dialogs.confirm, ["Delete chain \"Make a change\"? Removes the shared chain, for all projects."]);
   assert.equal(globalThis.location.hash, "#/");
 });
 
 test("a project chain offers no project copy and calls its edits plainly unsaved", async () => {
   start(library([makeChange(), shipChangeset(), solo()]));
   await open("#/chain/ship-changeset");
-  assert.equal(text($(".eyebrow")), "Chain · chains/ship-changeset.json · only in this project");
+  assert.equal(text($(".eyebrow")), "Chain · chains/ship-changeset.json · this project only");
   assert.equal($(".lead"), null);
-  assert.equal(button("Save as a copy for this project only"), undefined);
+  assert.equal(button("Save as project copy"), undefined);
   type(control("Title"), "Ship it");
   assert.equal(status(), "Unsaved changes");
 });
@@ -358,7 +358,7 @@ test("a project chain offers no project copy and calls its edits plainly unsaved
 test("a chain is copied or moved to another project with what it uses", async () => {
   start();
   await open("#/chain/make-change");
-  assert.equal(text($(".more-menu .hint")), "Add another project to copy or move this chain to it.");
+  assert.equal(text($(".more-menu .hint")), "No other project to copy or move to.");
 
   route("GET", "/api/projects", { projects: ["/work/demo", "/work/other"], default: "/work/demo" });
   await page("loadProjects()");
@@ -380,14 +380,14 @@ test("a chain is copied or moved to another project with what it uses", async ()
   type(control("Title"), "Changed");
   click(button("Move to project"));
   await settle();
-  assert.deepEqual(dialogs.alert, ["Save or discard your changes first."]);
+  assert.deepEqual(dialogs.alert, ["Save or discard changes first."]);
   assert.equal(posted.length, 1);
 
   await open("#/chain/make-change");
   answers.confirm = false;
   click(button("Move to project"));
   await settle();
-  assert.deepEqual(dialogs.confirm, ["Move \"Make a change\" to other? It leaves the shared library, so every other project loses it too."]);
+  assert.deepEqual(dialogs.confirm, ["Move \"Make a change\" to other? It is removed from the shared library and every other project."]);
   assert.equal(posted.length, 1);
 
   answers.confirm = true;
@@ -406,5 +406,5 @@ test("a chain is copied or moved to another project with what it uses", async ()
   assert.deepEqual(posted.at(-1), { to: "/work/other", move: true });
   assert.equal(page("project"), "/work/other");
   assert.equal(calls.findLast((c) => c.path === "/api/library").query.project, "/work/other");
-  assert.equal(status(), "Copied to other: chains/make-change.json. Removed from here: chains/make-change.json. Left here because other chains use them: tools/merge.json");
+  assert.equal(status(), "Copied to other: chains/make-change.json. Removed here: chains/make-change.json. Kept here, used by other chains: tools/merge.json");
 });

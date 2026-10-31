@@ -21,7 +21,7 @@ test("the editor checks the unsaved chain as you edit and shows what swarm would
   assert.equal(problems(), "");
   await settle(CHECKED);
 
-  assert.equal(problems(), "Not saved yet, and swarm would refuse it:step \"merge\": no tool named \"gone\"tools/merge.json: a tool needs a title");
+  assert.equal(problems(), "Unsaved; swarm check fails:step \"merge\": no tool named \"gone\"tools/merge.json: a tool needs a title");
   const sent = checks().at(-1);
   assert.equal(sent.chains["make-change"].steps.find((s) => s.id === "merge").title, "Merge it");
   assert.deepEqual([sent.prompts, sent.tools], [{}, {}]);
@@ -29,21 +29,21 @@ test("the editor checks the unsaved chain as you edit and shows what swarm would
   reply = { "chains/make-change.json": { problems: [], warnings: ["approve: nothing reads approve.note"] }, "chains/solo.json": { problems: [], warnings: ["only: reads {{x}}"] } };
   type(control("What it does"), "Merge the branch now");
   await settle(CHECKED);
-  assert.equal(problems(), "Not saved yet. It would run, but these look wrong:approve: nothing reads approve.notechains/solo.json: only: reads {{x}}");
+  assert.equal(problems(), "Unsaved; warnings:approve: nothing reads approve.notechains/solo.json: only: reads {{x}}");
   assert.equal(checks().at(-1).tools.merge.title, "Merge the branch now");
 
   reply = { "chains/make-change.json": { problems: [], warnings: [] } };
   type(control("Title"), "Merge");
   await settle(CHECKED);
-  assert.equal(problems(), "Not saved yet. swarm finds nothing wrong with it.");
+  assert.equal(problems(), "Unsaved; swarm check passes.");
 
   route("PUT", /^\/api\/items\/chains\/make-change\.json$/, () => fail(422, "refused", ["step \"merge\": nope"]));
   click(button("Save"));
   await settle();
-  assert.equal(problems(), "Not saved. swarm refused it because:step \"merge\": nope");
+  assert.equal(problems(), "Save refused:step \"merge\": nope");
   type(control("Title"), "Merge again");
   await settle(CHECKED);
-  assert.equal(problems(), "Not saved yet. swarm finds nothing wrong with it.");
+  assert.equal(problems(), "Unsaved; swarm check passes.");
 });
 
 test("a check that answers after you leave the chain changes nothing", async () => {
@@ -67,7 +67,7 @@ test("a tool page shows what is wrong with each chain using it, and checks the u
   type(control("Command"), "");
   await settle(CHECKED);
   assert.deepEqual(checks().at(-1), { tools: { read_issue: { title: "Read an issue", run: "" } } });
-  assert.equal(text($(".savebar .status")), "Unsaved. swarm would refuse it: a tool needs a run command");
+  assert.equal(text($(".savebar .status")), "Unsaved; invalid: a tool needs a run command");
   assert.deepEqual(uses(), [["Make a change", "Read the issue", "⚠ read_issue: reads {{who}}"], solo]);
 });
 

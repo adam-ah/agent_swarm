@@ -99,33 +99,33 @@ function draftVerdict(verdicts) {
 function renderSaveBar() {
   const shared = editor.root.source !== "project";
   const subs = editor.dirty ? editedSubchains() : [];
-  const alsoSaves = subs.length ? ` Also saves ${subs.map((c) => `chains/${c.name}.json${c.source === "project" ? "" : ", shared by every project"}`).join("; ")}.` : "";
+  const alsoSaves = subs.length ? ` Also saves ${subs.map((c) => `chains/${c.name}.json${c.source === "project" ? "" : " (shared)"}`).join("; ")}.` : "";
   const draft = editor.dirty && editor.verdict ? chainProblems(editor.verdict.problems, editor.verdict.warnings, true) : "";
   document.getElementById("problems").replaceChildren(editor.refused?.length
-    ? h("div", { class: "problems" }, h("strong", {}, "Not saved. swarm refused it because:"), h("ul", {}, editor.refused.map((p) => h("li", {}, p))))
+    ? h("div", { class: "problems" }, h("strong", {}, "Save refused:"), h("ul", {}, editor.refused.map((p) => h("li", {}, p))))
     : editor.dirty ? draft : chainProblems(editor.problems, editor.warnings) || "");
   const status = editor.message ? h("span", { class: "status ok-text" }, editor.message)
-    : editor.dirty ? h("span", { class: "status" }, shared ? "Unsaved. Saving changes it for every project." : "Unsaved changes", alsoSaves) : null;
+    : editor.dirty ? h("span", { class: "status" }, shared ? "Unsaved; shared chain, saving affects all projects." : "Unsaved changes", alsoSaves) : null;
   document.getElementById("savebar").replaceChildren(
-    h("span", { class: "editbar-title" }, "Edit the chain"),
+    h("span", { class: "editbar-title" }, "Edit chain"),
     h("span", { class: "grow" }),
     status || "",
     h("details", { class: "more" }, h("summary", { class: "btn small" }, "More"),
       h("div", { class: "more-menu" },
-        shared ? h("button", { class: "linkish", type: "button", onclick: () => saveChain("project") }, "Save as a copy for this project only") : null,
+        shared ? h("button", { class: "linkish", type: "button", onclick: () => saveChain("project") }, "Save as project copy") : null,
         transferControls(),
-        h("button", { class: "linkish danger", type: "button", onclick: removeChain }, shared ? "Delete this chain for every project" : "Delete this project's copy"))),
+        h("button", { class: "linkish danger", type: "button", onclick: removeChain }, shared ? "Delete (all projects)" : "Delete project copy"))),
     h("button", { class: "btn small", disabled: !editor.dirty, onclick: () => reopen() }, "Discard"),
     h("button", { class: "btn small primary", disabled: !editor.dirty, onclick: () => saveChain() }, "Save"));
 }
 
 function transferControls() {
   const others = projects.filter((p) => p !== project);
-  if (!others.length) return h("span", { class: "hint" }, "Add another project to copy or move this chain to it.");
+  if (!others.length) return h("span", { class: "hint" }, "No other project to copy or move to.");
   const target = selectBox(others.map((p) => [p, folderName(p)]), others[0], () => {});
-  target.title = "The project to copy or move it to";
+  target.title = "Target project";
   return h("div", { class: "more-transfer" },
-    h("span", { class: "hint" }, "To another project, with the tools, prompts and chains it uses from this one:"),
+    h("span", { class: "hint" }, "Copy or move to another project, with the tools, prompts and sub-chains it uses from this one:"),
     target,
     h("div", { class: "row" },
       h("button", { class: "linkish", type: "button", onclick: () => transferChain(target.value, false) }, "Copy to project"),
@@ -134,12 +134,12 @@ function transferControls() {
 
 async function transferChain(to, move) {
   if (editor.dirty) {
-    alert("Save or discard your changes first.");
+    alert("Save or discard changes first.");
     return;
   }
   const there = folderName(to);
-  const leaves = editor.root.source === "project" ? "this project" : "the shared library, so every other project loses it too";
-  if (move && !confirm(`Move "${editor.root.draft.title || editor.root.name}" to ${there}? It leaves ${leaves}.`)) return;
+  const leaves = editor.root.source === "project" ? "this project" : "the shared library and every other project";
+  if (move && !confirm(`Move "${editor.root.draft.title || editor.root.name}" to ${there}? It is removed from ${leaves}.`)) return;
   let done;
   try {
     done = await send("POST", `/api/chains/${encodeURIComponent(editor.root.name)}/transfer`, { to, move });
@@ -149,7 +149,7 @@ async function transferChain(to, move) {
   }
   const said = (label, paths) => (paths.length ? `${label}: ${paths.join(", ")}` : "");
   const report = [said(`Copied to ${there}`, done.copied), said(`Already the same in ${there}`, done.same),
-    said("Removed from here", done.removed), said("Left here because other chains use them", done.kept)].filter(Boolean).join(". ");
+    said("Removed here", done.removed), said("Kept here, used by other chains", done.kept)].filter(Boolean).join(". ");
   if (!move) {
     editor.message = report;
     renderSaveBar();
@@ -160,8 +160,8 @@ async function transferChain(to, move) {
 }
 
 async function removeChain() {
-  const where = editor.root.source === "project" ? "this project's copy" : "the shared chain, for every project";
-  if (!confirm(`Delete the chain "${editor.root.draft.title || editor.root.name}"? This removes ${where}.`)) return;
+  const where = editor.root.source === "project" ? "the project copy" : "the shared chain, for all projects";
+  if (!confirm(`Delete chain "${editor.root.draft.title || editor.root.name}"? Removes ${where}.`)) return;
   try {
     await deleteItem("chains", editor.root.name);
   } catch (err) {
@@ -200,7 +200,7 @@ async function saveChain(scope = "") {
     return;
   }
   await loadLibrary();
-  reopen({ openShared: editor.openShared, message: scope ? "Saved as this project's copy" : "Saved" });
+  reopen({ openShared: editor.openShared, message: scope ? "Saved as project copy" : "Saved" });
   renderSide();
 }
 
@@ -258,7 +258,7 @@ function renderEditorTree() {
       step: (step) => stepRows(root, step, 0),
     })));
   document.getElementById("tree-actions").replaceChildren(
-    h("span", { class: "hint" }, typeof editor.selected === "number" ? `Add a step${into} after the selected one:` : `Add a step${into} at the end:`),
+    h("span", { class: "hint" }, typeof editor.selected === "number" ? `Add step${into} after the selected one:` : `Add step${into} at the end:`),
     h("div", { class: "row" }, [["tool", "Tool"], ["agent", "Agent"], ["user", "User"], ["chain", "Sub-chain"], ["repeat", "Repeat"]].map(([kind, label]) =>
       h("button", { class: `btn small add-kind ${kind}`, type: "button", disabled: kind === "repeat" && insertAt() === 0, onclick: () => addStep(kind) }, `+ ${label}`))));
 }
@@ -318,8 +318,8 @@ function removeStep() {
   const rejectedOnly = kindOf(gone) === "user" ? after.filter((s) => s.always && notApproved(s.when, gone.id)) : [];
   const next = after.find((s) => !rejectedOnly.includes(s));
   const drop = [...rejectedOnly, ...after.filter((s) => s.repeat === gone.id && s === next)];
-  const also = drop.length ? ` ${drop.map((s) => `"${s.title}"`).join(" and ")} only make${drop.length > 1 ? "" : "s"} sense with it, so ${drop.length > 1 ? "they go" : "it goes"} too.` : "";
-  if (!confirm(`Delete the step "${gone.title}"?${also}`)) return;
+  const also = drop.length ? ` Also deletes ${drop.map((s) => `"${s.title}"`).join(" and ")}, which depend${drop.length > 1 ? "" : "s"} on it.` : "";
+  if (!confirm(`Delete step "${gone.title}"?${also}`)) return;
   editor.at.draft.steps = steps.filter((s) => s !== gone && !drop.includes(s));
   forget(editor.at.draft.steps, gone, after.find((s) => !drop.includes(s)));
   editor.selected = editor.at.draft.steps.length ? Math.min(editor.selected, editor.at.draft.steps.length - 1) : "root";
@@ -351,8 +351,8 @@ function subchainNote() {
   if (open === editor.root) return null;
   const runBy = lib.chains.filter((c) => draftSteps(c).some((s) => s.chain === open.name)).map((c) => c.title || c.name);
   return h("div", { class: "subchain-note" },
-    `Part of the sub-chain ${open.draft.title || open.name}, chains/${open.name}.json, ${FROM[open.source]}. Saving changes it for every chain that runs it: ${runBy.join(", ")}. `,
-    h("a", { href: `#/chain/${open.name}` }, `Open ${open.name} on its own →`));
+    `Sub-chain ${open.draft.title || open.name} (chains/${open.name}.json, ${FROM[open.source]}). Saving affects every chain that uses it: ${runBy.join(", ")}. `,
+    h("a", { href: `#/chain/${open.name}` }, `Open ${open.name} →`));
 }
 
 function rootInspector() {
@@ -360,11 +360,11 @@ function rootInspector() {
   return h("div", { class: "form" },
     h("h2", {}, "The chain"),
     field("Title", textInput(d.title, (v) => { d.title = v; touch(); })),
-    field("Description", textArea(d.description, (v) => { d.description = v; touch(); }, { rows: 5 }), "what it does and when to use it"),
-    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "question shown at the start" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
-      "asked for when a run starts"),
-    field("Values", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "worked out once at the start, for steps to read"),
+    field("Description", textArea(d.description, (v) => { d.description = v; touch(); }, { rows: 5 })),
+    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "label" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
+      "set when a run starts"),
+    field("Values", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "vars, computed once at run start"),
     h("div", { class: "row2" },
-      field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. {{request}}" }), "shown at the top of each run"),
-      field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }), "makes the heading a link")));
+      field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. {{request}}" }), "subject"),
+      field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }), "URL for the run heading")));
 }

@@ -52,7 +52,7 @@ const deleteItem = (kind, name) => api(itemURL(kind, name), { method: "DELETE" }
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
 const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", repeat: "↻", root: "≡" };
-const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", repeat: "repeat", item: "one run of the chain, for this item" };
+const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", repeat: "repeat", item: "item run" };
 const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
 const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
@@ -131,7 +131,7 @@ function renderProjects() {
 
 document.getElementById("project-select").addEventListener("change", (e) => switchProject(e.target.value));
 document.getElementById("add-project").addEventListener("click", async () => {
-  const path = prompt("Full path of a project folder", project.replace(/[^/]+\/?$/, ""));
+  const path = prompt("Project folder (absolute path)", project.replace(/[^/]+\/?$/, ""));
   if (!path) return;
   try {
     const res = await send("POST", "/api/projects", { path });
@@ -147,7 +147,7 @@ document.getElementById("menu-btn").addEventListener("click", () => {
 });
 
 function switchProject(next, page = "#/") {
-  if (editor?.dirty && !confirm("You have unsaved changes. Switch projects without saving?")) {
+  if (editor?.dirty && !confirm("Discard unsaved changes and switch project?")) {
     renderProjects();
     return;
   }
@@ -160,8 +160,8 @@ function switchProject(next, page = "#/") {
   else location.hash = page;
 }
 
-const FROM = { shared: "shared by every project", project: "only in this project" };
-const TAG = { project: ["project", "Lives in this project's .swarm and only applies here"] };
+const FROM = { shared: "shared, all projects", project: "this project only" };
+const TAG = { project: ["project", "In this project's .swarm/"] };
 
 function renderSide() {
   const active = (kind, name) => current.kind === kind && current.name === name;
@@ -190,7 +190,7 @@ function renderSide() {
   list("chains", lib.chains.filter((c) => !subchains.includes(c)).map((c) => item("chain", c.name, c.title, chainMeta(c), c.source)), "No chains");
   document.getElementById("subchains-section").hidden = !subchains.length;
   document.getElementById("subchains").replaceChildren(...subchains.map((c) => item("chain", c.name, [c.title, h("span", { class: "sub" }, usedByLine(c))], chainMeta(c), c.source)));
-  list("runs", [...recent.map(runItem), ...more], "No runs yet");
+  list("runs", [...recent.map(runItem), ...more], "No runs");
   list("tools", Object.keys(lib.tools).sort().map((n) => item("tool", n, n, null, lib.tools[n].source)), "No tools");
 }
 
@@ -209,10 +209,10 @@ for (const section of document.querySelectorAll("[data-fold]")) {
   });
 }
 
-const NEW_PROMPT = "Describe the job here. Use {{request}} or {{memory}} for values from the chain.\n\n## Return\n\n- `summary`: one plain sentence a person reads first\n";
+const NEW_PROMPT = "TODO: the task. {{request}}, {{memory}} and other placeholders are filled from the chain.\n\n## Return\n\n- `summary`: one-line result\n";
 
 async function createItem(kind) {
-  const name = prompt(`Name for the new ${kind} (lowercase letters, digits, - and _)`);
+  const name = prompt(`New ${kind} name ([a-z0-9_-])`);
   if (!name) return;
   try {
     if (kind === "chain") await putItem("chains", name, { title: name, steps: [] }, "project");
@@ -229,7 +229,7 @@ function closeStream() {
 }
 
 async function refresh() {
-  if (editor?.dirty && location.hash !== lastHash && !confirm("You have unsaved changes. Leave without saving?")) {
+  if (editor?.dirty && location.hash !== lastHash && !confirm("Discard unsaved changes?")) {
     history.replaceState(null, "", lastHash);
     return;
   }
@@ -307,7 +307,7 @@ const rowsToMap = (rows) => Object.fromEntries(rows.filter((r) => r.key).map((r)
 
 function usedBy(match, verdicts) {
   const groups = lib.chains.map((chain) => [chain, (chain.steps || []).filter((s) => match(s, chain))]).filter(([, steps]) => steps.length);
-  if (!groups.length) return [h("span", { class: "hint" }, "Not used by any chain yet")];
+  if (!groups.length) return [h("span", { class: "hint" }, "Unused")];
   return groups.map(([chain, steps]) => {
     const v = verdicts?.[`chains/${chain.name}.json`] || chain;
     return h("div", { class: "use" },
@@ -333,5 +333,5 @@ function checkLater(draft, show) {
 
 function draftStatus(status, problems = []) {
   status.className = problems.length ? "status error-text" : "status";
-  status.textContent = problems.length ? `Unsaved. swarm would refuse it: ${problems.join("; ")}` : "Unsaved";
+  status.textContent = problems.length ? `Unsaved; invalid: ${problems.join("; ")}` : "Unsaved";
 }

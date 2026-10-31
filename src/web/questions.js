@@ -1,4 +1,4 @@
-const LEFT_TO_AGENT = "left to the agent";
+const LEFT_TO_AGENT = "agent decides";
 
 function openAsk(step) {
   const last = (step.asks || []).at(-1);
@@ -29,7 +29,7 @@ function renderDecision(run, el) {
 function decisionSection(runID, step, items) {
   const ask = openAsk(step);
   return h("section", { class: "decision" },
-    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), [...items, ask ? `${step.title} asks you` : step.title].join(" · ")),
+    h("div", { class: "decision-head" }, h("span", { class: "state waiting" }), [...items, ask ? `${step.title}: questions` : step.title].join(" · ")),
     ask ? questionsForm(runID, step, ask) : [stepShows(runID, step), decideForm(runID, step)]);
 }
 
@@ -39,10 +39,10 @@ async function postDecision(runID, step, body, button) {
 }
 
 function decideForm(runID, step) {
-  const note = h("textarea", { rows: 2, placeholder: step.revise ? `Note: what to change. Needed to send it back to ${step.revise}.` : "Optional note" });
+  const note = h("textarea", { rows: 2, placeholder: step.revise ? `Note (required to send back to ${step.revise})` : "Note (optional)" });
   const decide = (choice, button) => {
     if (choice === "revise" && !note.value.trim()) {
-      note.placeholder = "Say what to change, then send it back";
+      note.placeholder = "Note required to send back";
       note.focus();
       return;
     }
@@ -55,20 +55,20 @@ function decideForm(runID, step) {
 }
 
 function questionsForm(runID, step, ask) {
-  const boxes = ask.questions.map(() => h("textarea", { rows: 2, placeholder: `Your answer; leave it empty and it is ${LEFT_TO_AGENT}` }));
+  const boxes = ask.questions.map(() => h("textarea", { rows: 2, placeholder: `Empty: ${LEFT_TO_AGENT}` }));
   return h("div", { class: "decide answers" },
     ask.questions.map((q, i) => h("label", { class: "ask" }, h("span", { class: "question" }, q), boxes[i])),
     h("div", { class: "row" },
       h("button", { class: "btn approve", type: "button", onclick: (e) => postDecision(runID, step, { choice: "answer", answers: boxes.map((b) => b.value) }, e.target) }, "Send answers"),
-      h("button", { class: "btn", type: "button", title: "It makes the call on every question itself and goes on", onclick: (e) => postDecision(runID, step, { choice: "decide" }, e.target) }, "Decide yourself")));
+      h("button", { class: "btn", type: "button", title: "The agent answers every open question itself", onclick: (e) => postDecision(runID, step, { choice: "decide" }, e.target) }, "Let agent decide")));
 }
 
 function asksPanel(runID, step) {
   const asks = (step.asks || []).filter((a) => a.answered_at);
   if (!asks.length) return null;
   const count = asks.reduce((n, a) => n + a.questions.length, 0);
-  return h("details", { class: "output asks", open: true }, h("summary", {}, `Questions it asked you (${count})`),
+  return h("details", { class: "output asks", open: true }, h("summary", {}, `Questions (${count})`),
     asks.map((ask, n) => h("div", { class: "ask-round" },
       h("dl", { class: "fields" }, ask.questions.flatMap((q, i) => [h("dt", {}, q), h("dd", { class: answerOf(ask, i) === LEFT_TO_AGENT ? "hint" : "" }, answerOf(ask, i))])),
-      ask.log ? callPanel(runID, ask.log, `How it went on after your answers${asks.length > 1 ? ` (round ${n + 1})` : ""}`).el : null)));
+      ask.log ? callPanel(runID, ask.log, `Call after answers${asks.length > 1 ? ` (round ${n + 1})` : ""}`).el : null)));
 }

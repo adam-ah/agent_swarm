@@ -11,14 +11,14 @@ test("a tool page shows where the tool is used and saves its definition", async 
   const { saved } = start();
   await open("#/tool/merge");
 
-  assert.equal(text($(".eyebrow")), "Tool · tools/merge.json · shared by every project");
+  assert.equal(text($(".eyebrow")), "Tool · tools/merge.json · shared, all projects");
   assert.equal($("h1").textContent, "merge");
   const uses = $$(".used-by .use").map((u) => [u.querySelector(".use-chain").textContent, [...u.querySelectorAll(".use-steps a")].map((a) => a.getAttribute("href"))]);
   assert.deepEqual(uses, [["Make a change", ["#/chain/make-change/merge"]], ["Ship a changeset", ["#/chain/ship-changeset/apply"]]]);
   assert.equal(control("What it does").value, "Merge the branch");
   assert.equal(control("Command").value, "git merge {{branch}} && echo {{run_folder}}");
-  assert.ok(more("Save as a copy for this project only"));
-  assert.ok(more("Delete it for every project"));
+  assert.ok(more("Save as project copy"));
+  assert.ok(more("Delete (all projects)"));
 
   type(control("What it does"), "Merge into main");
   assert.equal(status().className, "status");
@@ -32,12 +32,12 @@ test("a tool page shows where the tool is used and saves its definition", async 
   assert.equal(status().textContent, "Saved");
   assert.ok(calls.findLast((c) => c.path === "/api/library"));
 
-  click(more("Save as a copy for this project only"));
+  click(more("Save as project copy"));
   await settle(30);
   assert.deepEqual(saved.map((c) => c.query.scope), [undefined, "project"]);
-  assert.equal(text($(".eyebrow")), "Tool · tools/merge.json · only in this project");
-  assert.equal(more("Save as a copy for this project only"), undefined);
-  assert.ok(more("Delete this project's copy"));
+  assert.equal(text($(".eyebrow")), "Tool · tools/merge.json · this project only");
+  assert.equal(more("Save as project copy"), undefined);
+  assert.ok(more("Delete project copy"));
   assert.equal($("#tools a[href=\"#/tool/merge\"] .tag").textContent, "project");
 });
 
@@ -47,7 +47,7 @@ test("a tool that is not used anywhere says so and a refused save shows why", as
   await open("#/tool/lint");
 
   assert.equal($("h1").textContent, "lint");
-  assert.equal(text($(".used-by")), "Not used by any chain yet");
+  assert.equal(text($(".used-by")), "Unused");
   assert.equal(control("What it does").value, "lint");
   assert.equal(control("Command").value, "");
   click(button("Save"));
@@ -59,23 +59,23 @@ test("a tool that is not used anywhere says so and a refused save shows why", as
 test("deleting a tool asks first, shows a refusal, and goes home once done", async () => {
   start();
   await open("#/tool/run_tests");
-  assert.ok(more("Delete this project's copy"));
+  assert.ok(more("Delete project copy"));
 
   answers.confirm = false;
-  click(more("Delete this project's copy"));
+  click(more("Delete project copy"));
   await settle();
-  assert.deepEqual(dialogs.confirm, ["Delete run_tests? This removes this project's copy."]);
+  assert.deepEqual(dialogs.confirm, ["Delete run_tests? Removes the project copy."]);
   assert.equal(calls.some((c) => c.method === "DELETE"), false);
 
   answers.confirm = true;
   route("DELETE", "/api/items/tools/run_tests.json", fail(422, "refused", ["make-change uses it"]));
-  click(more("Delete this project's copy"));
+  click(more("Delete project copy"));
   await settle();
   assert.equal(status().className, "error-text");
   assert.equal(status().textContent, "Refused:\n- make-change uses it");
 
   route("DELETE", "/api/items/tools/run_tests.json", { ok: "true" });
-  click(more("Delete this project's copy"));
+  click(more("Delete project copy"));
   await settle(30);
   assert.ok(calls.some((c) => c.method === "DELETE" && c.path === "/api/items/tools/run_tests.json"));
   assert.equal(globalThis.location.hash, "#/");
@@ -85,9 +85,9 @@ test("deleting a shared tool warns that every project loses it", async () => {
   start();
   route("DELETE", "/api/items/tools/merge.json", { ok: "true" });
   await open("#/tool/merge");
-  click(more("Delete it for every project"));
+  click(more("Delete (all projects)"));
   await settle(30);
-  assert.deepEqual(dialogs.confirm, ["Delete merge? This removes it from the shared library, for every project."]);
+  assert.deepEqual(dialogs.confirm, ["Delete merge? Removes the shared copy, for all projects."]);
   assert.equal(globalThis.location.hash, "#/");
 });
 
@@ -95,17 +95,17 @@ test("a prompt page lists its users, its returned fields and its placeholders, a
   const { saved } = start();
   await open("#/prompt/make-change/change");
 
-  assert.equal(text($(".eyebrow")), "Prompt of the chain Make a change · chains/make-change/change.md · shared by every project");
+  assert.equal(text($(".eyebrow")), "Prompt of Make a change · chains/make-change/change.md · shared, all projects");
   assert.equal($(".eyebrow a").getAttribute("href"), "#/chain/make-change");
   assert.equal($("h1").textContent, "change");
-  assert.deepEqual(heads(), ["Used by", "Fields it returns", "Placeholders it reads", "How to list the fields", "Text"]);
+  assert.deepEqual(heads(), ["Used by", "Returns", "Reads", "## Return syntax", "Text"]);
   const facts = $$(".panel-body.used-by");
   assert.equal(text(facts[0]), "Make a changeMake the change⚠ approve: nothing reads approve.note");
   assert.deepEqual([...facts[1].children].map(text), ["summary", "files list", "verdict DONE | STUCK"]);
   assert.deepEqual([...facts[2].children].map(text), ["{{request}}", "{{memory}}"]);
   assert.match($("pre.example").textContent, /^## Return\n\n- `verdict`/);
-  assert.equal(text($(".more-menu .hint")), "To change it for this project only, save a project copy of its chain; the copy takes the prompts along.");
-  assert.equal(more("Save as a copy for this project only"), undefined);
+  assert.equal(text($(".more-menu .hint")), "For a project-only change, save a project copy of the chain; its prompts are copied with it.");
+  assert.equal(more("Save as project copy"), undefined);
   assert.equal($("textarea.prompt").value, makeChange().prompts.change.text);
 
   type($("textarea.prompt"), "Fix {{request}} in {{project}} quickly.");
@@ -116,7 +116,7 @@ test("a prompt page lists its users, its returned fields and its placeholders, a
   assert.equal(saved[0].body, "Fix {{request}} in {{project}} quickly.");
   assert.equal(status().textContent, "Saved");
   const after = $$(".panel-body.used-by");
-  assert.equal(text(after[1]), "No ## Return section, so the agent answers in free text, read as {{step_id.output}}");
+  assert.equal(text(after[1]), "No ## Return: free text in {{step_id.output}}");
   assert.deepEqual([...after[2].children].map(text), ["{{request}}", "{{project}}"]);
 });
 
@@ -139,9 +139,9 @@ test("a prompt with a broken return section lists its problems, and one without 
   ]);
   assert.equal(text(facts[2]), "none");
 
-  click(more("Delete this prompt"));
+  click(more("Delete prompt"));
   await settle(30);
-  assert.deepEqual(dialogs.confirm, ["Delete make-change/review-change? This removes it from the shared library, for every project."]);
+  assert.deepEqual(dialogs.confirm, ["Delete make-change/review-change? Removes the shared copy, for all projects."]);
   assert.ok(calls.some((c) => c.method === "DELETE" && c.path === "/api/items/chains/make-change/review-change.md"));
   assert.equal(globalThis.location.hash, "#/");
 });
@@ -151,7 +151,7 @@ test("a prompt of an unknown chain starts empty", async () => {
   await open("#/prompt/gone/plan");
   assert.equal(text($(".eyebrow a")), "gone");
   assert.equal($("textarea.prompt").value, "");
-  assert.equal(text($$(".panel-body.used-by")[0]), "Not used by any chain yet");
+  assert.equal(text($$(".panel-body.used-by")[0]), "Unused");
 });
 
 function settingsView() {
@@ -190,42 +190,42 @@ test("the settings page shows this project's agents and starting values over the
   serveSettings();
   await open("#/settings");
 
-  assert.equal($("h1").textContent, "Agents and starting values");
+  assert.equal($("h1").textContent, "Agents and input defaults");
   assert.deepEqual($$(".segmented button").map((b) => [b.textContent, b.className, b.title]),
-    [["This project", "on", ".swarm/settings.json"], ["Every project", "", "~/.swarm/settings.json"]]);
-  assert.equal(text($(".panel-body > .hint")), "These apply to this project only and win over the settings for every project.");
-  const agent = control("Default agent for agent steps");
-  assert.deepEqual(options(agent), [["", "not set here: codex, from every project's settings"], ["claude", "claude"], ["codex", "codex"], ["sonnet", "sonnet"], ["pi", "pi"]]);
+    [["Project", "on", ".swarm/settings.json"], ["Shared", "", "~/.swarm/settings.json"]]);
+  assert.equal(text($(".panel-body > .hint")), "Project settings (.swarm/settings.json); override the shared settings key by key.");
+  const agent = control("Default agent");
+  assert.deepEqual(options(agent), [["", "inherited: codex (shared settings)"], ["claude", "claude"], ["codex", "codex"], ["sonnet", "sonnet"], ["pi", "pi"]]);
   assert.equal(shown(agent), "");
-  assert.equal(text(labelled("Default agent for agent steps").querySelector(".hint")), "a step can pick another under \"Runs with\"; used now: codex");
-  assert.deepEqual($$(".subpanel .used-by span").map(text), ["✓ claude found at /usr/local/bin/claude", "✗ codex is not on PATH"]);
-  assert.equal(control("Extra arguments for claude").value, "--model opus");
-  assert.equal(control("Extra arguments for codex").value, "");
-  assert.equal(control("Extra arguments for codex").placeholder, "--model gpt-5");
-  assert.deepEqual(rowValues("Your own agents"), [["sonnet", "claude", "--model sonnet"], ["pi", "", "pi -p"]]);
-  assert.deepEqual(rowValues("Starting values for chain inputs"), [["test_command", "./test.sh"]]);
-  const inputs = subpanel("Starting values for chain inputs");
+  assert.equal(text(labelled("Default agent").querySelector(".hint")), "steps can override it with \"Runs with\"; current: codex");
+  assert.deepEqual($$(".subpanel .used-by span").map(text), ["✓ claude: /usr/local/bin/claude", "✗ codex: not on PATH"]);
+  assert.equal(control("claude args").value, "--model opus");
+  assert.equal(control("codex args").value, "");
+  assert.equal(control("codex args").placeholder, "--model gpt-5");
+  assert.deepEqual(rowValues("Custom agents"), [["sonnet", "claude", "--model sonnet"], ["pi", "", "pi -p"]]);
+  assert.deepEqual(rowValues("Input defaults"), [["test_command", "./test.sh"]]);
+  const inputs = subpanel("Input defaults");
   assert.equal(text(inputs.querySelector(":scope > .hint")),
-    "A chain input with this name starts with this value instead of the chain's own default, so a shared chain fits this project without a copy. Inputs the chains ask for: changeset, dry_run, request, target, test_command.");
-  assert.equal(text(inputs.querySelector(":scope > .hint:last-child")), "From every project's settings: lint = make lint");
+    "Overrides the chain's default for any input with this name, in this project. Chain inputs: changeset, dry_run, request, target, test_command.");
+  assert.equal(text(inputs.querySelector(":scope > .hint:last-child")), "Inherited from shared settings: lint = make lint");
 });
 
 test("saving the project's settings writes only what this project sets", async () => {
   const { puts } = serveSettings();
   await open("#/settings");
 
-  type(control("Default agent for agent steps"), "sonnet");
+  type(control("Default agent"), "sonnet");
   assert.equal(status().textContent, "Unsaved");
-  type(control("Extra arguments for claude"), " ");
-  type(control("Extra arguments for codex"), "--model  o3");
-  click(button("+ add", subpanel("Your own agents")));
-  const fresh = rowsOf("Your own agents")[2].querySelectorAll("input");
+  type(control("claude args"), " ");
+  type(control("codex args"), "--model  o3");
+  click(button("+ add", subpanel("Custom agents")));
+  const fresh = rowsOf("Custom agents")[2].querySelectorAll("input");
   type(fresh[0], "haiku");
   type(fresh[1], "claude");
   type(fresh[2], "--model haiku");
-  click(rowsOf("Your own agents")[1].querySelector(".icon-btn"));
-  click(button("+ add", subpanel("Starting values for chain inputs")));
-  const added = rowsOf("Starting values for chain inputs")[1].querySelectorAll("input");
+  click(rowsOf("Custom agents")[1].querySelector(".icon-btn"));
+  click(button("+ add", subpanel("Input defaults")));
+  const added = rowsOf("Input defaults")[1].querySelectorAll("input");
   type(added[0], "lint");
   type(added[1], "npm run lint");
 
@@ -241,8 +241,8 @@ test("saving the project's settings writes only what this project sets", async (
   assert.equal(calls.filter((c) => c.path === "/api/settings").length, 2);
   assert.equal(status().className, "ok-text");
   assert.equal(status().textContent, "Saved");
-  assert.deepEqual(rowValues("Your own agents"), [["sonnet", "claude", "--model sonnet"], ["haiku", "claude", "--model haiku"]]);
-  assert.equal(control("Extra arguments for claude").value, "");
+  assert.deepEqual(rowValues("Custom agents"), [["sonnet", "claude", "--model sonnet"], ["haiku", "claude", "--model haiku"]]);
+  assert.equal(control("claude args").value, "");
 });
 
 test("switching to every project's settings asks before dropping changes, and empty sections are left out", async () => {
@@ -252,29 +252,29 @@ test("switching to every project's settings asks before dropping changes, and em
 
   click($$(".segmented button")[0]);
   assert.deepEqual(dialogs.confirm, []);
-  type(control("Extra arguments for claude"), "--model sonnet");
+  type(control("claude args"), "--model sonnet");
   answers.confirm = false;
   click(every());
-  assert.deepEqual(dialogs.confirm, ["Switch without saving your changes?"]);
+  assert.deepEqual(dialogs.confirm, ["Discard unsaved changes?"]);
   assert.equal($$(".segmented button")[0].className, "on");
 
   answers.confirm = true;
   click(every());
   assert.equal(every().className, "on");
-  assert.equal(text($(".panel-body > .hint")), "These apply to every project, unless a project sets its own.");
-  const agent = control("Default agent for agent steps");
-  assert.equal(options(agent)[0][1], "not set: claude");
+  assert.equal(text($(".panel-body > .hint")), "Shared settings (settings.json in the swarm home); a project's settings override them.");
+  const agent = control("Default agent");
+  assert.equal(options(agent)[0][1], "unset: claude");
   assert.equal(shown(agent), "codex");
-  assert.equal(control("Extra arguments for codex").value, "--model gpt-5");
-  assert.equal(control("Extra arguments for claude").placeholder, "e.g. --model opus");
+  assert.equal(control("codex args").value, "--model gpt-5");
+  assert.equal(control("claude args").placeholder, "e.g. --model opus");
   assert.equal(status().textContent, "");
-  assert.match(text(subpanel("Starting values for chain inputs").querySelector(".hint")), /fits every project without a copy/);
-  assert.deepEqual(rowValues("Starting values for chain inputs"), [["test_command", "make test"], ["lint", "make lint"]]);
+  assert.match(text(subpanel("Input defaults").querySelector(".hint")), /with this name, in every project\./);
+  assert.deepEqual(rowValues("Input defaults"), [["test_command", "make test"], ["lint", "make lint"]]);
 
-  type(control("Extra arguments for codex"), "");
-  click(rowsOf("Starting values for chain inputs")[0].querySelector(".icon-btn"));
-  click(rowsOf("Starting values for chain inputs")[0].querySelector(".icon-btn"));
-  assert.deepEqual(rowValues("Starting values for chain inputs"), []);
+  type(control("codex args"), "");
+  click(rowsOf("Input defaults")[0].querySelector(".icon-btn"));
+  click(rowsOf("Input defaults")[0].querySelector(".icon-btn"));
+  assert.deepEqual(rowValues("Input defaults"), []);
   click(button("Save"));
   await settle(30);
   assert.equal(puts[0].query.scope, "shared");
@@ -293,8 +293,8 @@ test("a project without its own settings opens on every project's settings, and 
 
   assert.equal($$(".segmented button")[1].className, "on");
   click($$(".segmented button")[0]);
-  assert.equal(options(control("Default agent for agent steps"))[0][1], "not set here: codex, from every project's settings");
-  assert.deepEqual(rowValues("Your own agents"), []);
+  assert.equal(options(control("Default agent"))[0][1], "inherited: codex (shared settings)");
+  assert.deepEqual(rowValues("Custom agents"), []);
   click(button("Save"));
   await settle();
   assert.equal(status().className, "error-text");

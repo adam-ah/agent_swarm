@@ -61,13 +61,13 @@ test("each condition says where its value comes from and same conditions share a
   await open("#/chain/demo");
 
   assert.deepEqual(labels(".ol-if"), [
-    ["If", "test_command", "is not empty", "asked when the run starts: “Test command”, this project's value is in Settings"],
-    ["If", "memory", "is empty", "filled in by swarm from Memory"],
-    ["If", "branch", "is main", "worked out when the run starts"],
+    ["If", "test_command", "is not empty", "input “Test command”, project default in Settings"],
+    ["If", "memory", "is empty", "built-in from Memory"],
+    ["If", "branch", "is main", "var, computed at start"],
     ["If", "nope.field", "is x", "nothing sets it"],
     ["If", "mystery", "is not 1", "nothing sets it"],
-    ["If", "request", "is x", "asked when the run starts: “request”"],
-    ["If", "feedback", "is empty", "filled in by swarm"],
+    ["If", "request", "is x", "input “request”"],
+    ["If", "feedback", "is empty", "built-in"],
     ["If", "plan.output", "is not empty", "set by Plan"],
   ]);
   const blocks = $$(".ol-if");
@@ -96,12 +96,12 @@ test("steps that run only on a rejection sit under Rejected, the others under Th
   await open("#/chain/undo");
   assert.deepEqual(labels(".ol-rejected"), [["Rejected", ""]]);
   assert.deepEqual(kids($(".ol-rejected")), ["Undo"]);
-  assert.deepEqual(labels(".ol-always"), [["Then, always", "even after a failure, a stop or a rejection"]]);
+  assert.deepEqual(labels(".ol-always"), [["Then, always", "also after failure, stop or reject"]]);
   assert.deepEqual(kids($(".ol-always")), ["Tidy"]);
 
   await open("#/chain/tidy");
   assert.deepEqual(labels(".ol-approved"), [["Approved", "nothing more runs"]]);
-  assert.deepEqual(labels(".ol-rejected"), [["Rejected", "only the steps under THEN, ALWAYS run"]]);
+  assert.deepEqual(labels(".ol-rejected"), [["Rejected", "only THEN, ALWAYS steps run"]]);
   assert.deepEqual(kids($(".ol-always")), ["Tidy"]);
 });
 

@@ -24,7 +24,7 @@ test("a repeat step heads a block holding the steps it goes back over", async ()
   await open("#/chain/make-change");
 
   assert.deepEqual(parts($(".ol-loop > .ol-label")),
-    ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run fails if it still wants another round after the last"]);
+    ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· fail the run if rounds run out"]);
   assert.deepEqual($$(".ol-loop .tree-row .title").map((t) => t.textContent), ["Make the change", "Run the tests", "Review it", "Review again"]);
   assert.equal(row("Review again").querySelector(".kind").textContent, "↻");
   assert.deepEqual(parts($(".ol-loop .ol-if > .ol-label")), ["If", "change.verdict", "is DONE", "set by Make the change"]);
@@ -37,7 +37,7 @@ test("a chain that runs a looping sub-chain shows the sub-chain's loop the way t
   await open("#/chain/parent");
 
   assert.deepEqual(parts($("#tree .ol-loop > .ol-label")),
-    ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run fails if it still wants another round after the last"]);
+    ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· fail the run if rounds run out"]);
   assert.deepEqual($$("#tree .ol-loop .tree-row.sub .title").map((t) => t.textContent), ["Make the change", "Run the tests", "Review it", "Review again"]);
   assert.deepEqual($$("#tree .tree-note").map(text), ["⤷ stops the run here if its output is FAIL", "⤷ runs ship-changeset once per item of change.files"]);
 });
@@ -46,12 +46,12 @@ test("the repeat step's inspector sets where it goes back to, how often and when
   const { saved: calls } = start(looped());
   await open("#/chain/make-change/again");
 
-  assert.deepEqual($$("#inspector .subpanel > h3").map((h3) => h3.firstChild.textContent), ["Repeat (4× at most)", "When it goes back"]);
+  assert.deepEqual($$("#inspector .subpanel > h3").map((h3) => h3.firstChild.textContent), ["Repeat (4× at most)", "Loop condition"]);
   assert.deepEqual(options(control("Go back to")).map(([v]) => v), ["read_issue", "change", "test", "review"]);
   assert.equal(shown(control("At most")), "4");
   assert.deepEqual(options(control("At most")).map(([v]) => v), ["2", "3", "4", "5", "6", "8", "10"]);
   assert.equal(shown(control("When the loop ends")), "out_of_rounds");
-  assert.equal(text(labelled("Goes back").querySelector(":scope > span > .hint")), "otherwise the loop ends here and the run goes on");
+  assert.equal(text(labelled("Goes back").querySelector(":scope > span > .hint")), "otherwise the loop exits and the run continues");
 
   type(control("Go back to"), "test");
   type(control("At most"), "3");
@@ -60,7 +60,7 @@ test("the repeat step's inspector sets where it goes back to, how often and when
   assert.equal($("#inspector .subpanel > h3").firstChild.textContent, "Repeat (3× at most)");
   const step = (await saved(calls)).find((s) => s.id === "again");
   assert.deepEqual(step, { id: "again", title: "Review again", repeat: "test", when: "review.verdict == CHANGES" });
-  assert.deepEqual(parts($(".ol-loop > .ol-label")), ["Repeat", "(3× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run goes on either way"]);
+  assert.deepEqual(parts($(".ol-loop > .ol-label")), ["Repeat", "(3× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· the run continues either way"]);
 
   type(control("At most"), "8");
   type(control("When the loop ends"), "ended_early");
@@ -77,7 +77,7 @@ test("a repeat step is added after the selected step, going back to it, and any 
   await settle();
   assert.equal($("#inspector .card-title").textContent, "Repeat");
   assert.equal(shown(control("Go back to")), "test");
-  assert.deepEqual(parts($(".ol-loop > .ol-label")), ["Repeat", "(3× at most)", "every round", "· the run goes on either way"]);
+  assert.deepEqual(parts($(".ol-loop > .ol-label")), ["Repeat", "(3× at most)", "every round", "· the run continues either way"]);
 
   click(row("Review it"));
   type($("#inspector details.advanced select"), "repeat");
@@ -96,7 +96,7 @@ test("deleting a repeat step removes the loop and leaves its steps in place", as
   await open("#/chain/make-change/again");
   click(button("Delete"));
   await settle();
-  assert.deepEqual(dialogs.confirm, ["Delete the step \"Review again\"?"]);
+  assert.deepEqual(dialogs.confirm, ["Delete step \"Review again\"?"]);
   assert.equal($(".ol-loop"), null);
   assert.deepEqual(titles(), ["Read the issue", "Make the change", "Run the tests", "Review it", "Approve the change", "Merge", "Ship each changeset", "Tell the team", "Clean up"]);
   assert.equal((await saved(calls)).length, 9);
@@ -107,7 +107,7 @@ test("deleting the step a loop starts at moves the loop to the next step and dro
   await open("#/chain/make-change/change");
   click(button("Delete"));
   await settle();
-  assert.deepEqual(dialogs.confirm, ["Delete the step \"Make the change\"?"]);
+  assert.deepEqual(dialogs.confirm, ["Delete step \"Make the change\"?"]);
   const steps = await saved(calls);
   assert.equal(steps.find((s) => s.id === "again").repeat, "test");
   assert.equal(steps.find((s) => s.id === "approve").revise, "test");
@@ -125,7 +125,7 @@ test("deleting the only step of a loop deletes the loop too, after saying so", a
   await open("#/chain/make-change/poll");
   answers.confirm = false;
   click(button("Delete"));
-  assert.deepEqual(dialogs.confirm, ["Delete the step \"Poll\"? \"Poll again\" only makes sense with it, so it goes too."]);
+  assert.deepEqual(dialogs.confirm, ["Delete step \"Poll\"? Also deletes \"Poll again\", which depends on it."]);
   assert.equal(titles().length, 3);
   answers.confirm = true;
   click(button("Delete"));
@@ -141,7 +141,7 @@ test("deleting an approval keeps what ran after it and drops the steps that ran 
   await open("#/chain/make-change/approve");
   click(button("Delete"));
   await settle();
-  assert.deepEqual(dialogs.confirm, ["Delete the step \"Approve the change\"? \"Tell the team\" only makes sense with it, so it goes too."]);
+  assert.deepEqual(dialogs.confirm, ["Delete step \"Approve the change\"? Also deletes \"Tell the team\", which depends on it."]);
   assert.equal($(".ol-approved"), null);
   const steps = await saved(calls);
   assert.deepEqual(steps.map((s) => s.id), ["read_issue", "change", "test", "review", "merge", "ship", "cleanup"]);
@@ -223,7 +223,7 @@ test("past rounds of a loop stay listed and open, with what each step did, and t
   const past = rounds()[0].querySelector(".past");
   click(past.querySelector("summary"));
   assert.equal(past.open, true);
-  assert.ok([...past.querySelectorAll("details summary")].some((s) => s.textContent === "How it was called"));
+  assert.ok([...past.querySelectorAll("details summary")].some((s) => s.textContent === "Call"));
   click(rounds()[0].querySelector(":scope > summary"));
   assert.equal(rounds()[0].open, false);
 
