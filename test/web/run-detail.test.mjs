@@ -38,7 +38,7 @@ test("the call panel shows the command, tool calls, output and stream, and keeps
   assert.equal(call.querySelector(".actions-head").textContent, "Tool calls (3)");
   assert.deepEqual(texts(call, ".action-tool"), ["Bash", "Read", "Grep"]);
   assert.deepEqual(texts(call, ".action-input"), ["go test ./...", "not json", "{\"x\":1}"]);
-  assert.deepEqual(texts(call, ".action-time"), ["0.3s", "65.0s", "unfinished 39.0s"]);
+  assert.deepEqual(texts(call, ".action-time"), ["0.3s", "1m 05s", "unfinished 39.0s"]);
   const actions = $$(".action");
   assert.ok(actions[1].classList.contains("failed"));
   assert.deepEqual(texts(actions[1], ".action-body .hint"), ["input", "output (failed)"]);
@@ -83,7 +83,7 @@ test("a call record shows how it exited, its error, and what it printed", async 
   assert.deepEqual(texts(killed, ".block-empty"), ["stdout printed nothing", "stderr printed nothing"]);
 
   const failed = view({ ...base, ended_at: at(17, 5), exit_code: 2, error: "make: no rule", stdout: "partial" });
-  assert.deepEqual(texts(failed, ".call-meta span").slice(1), ["ran 125.0s", "exit 2", "in /work/demo"]);
+  assert.deepEqual(texts(failed, ".call-meta span").slice(1), ["ran 2m 05s", "exit 2", "in /work/demo"]);
   assert.equal(failed.querySelector(".error-box").textContent, "make: no rule");
   assert.equal(panel(failed, "stdout").querySelector("pre").textContent, "partial");
   assert.deepEqual(texts(failed, ".block-empty"), ["stderr printed nothing"]);
@@ -96,12 +96,12 @@ test("a call record shows how it exited, its error, and what it printed", async 
   await settle(20);
   assert.equal(stream.querySelector("pre").textContent, "(empty)");
 
-  assert.match(going.querySelector(".action-time").textContent, /^running \d+\.\ds$/);
+  assert.match(going.querySelector(".action-time").textContent, /^running (\d+\.\ds|\d+[hm] \d+[ms])$/);
   const live = going.querySelector(".action-time [data-tick]");
   globalThis.document.body.append(going);
   live.textContent = "-";
   await settle(1100);
-  assert.match(live.textContent, /^\d+\.\ds$/);
+  assert.match(live.textContent, /^(\d+\.\ds|\d+[hm] \d+[ms])$/);
   going.remove();
 });
 

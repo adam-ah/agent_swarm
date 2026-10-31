@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +16,37 @@ import (
 )
 
 const sequentialNote = "runs its items in parallel in a real run; this test runs them sequentially"
+
+const defaultMaxParallel = 8
+
+func (s Step) maxParallel() int {
+	if s.MaxParallel > 0 {
+		return s.MaxParallel
+	}
+	return defaultMaxParallel
+}
+
+type slots struct {
+	free    chan struct{}
+	running sync.WaitGroup
+}
+
+func (s *slots) start(ctx context.Context, work func()) bool {
+	select {
+	case s.free <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	s.running.Add(1)
+	go func() {
+		defer func() {
+			<-s.free
+			s.running.Done()
+		}()
+		work()
+	}()
+	return true
+}
 
 func listInput(step Step, sc *scope) (string, []any, error) {
 	key := ""
@@ -47,10 +80,16 @@ func eachProblems(step Step, where string) []string {
 	for _, option := range []struct {
 		name string
 		set  bool
-	}{{"parallel", step.Parallel}, {"keep_going", step.KeepGoing}} {
+	}{{"parallel", step.Parallel}, {"max_parallel", step.MaxParallel != 0}, {"keep_going", step.KeepGoing}} {
 		if option.set && !perItem {
 			problems = append(problems, fmt.Sprintf("%s: %s only applies to a chain step that runs once per item of a list", where, option.name))
 		}
+	}
+	if step.MaxParallel != 0 && !step.Parallel {
+		problems = append(problems, where+": max_parallel only applies with parallel")
+	}
+	if step.MaxParallel < 0 || step.MaxParallel == 1 {
+		problems = append(problems, fmt.Sprintf("%s: max_parallel is the most items that run concurrently, 2 or more, not %d", where, step.MaxParallel))
 	}
 	return problems
 }
@@ -59,6 +98,9 @@ func eachHeadline(step Step, count int, source string) string {
 	at := ""
 	if step.Parallel && count > 1 {
 		at = " in parallel"
+	}
+	if step.Parallel && count > step.maxParallel() {
+		at += fmt.Sprintf(" (%d at most)", step.maxParallel())
 	}
 	headline := fmt.Sprintf("Runs %s %s%s, once per item of %s", step.Chain, times(count), at, source)
 	if step.KeepGoing {
@@ -70,23 +112,26 @@ func eachHeadline(step Step, count int, source string) string {
 func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, values map[string]string, key string, items []any) (map[string]any, error) {
 	sub := p.lib.Chains[step.Chain]
 	source, _ := lonePlaceholder(step.With[key])
+	labels := headingsOf(items)
 	r.store.update(p.run, func() {
 		if !sameItems(sr.Children, items, sub) {
 			sr.Children = make([]*StepRun, len(items))
 			for i, item := range items {
 				path := fmt.Sprintf("%s.%d", sr.Path, i+1)
-				sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
+				sr.Children[i] = &StepRun{ID: strconv.Itoa(i + 1), Path: path, Title: text(item), Label: labels[i], Kind: "item", Uses: step.Chain, Status: "pending", Children: expand(p.lib, sub, path+".")}
 			}
 		}
 		sr.Headline = eachHeadline(step, len(items), source)
 	})
-	together := step.Parallel && r.mocks == nil
+	pool := &slots{free: make(chan struct{}, 1)}
+	if step.Parallel && r.mocks == nil {
+		pool.free = make(chan struct{}, step.maxParallel())
+	}
 	if step.Parallel && r.mocks != nil {
 		r.mocks.notes[sr] = append(r.mocks.notes[sr], sequentialNote)
 	}
 	folder, _ := p.sc.lookup("run_folder")
 	var mu sync.Mutex
-	var running sync.WaitGroup
 	ended := map[string]int{}
 	count := func(status string) {
 		mu.Lock()
@@ -101,31 +146,18 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 			count("done")
 			continue
 		}
-		if ctx.Err() != nil {
-			r.store.update(p.run, func() { skipAll(group) })
+		own, err := itemValues(values, key, item, folder, group.Path)
+		if err != nil {
+			pool.running.Wait()
+			return nil, err
+		}
+		if ctx.Err() == nil && pool.start(ctx, func() { count(r.runItem(ctx, p, sub, sr, group, own)) }) {
+			ran++
 			continue
 		}
-		ran++
-		own := maps.Clone(values)
-		own[key] = text(item)
-		if folder != "" {
-			own["run_folder"] = filepath.Join(folder, group.Path)
-			if err := os.MkdirAll(own["run_folder"], 0o755); err != nil {
-				running.Wait()
-				return nil, err
-			}
-		}
-		if !together {
-			count(r.runItem(ctx, p, sub, sr, group, own))
-			continue
-		}
-		running.Add(1)
-		go func() {
-			defer running.Done()
-			count(r.runItem(ctx, p, sub, sr, group, own))
-		}()
+		r.store.update(p.run, func() { skipAll(group) })
 	}
-	running.Wait()
+	pool.running.Wait()
 
 	summary := eachSummary(step.Chain, source, len(items), ran, ended)
 	r.store.update(p.run, func() { sr.Headline = summary })
@@ -137,6 +169,16 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 		return out, fmt.Errorf("%d of %d failed", ended["failed"], len(items))
 	}
 	return out, nil
+}
+
+func itemValues(values map[string]string, key string, item any, folder, path string) (map[string]string, error) {
+	own := maps.Clone(values)
+	own[key] = text(item)
+	if folder == "" {
+		return own, nil
+	}
+	own["run_folder"] = filepath.Join(folder, path)
+	return own, os.MkdirAll(own["run_folder"], 0o755)
 }
 
 func eachSummary(chain, source string, count, ran int, ended map[string]int) string {
@@ -167,6 +209,32 @@ func (r *Runner) runItem(ctx context.Context, p pass, sub *Chain, sr, group *Ste
 		sr.Cost = costOf(sr.Children)
 	})
 	return end.status
+}
+
+func headingsOf(items []any) []string {
+	labels := make([]string, len(items))
+	for i, item := range items {
+		labels[i] = headingOf(text(item))
+	}
+	return labels
+}
+
+func headingOf(item string) string {
+	if !filepath.IsAbs(item) {
+		return ""
+	}
+	f, err := os.Open(item)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	lines := bufio.NewScanner(io.LimitReader(f, 4096))
+	for lines.Scan() {
+		if heading, ok := strings.CutPrefix(lines.Text(), "# "); ok {
+			return strings.TrimSpace(heading)
+		}
+	}
+	return ""
 }
 
 func times(n int) string {

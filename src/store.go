@@ -26,6 +26,7 @@ type StepRun struct {
 	ID         string         `json:"id"`
 	Path       string         `json:"path"`
 	Title      string         `json:"title"`
+	Label      string         `json:"label,omitempty"`
 	Kind       string         `json:"kind"`
 	Uses       string         `json:"uses"`
 	Always     bool           `json:"always,omitempty"`

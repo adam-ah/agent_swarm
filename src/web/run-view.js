@@ -23,7 +23,7 @@ function renderRun(run) {
       h("div", { class: "run-meta", id: "meta" }),
       h("div", { id: "banner" }),
       h("div", { id: "decision" }),
-      h("div", { class: "panel steps", id: "steps" }, skeleton(run.chain, "")),
+      h("div", { class: `panel steps ${showIdle ? "" : "hide-idle"}`, id: "steps" }, skeleton(run.chain, "")),
       h("div", { id: "stopped" }));
     main.replaceChildren(page);
     Object.assign(runView, { entries: new Map(), decisionKey: null, decisions: new Map() });
@@ -42,6 +42,7 @@ function renderRun(run) {
     run.resumed_at ? h("span", {}, `rerun from ${run.rerun_from || "its failed step"} at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),
     run.cost ? h("span", {}, money(run.cost)) : null,
+    h("label", { class: "toggle" }, h("input", { type: "checkbox", id: "show-idle", checked: showIdle, onchange: (e) => setShowIdle(e.target.checked) }), "Show pending and skipped steps"),
     h("span", { class: "row push-right" },
       live ? h("button", { class: "btn small danger", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
       unfinished ? h("button", { class: "btn small", type: "button", title: "Keep finished steps; rerun from the first unfinished one", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
@@ -87,6 +88,11 @@ const keyOf = (step) => step.path || step.id;
 function focusRow(key) {
   const entry = runView.entries.get(key);
   if (!entry) return;
+  if (NOT_RAN.has(entry.step.status)) setShowIdle(true);
+  for (let dot = key.indexOf("."); dot > 0; dot = key.indexOf(".", dot + 1)) {
+    const outer = runView.entries.get(key.slice(0, dot));
+    if (outer && !outer.open) toggleRow(outer);
+  }
   if (!entry.open) toggleRow(entry);
   entry.el.scrollIntoView({ behavior: "smooth", block: "start" });
   entry.el.classList.add("flash");
@@ -162,15 +168,17 @@ function markBlocks(run) {
   }
 }
 
+function newEntry(container, step, chain, lone) {
+  const nested = holdsSteps(step) ? skeleton(step.uses, `${keyOf(step)}.`) : null;
+  const entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "kids" }, nested), chain, open: step.kind === "chain" || (step.kind === "item" && lone) };
+  runView.entries.set(keyOf(step), entry);
+  (runView.slots.get(keyOf(step)) || container).append(entry.el);
+  return entry;
+}
+
 function syncRows(container, steps, run, chain) {
   for (const step of steps) {
-    let entry = runView.entries.get(keyOf(step));
-    if (!entry) {
-      const nested = holdsSteps(step) ? skeleton(step.uses, `${keyOf(step)}.`) : null;
-      entry = { el: h("div"), sig: null, artSig: null, arts: h("div", { class: "artifacts" }), kids: h("div", { class: "kids" }, nested), chain, open: false };
-      runView.entries.set(keyOf(step), entry);
-      (runView.slots.get(keyOf(step)) || container).append(entry.el);
-    }
+    const entry = runView.entries.get(keyOf(step)) || newEntry(container, step, chain, steps.length === 1);
     Object.assign(entry, { run, step });
     const artSig = JSON.stringify([step.question || "", step.artifacts || []]);
     if (entry.artSig !== artSig) {
@@ -183,18 +191,20 @@ function syncRows(container, steps, run, chain) {
       entry.earlierCount = step.earlier?.length || 0;
       entry.earlier = entry.earlierCount ? earlierPanel(run, step.earlier) : null;
     }
-    if (step.children?.[0]?.kind === "item" && !entry.perItem) {
+    if (perItem(step) && !entry.perItem) {
       entry.perItem = true;
       entry.kids.replaceChildren();
     }
     if (step.children?.length) syncRows(entry.kids, step.children, run, step.uses);
-    const sig = JSON.stringify({ ...step, artifacts: undefined, children: undefined, earlier: undefined, cost: holdsSteps(step) ? undefined : step.cost, run: run.status });
+    const holder = holdsSteps(step);
+    const sig = JSON.stringify({ ...step, artifacts: undefined, children: holder ? progressOf(step) : undefined, earlier: undefined, cost: holder ? undefined : step.cost, run: run.status });
     if (entry.sig !== sig) {
-      if (step.status === "failed" && entry.status !== "failed") entry.open = true;
+      if (step.status === "failed" && entry.status !== "failed" && !holder) entry.open = true;
       Object.assign(entry, { sig, status: step.status });
       redrawRow(entry);
     }
   }
+  idleNote(container, steps, run);
 }
 
 function redrawRow(entry) {
@@ -211,49 +221,36 @@ function toggleRow(entry) {
   redrawRow(entry);
 }
 
-function stepStats(step) {
-  const stats = [];
-  if (step.started_at && step.status !== "running") stats.push(seconds(step.started_at, step.ended_at));
-  if (step.cost && !holdsSteps(step)) stats.push(money(step.cost));
-  else if (step.tokens) stats.push(`${(step.tokens / 1000).toFixed(step.tokens < 10000 ? 1 : 0)}k tokens`);
-  return stats.join(" · ");
+function rowTitle(step) {
+  const item = step.kind === "item";
+  return h("span", { class: "srow-title", title: item ? step.title : null }, item ? itemTitle(step) : step.title,
+    step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
+    step.resumed ? h("span", { class: "chip flag", title: `Resumes the session of ${step.resumed}` }, "resumed") : null,
+    step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "re-prompted") : null,
+    step.asks?.length ? h("span", { class: "chip flag", title: "Asked questions before answering" }, "asked") : null,
+    step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Also runs after failure, stop or reject" }, "always") : null);
 }
 
 function stepRow(entry) {
   const { run, step } = entry;
-  const expandable = !["pending", "skipped"].includes(step.status) && !holdsSteps(step);
+  const holder = holdsSteps(step);
+  const expandable = holder || !NOT_RAN.has(step.status);
   const open = expandable && entry.open;
   const toggle = () => toggleRow(entry);
+  if (holder) entry.kids.hidden = !open;
   const head = h("div", {
     class: "srow-head", role: expandable ? "button" : null, tabindex: expandable ? "0" : null, "aria-expanded": expandable ? String(open) : null,
     onclick: expandable ? toggle : null, onkeydown: expandable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } } : null,
   },
   h("span", { class: `state ${step.status}` }, STATE_ICON[step.status] || ""),
-  h("span", { class: `kind ${step.kind}`, title: KIND_NAME[step.kind] }, step.kind === "item" ? step.id : KIND_LETTER[step.kind]),
-  h("span", { class: "srow-text" },
-    h("span", { class: "srow-title" }, step.title,
-      step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
-      step.resumed ? h("span", { class: "chip flag", title: `Resumes the session of ${step.resumed}` }, "resumed") : null,
-      step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "re-prompted") : null,
-      step.asks?.length ? h("span", { class: "chip flag", title: "Asked questions before answering" }, "asked") : null,
-      step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Also runs after failure, stop or reject" }, "always") : null),
-    summaryLine(step, open)),
-  h("span", { class: "srow-stats" }, stepStats(step)),
+  h("span", { class: `kind ${step.kind}`, title: step.kind === "item" ? `item ${step.id}` : KIND_NAME[step.kind] }, step.kind === "item" ? step.id : KIND_LETTER[step.kind]),
+  h("span", { class: "srow-text" }, rowTitle(step), summaryLine(step, open)),
+  rowStats(step),
   h("span", { class: "srow-caret" }, expandable ? (open ? "▾" : "▸") : ""));
-  return h("div", { class: `srow ${step.status} ${step.kind} ${open ? "open" : ""}`, id: `row-${keyOf(step)}` },
+  return h("div", { class: `srow ${step.status} ${step.kind} ${open && !holder ? "open" : ""}`, id: `row-${keyOf(step)}` },
     head,
-    open ? h("div", { class: "srow-body" }, stepBody(run, step, entry)) : null,
-    holdsSteps(step) ? entry.kids : null);
-}
-
-function summaryLine(step, open) {
-  if (step.status === "running" && !holdsSteps(step)) {
-    return h("span", { class: "srow-line working" }, h("span", { class: "bars" }, h("i"), h("i"), h("i")),
-      `${step.kind === "agent" ? `Working · ${step.actions || 0} actions` : "Running"} · `, h("span", { "data-since": step.started_at }, duration(step.started_at)));
-  }
-  if (step.status === "waiting") return h("span", { class: "srow-line" }, openAsk(step) ? "Waiting: questions above" : "Waiting: decision above");
-  const text = step.headline || (open ? "" : firstLine(step.error) || step.ended);
-  return text ? h("span", { class: "srow-line" }, text) : null;
+    open && !holder ? h("div", { class: "srow-body" }, stepBody(run, step, entry)) : null,
+    holder ? entry.kids : null);
 }
 
 function stepBody(run, step, entry) {

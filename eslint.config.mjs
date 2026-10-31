@@ -20,17 +20,17 @@ const sharedFunctions = [
   "stepFields", "readsOf", "readsList", "readsPanel", "readersOf", "earlierPanel", "remembered", "openAsk", "questionsForm", "asksPanel", "block", "actionLabel", "callView", "callPanel",
   "stepShows", "renderArtifacts", "diffView", "prettyJSON", "openLightbox",
   "showRun", "findStepIn", "renderRun", "outcomeBanner", "renderDecision", "focusRow", "syncRows", "redrawRow", "toggleRow",
-  "stepRow", "stepStats", "startsAround", "rerunPoints", "valueLabel", "summaryLine", "roundsOf", "syncRounds", "pastRound", "pastStep", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
+  "stepRow", "stepStats", "rowStats", "setShowIdle", "idleNote", "progressOf", "itemTitle", "startsAround", "rerunPoints", "valueLabel", "summaryLine", "roundsOf", "syncRounds", "pastRound", "pastStep", "stepBody", "editLinks", "decideForm", "stopRun", "deleteRun",
 ];
 
 const sharedConstants = [
   "main", "lightbox", "EXT", "KIND_LETTER", "KIND_NAME", "STATE_ICON", "STATUS_LABEL", "money", "FROM", "TAG",
   "folded", "NEW_PROMPT", "placeholdersIn", "returnsText", "mapToRows", "rowsToMap", "keyOf", "sizeOf", "shellWord",
   "firstLine", "CONDITION_OPS", "KIND_CHOICES", "usesCount", "draftSteps", "unsaved", "RETURN_EXAMPLE", "RAN", "editorGo", "runGo",
-  "holdsSteps", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS", "LEFT_TO_AGENT", "answerOf",
+  "holdsSteps", "MAX_PARALLEL", "perItem", "NOT_RAN", "roundOf", "asText", "LONE_PLACEHOLDER", "folderName", "promptOf", "ASKED_AGAIN", "ASKED_AGAIN_TITLE", "LOOP_ENDS", "LEFT_TO_AGENT", "answerOf",
 ];
 
-const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState"];
+const sharedState = ["lib", "projects", "project", "runsCache", "stream", "current", "editor", "runView", "lastHash", "lightboxState", "showIdle"];
 
 const sharedGlobals = Object.fromEntries([
   ...sharedFunctions.map((name) => [name, "readonly"]),

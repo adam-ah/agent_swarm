@@ -32,7 +32,7 @@ function stepInspector(step) {
     touch();
   };
   const setKind = (next) => {
-    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "parallel", "keep_going", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
+    for (const key of ["tool", "agent", "user", "revise", "show", "chain", "parallel", "max_parallel", "keep_going", "tools", "runner", "with", "resume", "stall", "timeout", "keep_until", "repeat", "rounds", "fail"]) delete step[key];
     if (next === "tool") step.tool = Object.keys(editor.tools).sort()[0] || "";
     if (next === "agent") { step.agent = Object.keys(editor.at.prompts).sort()[0] || ""; step.tools = ["Read", "Grep", "Glob"]; }
     if (next === "user") step.user = "Continue?";
@@ -194,16 +194,24 @@ function kindFields(step, kind) {
     const lists = listsPassed(step, editor.at.draft.steps, editor.at.name);
     const source = listSource(step);
     const option = (key, label) => h("label", { class: "toggle" },
-      h("input", { type: "checkbox", checked: !!step[key], onchange: (e) => { step[key] = e.target.checked || undefined; touch(true); } }), h("span", {}, label));
+      h("input", { type: "checkbox", checked: !!step[key], onchange: (e) => {
+        step[key] = e.target.checked || undefined;
+        if (!step.parallel) delete step.max_parallel;
+        touch(true);
+      } }), h("span", {}, label));
+    const most = step.max_parallel || MAX_PARALLEL;
+    const counts = [...new Set([2, 4, MAX_PARALLEL, 16, 32, most])].sort((a, b) => a - b);
     return h("div", { class: "form" },
       field("Chain to run", selectBox(lib.chains.filter((c) => c.name !== editor.at.name).map((c) => [c.name, c.title]), step.chain, (v) => { step.chain = v; touch(true); })),
       valuesGroup("Inputs", valuesEditor(step, (sub?.inputs || []).map((i) => ({ name: i.name, label: i.label || i.name, fallback: i.default || (i.optional ? "optional" : "") })))),
       h("div", { class: "hint" }, source
-        ? `Runs ${step.chain} once per item of ${source}${lists.length ? "" : " if it is a list when the step runs"}, ${step.parallel ? "in parallel" : "sequentially"}. A reject or stop ends only that item; ${
+        ? `Runs ${step.chain} once per item of ${source}${lists.length ? "" : " if it is a list when the step runs"}, ${step.parallel ? `in parallel (${most} at most)` : "sequentially"}. A reject or stop ends only that item; ${
           step.keep_going ? "failed items are counted and the run continues." : "a failed item fails this step after all items finish."}`
         : "Runs once. To run per list item, set one input to just the list, e.g. {{split.changesets}}."),
       source || step.parallel || step.keep_going ? [
         option("parallel", "Run in parallel (default: sequential)"),
+        step.parallel ? field("Max in parallel", selectBox(counts.map((n) => [String(n), `${n}${n === MAX_PARALLEL ? " (default)" : ""}`]), String(most),
+          (v) => { step.max_parallel = Number(v) === MAX_PARALLEL ? undefined : Number(v); touch(true); }), "the rest queue and start as items finish") : null,
         option("keep_going", "Keep going if an item fails (default: a failed item fails the run)")] : null,
       step.chain ? h("a", { href: `#/chain/${step.chain}` }, `Open ${step.chain} →`) : null);
   }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -288,12 +289,78 @@ func TestCheckParallelAndKeepGoingOnlyApplyToPerItemChainSteps(t *testing.T) {
 		{ID: "list", Title: "List", Tool: "items", Parallel: true},
 		{ID: "once", Title: "Once", Chain: "sub", KeepGoing: true, With: map[string]string{"value": "word: {{list.word}}"}},
 		{ID: "each", Title: "Each", Chain: "sub", Parallel: true, KeepGoing: true, With: map[string]string{"value": "{{list.items}}"}},
+		{ID: "capped", Title: "Capped", Chain: "sub", MaxParallel: 4, With: map[string]string{"value": "{{list.items}}"}},
+		{ID: "one", Title: "One", Chain: "sub", Parallel: true, MaxParallel: 1, With: map[string]string{"value": "{{list.items}}"}},
 	}}
 	want := []string{
 		`step "list": parallel only applies to a chain step that runs once per item of a list`,
 		`step "once": keep_going only applies to a chain step that runs once per item of a list`,
+		`step "capped": max_parallel only applies with parallel`,
+		`step "one": max_parallel is the most items that run concurrently, 2 or more, not 1`,
 	}
 	if got := lib.check(chain); !reflect.DeepEqual(got, want) {
 		t.Errorf("check = %q, want %q", got, want)
+	}
+}
+
+func TestMaxParallelCapsRunningItemsAndFillsFreedSlots(t *testing.T) {
+	lib := sequenceLibrary(t)
+	gate, log := filepath.Join(lib.Project, "gate"), filepath.Join(lib.Project, "log")
+	lib.Tools["five"] = Tool{Run: `echo '{"items": ["a", "b", "c", "d", "e"]}'`}
+	lib.Tools["hold"] = Tool{Run: strings.NewReplacer("GATE", gate, "LOG", log).Replace("mkdir -p GATE; touch GATE/{{value}}; ls GATE | wc -l >> LOG; sleep 0.3; rm GATE/{{value}}")}
+	lib.Chains["hold"] = &Chain{Name: "hold", Inputs: []Input{{Name: "value"}}, Steps: []Step{{ID: "hold", Title: "Hold a slot", Tool: "hold"}}}
+	chain := &Chain{Name: "main", Steps: []Step{
+		{ID: "list", Title: "List", Tool: "five"},
+		{ID: "each", Title: "Each", Chain: "hold", Parallel: true, MaxParallel: 2, With: map[string]string{"value": "{{list.items}}"}},
+	}}
+	run, _ := execute(t, lib, chain)
+
+	if run.Status != "done" || run.Steps[1].Headline != "hold ran 5 times: 5 done" {
+		t.Fatalf("run %s (%s), each %q", run.Status, run.Reason, run.Steps[1].Headline)
+	}
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	most := 0
+	for _, line := range strings.Fields(string(raw)) {
+		n, _ := strconv.Atoi(line)
+		most = max(most, n)
+	}
+	if lines := len(strings.Fields(string(raw))); lines != 5 || most != 2 {
+		t.Errorf("%d items logged, at most %d running at once, want 5 and 2", lines, most)
+	}
+}
+
+func TestEachHeadlineNamesTheParallelCapOnlyWhenItBites(t *testing.T) {
+	step := Step{Chain: "build-card", Parallel: true}
+	for count, want := range map[int]string{
+		8: "Runs build-card 8 times in parallel, once per item of list.briefs",
+		9: "Runs build-card 9 times in parallel (8 at most), once per item of list.briefs",
+	} {
+		if got := eachHeadline(step, count, "list.briefs"); got != want {
+			t.Errorf("eachHeadline(%d) = %q, want %q", count, got, want)
+		}
+	}
+	step.MaxParallel = 3
+	if got := eachHeadline(step, 4, "list.briefs"); got != "Runs build-card 4 times in parallel (3 at most), once per item of list.briefs" {
+		t.Errorf("eachHeadline with max_parallel 3 = %q", got)
+	}
+}
+
+func TestItemLabelIsTheFileHeading(t *testing.T) {
+	dir := t.TempDir()
+	card := filepath.Join(dir, "12a3a.md")
+	if err := os.WriteFile(card, []byte("---\nid: 12a3a\n---\n#  12a3a: open folders \nbody\n# later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "plain.txt")
+	if err := os.WriteFile(plain, []byte("no heading\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for item, want := range map[string]string{card: "12a3a: open folders", plain: "", dir: "", "12a3a.md": "", filepath.Join(dir, "gone.md"): ""} {
+		if got := headingOf(item); got != want {
+			t.Errorf("headingOf(%q) = %q, want %q", item, got, want)
+		}
 	}
 }

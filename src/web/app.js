@@ -54,6 +54,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 const KIND_LETTER = { tool: "T", agent: "A", user: "U", chain: "C", repeat: "↻", root: "≡" };
 const KIND_NAME = { tool: "tool", agent: "agent", user: "user", chain: "chain", repeat: "repeat", item: "item run" };
 const holdsSteps = (step) => step.kind === "chain" || step.kind === "item";
+const MAX_PARALLEL = 8;
 const asText = (v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(asText).join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v));
 const LONE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}\s*$/;
 
@@ -89,7 +90,8 @@ function duration(from, to) {
 
 function seconds(from, to) {
   if (!from) return "";
-  return `${(Math.max(0, (to ? new Date(to) : new Date()) - new Date(from)) / 1000).toFixed(1)}s`;
+  const ms = Math.max(0, (to ? new Date(to) : new Date()) - new Date(from));
+  return ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : duration(from, to);
 }
 
 function ago(when) {

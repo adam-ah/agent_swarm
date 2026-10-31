@@ -193,6 +193,7 @@ test("the run page shows each round of a loop", async () => {
   assert.deepEqual(parts($(".ol-loop > .ol-label")).slice(0, 5), ["Repeat", "(3× at most)", "while", "test.verdict", "is not pass"]);
   assert.equal(runRow("test").querySelector(".chip.repeat").textContent, "round 2 of 3");
   assert.equal(runRow("again").querySelector(".kind").textContent, "↻");
+  assert.equal($(".ol-loop .round-now").textContent, "Round 2 of 3");
   click(head("test"));
   assert.match(text(runRow("test").querySelector(".srow-body")), /Round 2 of 3: Test again sent the run back here/);
 });

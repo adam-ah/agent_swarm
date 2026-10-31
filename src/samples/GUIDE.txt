@@ -154,11 +154,13 @@ Each step has an id, a title saying what it does, and exactly one of:
     with its own run_folder; a reject or stop ends only that item, a
     failure fails the step after all items, and only {{<id>.summary}} is
     set ("make-change ran 3 times: 2 done, 1 rejected"). Never loop in a
-    tool. "parallel": true runs the items in parallel; the step still
-    ends once every item has, and several items can wait on the person
-    concurrently. "keep_going": true counts a failed item ("2 done,
-    1 failed") without failing the step, so the run goes on. Both apply
-    only to a step run per list item.
+    tool. "parallel": true runs the items in parallel, at most 8
+    concurrently ("max_parallel": N, 2 or more, overrides it); the rest
+    queue and start as items finish. The step still ends once every item
+    has, and several items can wait on the person concurrently.
+    "keep_going": true counts a failed item ("2 done, 1 failed") without
+    failing the step, so the run goes on. All three apply only to a step
+    run per list item.
 
 "repeat": "<earlier step>"
     Goes back to that step and reruns everything from there: the steps in

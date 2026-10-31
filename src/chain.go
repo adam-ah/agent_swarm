@@ -42,30 +42,31 @@ type Input struct {
 }
 
 type Step struct {
-	ID        string            `json:"id"`
-	Title     string            `json:"title"`
-	Tool      string            `json:"tool,omitempty"`
-	Agent     string            `json:"agent,omitempty"`
-	Runner    string            `json:"runner,omitempty"`
-	Chain     string            `json:"chain,omitempty"`
-	User      string            `json:"user,omitempty"`
-	Revise    string            `json:"revise,omitempty"`
-	Resume    string            `json:"resume,omitempty"`
-	Stall     string            `json:"stall,omitempty"`
-	Timeout   string            `json:"timeout,omitempty"`
-	KeepUntil string            `json:"keep_until,omitempty"`
-	With      map[string]string `json:"with,omitempty"`
-	Tools     []string          `json:"tools,omitempty"`
-	Show      []string          `json:"show,omitempty"`
-	When      string            `json:"when,omitempty"`
-	StopIf    string            `json:"stop_if,omitempty"`
-	Stop      string            `json:"stop,omitempty"`
-	Repeat    string            `json:"repeat,omitempty"`
-	Rounds    int               `json:"rounds,omitempty"`
-	Fail      string            `json:"fail,omitempty"`
-	Always    bool              `json:"always,omitempty"`
-	Parallel  bool              `json:"parallel,omitempty"`
-	KeepGoing bool              `json:"keep_going,omitempty"`
+	ID          string            `json:"id"`
+	Title       string            `json:"title"`
+	Tool        string            `json:"tool,omitempty"`
+	Agent       string            `json:"agent,omitempty"`
+	Runner      string            `json:"runner,omitempty"`
+	Chain       string            `json:"chain,omitempty"`
+	User        string            `json:"user,omitempty"`
+	Revise      string            `json:"revise,omitempty"`
+	Resume      string            `json:"resume,omitempty"`
+	Stall       string            `json:"stall,omitempty"`
+	Timeout     string            `json:"timeout,omitempty"`
+	KeepUntil   string            `json:"keep_until,omitempty"`
+	With        map[string]string `json:"with,omitempty"`
+	Tools       []string          `json:"tools,omitempty"`
+	Show        []string          `json:"show,omitempty"`
+	When        string            `json:"when,omitempty"`
+	StopIf      string            `json:"stop_if,omitempty"`
+	Stop        string            `json:"stop,omitempty"`
+	Repeat      string            `json:"repeat,omitempty"`
+	Rounds      int               `json:"rounds,omitempty"`
+	Fail        string            `json:"fail,omitempty"`
+	Always      bool              `json:"always,omitempty"`
+	Parallel    bool              `json:"parallel,omitempty"`
+	MaxParallel int               `json:"max_parallel,omitempty"`
+	KeepGoing   bool              `json:"keep_going,omitempty"`
 }
 
 func (s Step) Kind() string {

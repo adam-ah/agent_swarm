@@ -251,21 +251,37 @@ test("a sub-chain step run per item can run in parallel and keep going past a fa
   const parallel = "Run in parallel (default: sequential)";
   const keepGoing = "Keep going if an item fails (default: a failed item fails the run)";
 
+  const most = () => control("Max in parallel");
   assert.equal(toggle(parallel).checked, false);
   assert.equal(toggle(keepGoing).checked, false);
+  assert.equal(most(), undefined);
   click(toggle(parallel));
   assert.equal(sections()[0], "Repeat (parallel)");
-  assert.match(hint(), /^Runs ship-changeset once per item of change\.files, in parallel\. .* a failed item fails this step after all items finish\.$/);
+  assert.match(hint(), /^Runs ship-changeset once per item of change\.files, in parallel \(8 at most\)\. .* a failed item fails this step after all items finish\.$/);
+  assert.equal(shown(most()), "8");
+  assert.deepEqual([...most().options].map((o) => o.textContent), ["2", "4", "8 (default)", "16", "32"]);
+  choose(most(), "4");
+  assert.match(hint(), /in parallel \(4 at most\)\./);
   click(toggle(keepGoing));
   assert.match(hint(), /failed items are counted and the run continues\.$/);
-  assert.ok($$(".tree-note").map(text).includes("⤷ runs ship-changeset once per item of change.files, in parallel, keep going on failure"));
+  assert.ok($$(".tree-note").map(text).includes("⤷ runs ship-changeset once per item of change.files, in parallel (4 at most), keep going on failure"));
   let step = await savedStep(saved, "ship");
-  assert.equal(step.parallel, true);
-  assert.equal(step.keep_going, true);
+  assert.deepEqual([step.parallel, step.max_parallel, step.keep_going], [true, 4, true]);
 
+  choose(most(), "8");
+  step = await savedStep(saved, "ship");
+  assert.equal("max_parallel" in step, false);
+  choose(most(), "16");
+  click(toggle(parallel));
+  assert.equal(most(), undefined);
+  step = await savedStep(saved, "ship");
+  assert.equal("parallel" in step || "max_parallel" in step, false);
+
+  click(toggle(parallel));
+  choose(most(), "16");
   choose($("#inspector details.advanced select"), "tool");
   step = await savedStep(saved, "ship");
-  assert.equal("parallel" in step || "keep_going" in step, false);
+  assert.equal("parallel" in step || "max_parallel" in step || "keep_going" in step, false);
 });
 
 test("changing what kind of step it is resets the fields of the old kind", async () => {

@@ -327,28 +327,47 @@ test("a finished run can be deleted after confirming", async () => {
   assert.match(dialogs.confirm[0], /Delete run and its logs/);
 });
 
-test("sub-chains nest their rows, and per-item runs replace the outline", async () => {
+test("sub-chains nest their rows and fold, and per-item runs replace the outline with one folded row per item", async () => {
   reset();
   const compile = { id: "compile", path: "build.compile", title: "Compile it", kind: "tool", uses: "compile", status: "done", started_at: at(15, 50), ended_at: at(15, 55), output: { output: "built" } };
   const source = await openRun(runOf("running", { plan: planDone, test: testDone, build: { status: "running", started_at: at(15, 50), cost: 0.5, tokens: 20000, children: [compile] } }));
-  assert.equal(head("build").getAttribute("role"), null);
+  assert.equal(head("build").getAttribute("aria-expanded"), "true");
   assert.equal(row("build").querySelector(".kind").textContent, "C");
-  assert.equal(row("build").querySelector(".srow-stats").textContent, "20k tokens");
+  assert.match(row("build").querySelector(".srow-stats").textContent, /^\d+[hm] \d+[ms] · 20k tokens$/);
+  assert.equal(row("build").querySelector(".srow-stats [data-since]").title, "Elapsed");
   assert.equal(has(row("build"), '.kids .slot [id="row-build.compile"]'), true);
   click(head("build"));
+  assert.equal(row("build").querySelector(".kids").hidden, true);
   assert.equal(isOpen("build"), false);
+  press(head("build"), "Enter");
+  assert.equal(row("build").querySelector(".kids").hidden, false);
 
-  const item = (n, title, status) => ({
-    id: String(n), path: `build.${n}`, title, kind: "item", uses: "part", status,
-    children: [{ id: "compile", path: `build.${n}.compile`, title: "Compile it", kind: "tool", uses: "compile", status, started_at: at(15, 50), ended_at: at(15, 51) }],
+  const item = (n, title, status, { rounds, ...extra } = {}) => ({
+    id: String(n), path: `build.${n}`, title, kind: "item", uses: "part", status, ...extra,
+    children: [{ id: "compile", path: `build.${n}.compile`, title: "Compile it", kind: "tool", uses: "compile", status, rounds, started_at: at(15, 50), ended_at: status === "running" ? undefined : at(15, 51) }],
   });
-  const headline = "Runs part 2 times, once per item of plan.files";
-  source.send(runOf("running", { plan: planDone, test: testDone, build: { status: "running", headline, children: [item(1, "auth.go", "done"), item(2, "auth_test.go", "running")] } }));
-  assert.equal(row("build").querySelector(".srow-line").textContent, headline);
+  const headline = "Runs part 3 times in parallel, once per item of plan.files";
+  const items = [
+    item(1, "/work/demo/auth.md", "done", { label: "a1b84: check the session" }),
+    item(2, `/home/u/.swarm/runs/${RUN}/parts/auth_test.go`, "running", { started_at: at(15, 50), rounds: "2 of 3" }),
+    item(3, "auth.css", "pending"),
+  ];
+  source.send(runOf("running", { plan: planDone, test: testDone, build: { status: "running", headline, children: items } }));
+  assert.equal(row("build").querySelector(".srow-line").textContent, `1 done · 1 running · 1 pending · ${headline}`);
   assert.equal(has(row("build"), '[id="row-build.compile"]'), false);
-  assert.deepEqual(texts(row("build"), ".srow.item > .srow-head .kind"), ["1", "2"]);
-  assert.equal(row("build.1").querySelector(".srow-title").textContent, "auth.go");
+  assert.deepEqual(texts(row("build"), ".srow.item > .srow-head .kind"), ["1", "2", "3"]);
+  assert.deepEqual(texts(row("build"), ".srow.item > .srow-head .srow-title"), ["a1b84: check the session", "parts/auth_test.go", "auth.css"]);
+  assert.equal(row("build.1").querySelector(".srow-title").title, "/work/demo/auth.md");
+  assert.match(row("build.2").querySelector(".srow-line").textContent, /^Compile it \(round 2 of 3\) · Running · /);
+  assert.deepEqual(["build.1", "build.2", "build.3"].map((p) => head(p).getAttribute("aria-expanded")), ["false", "false", "false"]);
+  assert.equal(row("build.1").querySelector(".kids").hidden, true);
   assert.equal(has(row("build.1"), '[id="row-build.1.compile"]'), true);
+
+  page("focusRow('build.2.compile')");
+  assert.equal(row("build.2").querySelector(".kids").hidden, false);
+  assert.equal(isOpen("build.2.compile"), true);
+  click(head("build.1"));
+  assert.equal(row("build.1").querySelector(".kids").hidden, false);
 
   click(head("build.1.compile"));
   const reads = panel(row("build.1.compile"), "Reads");
@@ -360,6 +379,42 @@ test("sub-chains nest their rows, and per-item runs replace the outline", async 
   assert.ok($(".ol-if").classList.contains("ol-skipped"));
   assert.ok($(".ol-approved").classList.contains("ol-skipped"));
   assert.ok($(".ol-rejected").classList.contains("ol-ran"));
+});
+
+test("a lone item starts open", async () => {
+  reset();
+  const only = { id: "1", path: "build.1", title: "auth.go", kind: "item", uses: "part", status: "running", children: [{ id: "compile", path: "build.1.compile", title: "Compile it", kind: "tool", uses: "compile", status: "pending" }] };
+  await openRun(runOf("running", { plan: planDone, test: testDone, build: { status: "running", children: [only] } }));
+  assert.equal(head("build.1").getAttribute("aria-expanded"), "true");
+  assert.equal(row("build.1").querySelector(".kids").hidden, false);
+});
+
+test("pending and skipped steps fold into a count until shown", async () => {
+  reset();
+  const source = await openRun(runOf("running", { plan: planDone, test: { status: "running", started_at: at(15, 42) } }));
+  assert.ok($("#steps").classList.contains("hide-idle"));
+  assert.equal($("#show-idle").checked, false);
+  assert.equal($("#steps > .idle-note").textContent, "5 upcoming");
+
+  source.send(runOf("failed", { plan: planDone, test: { ...testDone, status: "failed" }, ship: { status: "skipped" } }, { ended_at: at(16) }));
+  assert.equal($("#steps > .idle-note").textContent, "4 not run · 1 skipped");
+  click($("#steps > .idle-note"));
+  assert.equal($("#steps").classList.contains("hide-idle"), false);
+  assert.equal($("#show-idle").checked, true);
+  source.send(runOf("failed", { plan: planDone, test: { ...testDone, status: "failed" }, ship: { status: "skipped" } }, { ended_at: at(16) }));
+  assert.equal($("#show-idle").checked, true);
+
+  const box = $("#show-idle");
+  box.checked = false;
+  box.dispatchEvent(new globalThis.Event("change", { bubbles: true }));
+  assert.ok($("#steps").classList.contains("hide-idle"));
+
+  page("focusRow('review')");
+  assert.equal($("#steps").classList.contains("hide-idle"), false);
+  page("setShowIdle(false)");
+
+  source.send(runOf("done", { plan: planDone, test: testDone, build: { status: "done" }, review: { status: "done" }, ship: { status: "done" }, learn: { status: "done" }, cleanup: { status: "done" } }, { ended_at: at(16) }));
+  assert.equal(has($("#steps"), ".idle-note"), false);
 });
 
 test("running times tick every second until a step ends", async () => {

@@ -19,11 +19,12 @@ function syncRounds(run) {
     const steps = loop.paths.map((p) => runView.entries.get(p)?.step).filter(Boolean);
     const groups = roundsOf(steps);
     const now = steps.length ? roundOf(steps[0]) : 1;
-    const sig = JSON.stringify([now, groups.map((g) => g.steps.map((s) => `${s.path}@${s.started_at}`))]);
+    const started = groups.length > 0 || steps.some((s) => RAN.has(s.status));
+    const sig = JSON.stringify([now, started, groups.map((g) => g.steps.map((s) => `${s.path}@${s.started_at}`))]);
     if (sig === loop.sig) continue;
     loop.sig = sig;
     loop.el.replaceChildren(...groups.map((g) => pastRound(run, g, loop.total, loop.opened)),
-      groups.length ? h("div", { class: "ol-label round-now" }, h("span", { class: "ol-word" }, `Round ${now} of ${loop.total}`)) : "");
+      started ? h("div", { class: "ol-label round-now" }, h("span", { class: "ol-word" }, `Round ${now} of ${loop.total}`)) : "");
   }
 }
 

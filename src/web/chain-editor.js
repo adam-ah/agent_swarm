@@ -239,7 +239,7 @@ function stepRows(open, step, depth) {
   return [
     treeRow({ kind: kindOf(step), title: step.title, id: step.id, sub: depth > 0, selected: editor.at === open && editor.selected === i, onclick: () => select(i, open) }),
     step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
-    lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}${step.parallel ? ", in parallel" : ""}${step.keep_going ? ", keep going on failure" : ""}`) : null,
+    lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}${step.parallel ? `, in parallel (${step.max_parallel || MAX_PARALLEL} at most)` : ""}${step.keep_going ? ", keep going on failure" : ""}`) : null,
     step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
     step.chain ? subchainRows(step.chain, depth + 1) : null,
   ];
