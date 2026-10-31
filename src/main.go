@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -280,7 +279,6 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 	if err := core.openSession(*project); err != nil {
 		return err
 	}
-	projects, opened := core.Projects()
 	srv := &server{core: core, quit: make(chan struct{})}
 	httpServer := &http.Server{Addr: addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -290,11 +288,10 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 		_ = httpServer.Shutdown(ctx)
 	}()
 	go reapOrphans(core.store, srv.quit, 30*time.Second)
-	log.Printf("swarm on http://%s, opens on %s, shared library %s, projects %v", addr, opened, homeDir, projects)
+	fmt.Printf("http://%s\n", addr)
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	log.Print("swarm server stopped")
 	return nil
 }
 
