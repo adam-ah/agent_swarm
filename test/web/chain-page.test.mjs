@@ -12,8 +12,8 @@ test("the start form asks for the chain's inputs, starting from this project's v
 
   assert.equal(text($("form.start .editbar-title")), "Start a run");
   assert.deepEqual(fields(), [
-    ["field wide", "What should change?", "textarea"],
-    ["field", "Test command optional · from Settings", "input"],
+    ["field wide", "What should change? required", "textarea"],
+    ["field", "Test command · from Settings", "input"],
   ]);
   const [request, testCommand] = $$("form.start .start-fields textarea, form.start .start-fields input");
   assert.equal(request.value, "");
@@ -91,8 +91,8 @@ test("a chain with problems cannot start, and a chain without inputs shows no fi
 
   await open("#/chain/ship-changeset");
   assert.deepEqual(fields(), [
-    ["field wide", "Changeset to apply", "textarea"],
-    ["field", "Dry run optional", "input"],
+    ["field wide", "Changeset to apply required", "textarea"],
+    ["field", "Dry run", "input"],
     ["field wide", "target", "textarea"],
   ]);
   assert.equal($$("form.start textarea")[1].value, "main");

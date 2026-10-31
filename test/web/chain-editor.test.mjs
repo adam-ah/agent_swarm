@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { $, $$, answers, calls, click, dialogs, fail, page, route, settle, type } from "./page.mjs";
-import { body, button, control, labelled, open, row, rows, solo, start, text, library, makeChange, shipChangeset } from "./editor-fixtures.mjs";
+import { body, button, caret, control, expand, labelled, open, row, rows, solo, start, text, library, makeChange, shipChangeset } from "./editor-fixtures.mjs";
 
 const parts = (el) => [...el.children].map((c) => text(c));
 const savedChain = (saved, name = "make-change") => body(saved.findLast((c) => c.path === `/api/items/chains/${name}.json`));
@@ -15,12 +15,20 @@ test("the editor shows the chain's steps as a tree with branches, notes and sub-
   assert.equal(text($(".eyebrow")), "Chain · chains/make-change.json · shared, all projects");
   assert.equal($("#chain-title").textContent, "Make a change");
   assert.equal(text($(".lead")), "Change the code, test it, review it and ask before merging.");
+  assert.ok($(".lead").classList.contains("clamp"));
+  click($(".lead"));
+  assert.ok(!$(".lead").classList.contains("clamp"));
   assert.equal(text($("#problems")), "Warnings:approve: nothing reads approve.note");
   assert.deepEqual(rows().map((r) => r.querySelector(".title").textContent),
     ["Title, inputs and values", "Read the issue", "Make the change", "Run the tests", "Review it", "Approve the change", "Merge", "Ship each changeset", "Tell the team", "Clean up"]);
   assert.deepEqual(rows().map((r) => r.querySelector(".kind").textContent), ["≡", "T", "A", "T", "A", "U", "T", "C", "T", "T"]);
   assert.deepEqual(rows().map((r) => r.querySelector(".id")?.textContent ?? ""),
     ["", "read_issue", "change", "test", "review", "approve", "merge", "ship", "tell", "cleanup"]);
+  assert.ok(row("Title, inputs and values").classList.contains("selected"));
+  assert.deepEqual($$("#tree .tree-row.sub"), []);
+  assert.equal(caret("Ship each changeset").title, "Expand ship-changeset");
+  expand("Ship each changeset", "Run solo", "Back to shipping");
+  assert.equal(caret("Ship each changeset").title, "Collapse ship-changeset");
   assert.ok(row("Title, inputs and values").classList.contains("selected"));
   assert.deepEqual($$("#tree .tree-row.sub .title").map((t) => t.textContent),
     ["Apply one changeset", "Run solo", "Only step", "Back to shipping", "Apply one changeset", "Run solo", "Only step", "Back to shipping"]);
@@ -173,14 +181,16 @@ test("the chain's own settings edit its title, inputs, values, heading and link"
   type(control("Description"), "Slowly.");
 
   const inputs = () => [...labelled("Inputs").querySelectorAll(".kv-row")];
+  assert.deepEqual([...labelled("Inputs").querySelector(".kv-head").children].map((c) => c.textContent), ["name", "label", "default", "optional", ""]);
+  assert.deepEqual([...labelled("Values").querySelector(".kv-head").children].map((c) => c.textContent), ["name", "value", ""]);
   assert.deepEqual(inputs()[1].querySelectorAll("input")[0].value, "test_command");
-  assert.ok(inputs()[1].querySelector(".check").classList.contains("on"));
+  assert.equal(inputs()[1].querySelector("input[type=checkbox]").checked, true);
   click(button("+ add", labelled("Inputs")));
   const fresh = inputs()[2].querySelectorAll("input");
   type(fresh[0], "ticket");
   type(fresh[1], "Which ticket?");
   click(fresh[3]);
-  assert.ok(inputs()[2].querySelector(".check").classList.contains("on"));
+  assert.equal(inputs()[2].querySelector("input[type=checkbox]").checked, true);
   click(inputs()[0].querySelector(".icon-btn"));
   assert.equal(inputs().length, 2);
 
@@ -231,6 +241,7 @@ test("a sub-chain's steps are edited in place and saved with the chain that runs
   await open("#/chain/make-change");
   const subRow = (title) => $$("#tree .tree-row.sub").find((r) => r.querySelector(".title").textContent === title);
 
+  expand("Ship each changeset", "Run solo", "Back to shipping");
   click(subRow("Apply one changeset"));
   assert.ok(subRow("Apply one changeset").classList.contains("selected"));
   assert.equal(heading(), "Apply one changeset");

@@ -1,4 +1,4 @@
-import { $$, go, page, reset, route, settle } from "./page.mjs";
+import { $$, click, go, page, reset, route, settle } from "./page.mjs";
 
 export const CHANGE_PROMPT = [
   "Change the code for {{request}}.",
@@ -168,6 +168,10 @@ export const rows = () => $$("#tree .tree-row:not(.sub)");
 export const own = (selector) => $$(selector).filter((el) => !el.closest(".subchain"));
 
 export const row = (title) => rows().find((r) => r.querySelector(".title").textContent === title);
+
+export const caret = (title) => $$("#tree .tree-row").find((r) => r.querySelector(".title").textContent === title).querySelector(".tree-caret");
+
+export const expand = (...titles) => titles.forEach((title) => click(caret(title)));
 
 export const titles = (selector) => $$(selector).map((el) => el.querySelector(".title").textContent);
 

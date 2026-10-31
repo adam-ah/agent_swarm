@@ -106,7 +106,7 @@ export default [
     rules: { ...css.configs.recommended.rules, "css/use-baseline": "off" },
   },
   {
-    files: ["src/web/run.css"],
+    files: ["src/web/run.css", "src/web/editor.css"],
     rules: { "css/no-invalid-properties": ["error", { allowUnknownVariables: true }] },
   },
 ];

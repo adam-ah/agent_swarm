@@ -288,12 +288,15 @@ function linesInput(list, onChange, attrs = {}) {
 
 function rowsEditor(rows, columns, onChange) {
   const wrap = h("div", { class: "kv" });
+  const shape = ["", "", "", "three", "four"][columns.length];
+  const head = columns.some((col) => col.head);
   const draw = () => {
     wrap.replaceChildren(
-      ...rows.map((row, i) => h("div", { class: `kv-row ${["", "", "", "three", "four"][columns.length]}` },
+      ...(head && rows.length ? [h("div", { class: `kv-head ${shape}` }, columns.map((col) => h("span", {}, col.head || "")), h("span"))] : []),
+      ...rows.map((row, i) => h("div", { class: `kv-row ${shape}` },
         columns.map((col) => (col.check
-          ? h("label", { class: `check ${row[col.key] ? "on" : ""}` },
-            h("input", { type: "checkbox", checked: !!row[col.key], onchange: (e) => { row[col.key] = e.target.checked || undefined; onChange(rows); draw(); } }), col.label)
+          ? h("label", { class: "kv-check", title: col.label },
+            h("input", { type: "checkbox", checked: !!row[col.key], onchange: (e) => { row[col.key] = e.target.checked || undefined; onChange(rows); } }), h("span", {}, col.label))
           : textInput(row[col.key], (v) => { row[col.key] = v; onChange(rows); }, { placeholder: col.label, title: col.label, class: col.mono ? "code" : "" }))),
         h("button", { class: "icon-btn", type: "button", title: "Remove", onclick: () => { rows.splice(i, 1); onChange(rows); draw(); } }, "×"))),
       h("button", { class: "linkish", type: "button", onclick: () => { rows.push(Object.fromEntries(columns.filter((c) => !c.check).map((c) => [c.key, ""]))); onChange(rows); draw(); } }, "+ add"));

@@ -50,7 +50,7 @@ function startForm(chain) {
     controls.length ? h("div", { class: "start-fields" }, controls.map(({ input, el, fromSettings }) =>
       h("label", { class: `field ${input.optional ? "" : "wide"}` },
         h("span", {}, input.label || input.name,
-          input.optional ? h("span", { class: "hint" }, " optional") : null,
+          input.optional || input.default || fromSettings ? null : h("span", { class: "hint" }, " required"),
           fromSettings ? h("span", { class: "hint", title: "Project input default (Settings)" }, " · from Settings") : null),
         el))) : null,
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: !!chain.problems?.length }, "Start run"), message),

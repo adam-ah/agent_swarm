@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { $, $$, answers, click, dialogs, settle, type } from "./page.mjs";
-import { body, button, control, labelled, library, makeChange, open, options, row, rows, shown, start, text } from "./editor-fixtures.mjs";
+import { body, button, control, expand, labelled, library, makeChange, open, options, row, rows, shown, start, text } from "./editor-fixtures.mjs";
 import { at, head, library as runLibrary, openRun, planDone, row as runRow, runOf } from "./run-fixtures.mjs";
 
 const parts = (el) => [...el.children].map((c) => text(c));
@@ -35,6 +35,7 @@ test("a chain that runs a looping sub-chain shows the sub-chain's loop the way t
   lib.chains.push({ name: "parent", title: "Parent", steps: [{ id: "run_change", title: "Run make-change", chain: "make-change" }], source: "project" });
   start(lib);
   await open("#/chain/parent");
+  expand("Run make-change");
 
   assert.deepEqual(parts($("#tree .ol-loop > .ol-label")),
     ["Repeat", "(4× at most)", "while", "review.verdict", "is CHANGES", "set by Review it", "· fail the run if rounds run out"]);

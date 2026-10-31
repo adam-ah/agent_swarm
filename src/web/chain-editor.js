@@ -7,7 +7,7 @@ function showEditor(name, stepID = "") {
     return;
   }
   editor = {
-    chains: {}, tools: clone(lib.tools), dirtyTools: new Set(), openShared: new Set(), dirty: false,
+    chains: {}, tools: clone(lib.tools), dirtyTools: new Set(), openShared: new Set(), expanded: new Set(), dirty: false,
     problems: chain.problems || [], warnings: chain.warnings || [], message: nextNotice,
   };
   editor.root = editor.at = chainDraft(name);
@@ -17,11 +17,11 @@ function showEditor(name, stepID = "") {
   main.replaceChildren(h("div", { class: "page" },
     h("div", { class: "eyebrow" }, `Chain · chains/${name}.json · ${FROM[chain.source]}`),
     h("h1", { id: "chain-title" }, editor.root.draft.title),
-    chain.description ? h("p", { class: "lead" }, chain.description) : null,
+    chain.description ? h("p", { class: "lead clamp folds", onclick: (e) => e.currentTarget.classList.toggle("clamp") }, chain.description) : null,
     startForm(chain),
     h("div", { class: "editbar", id: "savebar" }),
     h("div", { id: "problems" }),
-    h("div", { class: "split" },
+    h("div", { class: "split tree-split" },
       h("div", { class: "panel sticky" },
         h("div", { class: "panel-head" }, "Steps"),
         h("div", { class: "tree", id: "tree" }),
@@ -205,22 +205,23 @@ async function saveChain(scope = "") {
 }
 
 function reopen(keep = {}) {
-  const { at, selected } = editor;
+  const { at, selected, expanded } = editor;
   const id = at.draft.steps[selected]?.id;
   showEditor(editor.root.name);
   const back = chainDraft(at.name) || editor.root;
   const i = back.draft.steps.findIndex((s) => s.id === id);
-  Object.assign(editor, keep, { at: back, selected: i >= 0 ? i : "root" });
+  Object.assign(editor, keep, { at: back, selected: i >= 0 ? i : "root", expanded });
   renderEditorTree();
   renderSaveBar();
   renderInspector();
 }
 
-function treeRow({ kind, title, id, selected, sub, onclick }) {
+function treeRow({ kind, title, id, selected, sub, onclick, caret }) {
   return h("div", { class: `tree-row ${selected ? "selected" : ""} ${sub ? "sub" : ""} ${kind === "root" ? "tree-root" : ""}`, onclick },
     h("span", { class: `kind ${kind}`, title: KIND_NAME[kind] || "chain" }, KIND_LETTER[kind]),
-    h("span", { class: "title" }, title || "(untitled)"),
-    id ? h("span", { class: "id" }, id) : null);
+    h("span", { class: "title", title }, title || "(untitled)"),
+    id ? h("span", { class: "id", title: id }, id) : null,
+    caret);
 }
 
 function subchainRows(chainName, depth) {
@@ -232,16 +233,29 @@ function subchainRows(chainName, depth) {
   }));
 }
 
+function subchainCaret(key, chainName, depth) {
+  if (depth >= 4 || !lib.chains.some((c) => c.name === chainName)) return null;
+  const expanded = editor.expanded.has(key);
+  const toggle = (e) => {
+    e.stopPropagation();
+    if (!editor.expanded.delete(key)) editor.expanded.add(key);
+    renderEditorTree();
+  };
+  return h("button", { class: "tree-caret", type: "button", title: `${expanded ? "Collapse" : "Expand"} ${chainName}`, onclick: toggle }, expanded ? "▾" : "▸");
+}
+
 function stepRows(open, step, depth) {
   const steps = open.draft.steps;
   const i = steps.indexOf(step);
   const lists = step.chain ? listsPassed(step, steps, open.name) : [];
+  const key = `${open.name}/${step.id}`;
+  const caret = step.chain ? subchainCaret(key, step.chain, depth) : null;
   return [
-    treeRow({ kind: kindOf(step), title: step.title, id: step.id, sub: depth > 0, selected: editor.at === open && editor.selected === i, onclick: () => select(i, open) }),
+    treeRow({ kind: kindOf(step), title: step.title, id: step.id, sub: depth > 0, caret, selected: editor.at === open && editor.selected === i, onclick: () => select(i, open) }),
     step.stop_if ? h("div", { class: "tree-note" }, `⤷ stops the run here if its ${describeCondition(step.stop_if)}`) : null,
     lists.length ? h("div", { class: "tree-note" }, `⤷ runs ${step.chain} once per item of ${lists.join(", ")}${step.parallel ? `, in parallel (${step.max_parallel || MAX_PARALLEL} at most)` : ""}${step.keep_going ? ", keep going on failure" : ""}`) : null,
     step.resume ? h("div", { class: "tree-note" }, `⤷ continues the session of ${steps.find((s) => s.id === step.resume)?.title || step.resume}`) : null,
-    step.chain ? subchainRows(step.chain, depth + 1) : null,
+    caret && editor.expanded.has(key) ? subchainRows(step.chain, depth + 1) : null,
   ];
 }
 
@@ -361,9 +375,11 @@ function rootInspector() {
     h("h2", {}, "The chain"),
     field("Title", textInput(d.title, (v) => { d.title = v; touch(); })),
     field("Description", textArea(d.description, (v) => { d.description = v; touch(); }, { rows: 5 })),
-    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", mono: true }, { key: "label", label: "label" }, { key: "default", label: "default" }, { key: "optional", label: "optional", check: true }], () => touch()),
+    field("Inputs", rowsEditor(d.inputs, [{ key: "name", label: "name", head: "name", mono: true }, { key: "label", label: "label", head: "label" },
+      { key: "default", label: "default", head: "default" }, { key: "optional", label: "optional", head: "optional", check: true }], () => touch()),
       "set when a run starts"),
-    field("Values", rowsEditor(d.vars, [{ key: "name", label: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", mono: true }], () => touch()), "vars, computed once at run start"),
+    field("Values", rowsEditor(d.vars, [{ key: "name", label: "name", head: "name", mono: true }, { key: "value", label: "value, may use {{placeholders}}", head: "value", mono: true }], () => touch()),
+      "vars, computed once at run start"),
     h("div", { class: "row2" },
       field("Run heading", textInput(d.subject, (v) => { d.subject = v; touch(); }, { class: "code", placeholder: "e.g. {{request}}" }), "subject"),
       field("Run link", textInput(d.link, (v) => { d.link = v; touch(); }, { class: "code", placeholder: "e.g. {{read_issue.url}}" }), "URL for the run heading")));

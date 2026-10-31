@@ -482,13 +482,12 @@ test("rowsEditor edits, adds and removes rows", () => {
 
   type(name, "b");
   assert.equal(rows[0].name, "b");
-  const box = first().querySelector("input[type=checkbox]");
+  const box = first().querySelector("label.kv-check input[type=checkbox]");
   assert.equal(box.checked, true);
-  assert.equal(first().querySelector("label.check").className, "check on");
   box.checked = false;
   change(box);
   assert.equal(rows[0].on, undefined);
-  assert.equal(first().querySelector("label.check").className, "check ");
+  assert.equal(editor.querySelector(".kv-head"), null);
 
   click(editor.querySelector("button.linkish"));
   assert.deepEqual(rows[1], { name: "", value: "" });
@@ -500,6 +499,10 @@ test("rowsEditor edits, adds and removes rows", () => {
 
   assert.equal(page("rowsEditor")([{}], columns.slice(0, 2), () => {}).querySelector(".kv-row").className, "kv-row ");
   assert.equal(page("rowsEditor")([{}], [...columns, { key: "x", label: "x" }], () => {}).querySelector(".kv-row").className, "kv-row four");
+
+  const headed = columns.map((col) => ({ ...col, head: col.label }));
+  assert.deepEqual([...page("rowsEditor")([{}], headed, () => {}).querySelector(".kv-head.three").children].map((c) => c.textContent), ["name", "value", "on", ""]);
+  assert.equal(page("rowsEditor")([], headed, () => {}).querySelector(".kv-head"), null);
 });
 
 test("usedBy links each chain and step that matches", async () => {
