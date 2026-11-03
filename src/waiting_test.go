@@ -80,11 +80,11 @@ func TestCLIDecideNamesTheStep(t *testing.T) {
 
 func TestWaitingStepInAnItemSaysWhichStepToName(t *testing.T) {
 	user := &StepRun{Path: "each.2.approve", Title: "T", Status: "waiting", Question: "Q?"}
-	if got, want := stepLine(user, "", "http://x/#/run/1"), "⏸ T: Q?\n  answer with swarm approve / swarm reject, adding -step each.2.approve, or on the page: http://x/#/run/1\n"; got != want {
+	if got, want := stepLine(user, "", "http://x/#/run/1"), "⏸ T [each.2.approve]: Q?\n  answer with swarm approve / swarm reject, adding -step each.2.approve, or on the page: http://x/#/run/1\n"; got != want {
 		t.Errorf("user step = %q, want %q", got, want)
 	}
 	asking := &StepRun{Path: "each.2.plan", Title: "P", Status: "waiting", Asks: []*Ask{{Questions: []string{"Which?"}}}}
-	want := "? P asks:\n  1. Which?\n  answer with swarm answer RUN -a TEXT (once per question, in order) / swarm answer RUN -decide (it chooses), adding -step each.2.plan\n"
+	want := "? P [each.2.plan] asks:\n  1. Which?\n  answer with swarm answer RUN -a TEXT (once per question, in order) / swarm answer RUN -decide (it chooses), adding -step each.2.plan\n"
 	if got := stepLine(asking, "", ""); got != want {
 		t.Errorf("asking step = %q, want %q", got, want)
 	}

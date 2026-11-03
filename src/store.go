@@ -252,11 +252,12 @@ type RunSummary struct {
 	StartedAt time.Time         `json:"started_at"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Inputs    map[string]string `json:"inputs"`
+	Cost      float64           `json:"cost,omitempty"`
 	Question  string            `json:"question,omitempty"`
 }
 
 func summaryOf(run *Run) RunSummary {
-	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs}
+	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs, Cost: run.Cost}
 	if waiting := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); waiting != nil && run.Status == "waiting" {
 		sum.Question = waiting.Question
 		if ask := waiting.openAsk(); ask != nil {
@@ -294,9 +295,11 @@ func (s *Store) hasArtifact(id, path string) bool {
 
 func (s *Store) hasLog(id, log string) bool {
 	run := s.load(id)
-	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool {
-		return step.Log == log || step.AskedAgain == log || slices.ContainsFunc(step.Asks, func(a *Ask) bool { return a.Log == log })
-	}) != nil
+	return run != nil && log != "" && findStep(run.Steps, func(step *StepRun) bool { return step.madeLog(log) }) != nil
+}
+
+func (sr *StepRun) madeLog(log string) bool {
+	return sr.Log == log || sr.AskedAgain == log || slices.ContainsFunc(sr.Asks, func(a *Ask) bool { return a.Log == log })
 }
 
 func findStep(steps []*StepRun, match func(*StepRun) bool) *StepRun {

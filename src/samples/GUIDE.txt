@@ -53,8 +53,23 @@ All act on the current folder's project; -project DIR picks another.
     swarm run CHAIN [-input name=value]... [-detach]
     swarm test CHAIN [-input name=value]... [-mock JSON|FILE] [-run ID,...]
                                   dry run; see TESTING
-    swarm runs                    recent runs
-    swarm show RUN                a run's steps
+    swarm runs [-json]            recent runs: status, duration, cost
+    swarm show RUN [-json]        a run's steps with path, start, duration,
+                                  cost
+    swarm show RUN -step PATH [-json]
+                                  one step in full: times, cost, error,
+                                  every field, questions, earlier attempts,
+                                  its logs
+    swarm log RUN -step PATH [-json]
+                                  the step's call: command, exit, stdin,
+                                  stdout, stderr, result, tool calls with
+                                  timing; -json has each tool call's input
+                                  and output
+    swarm log RUN -step PATH -stream
+                                  an agent step's transcript
+    swarm files RUN [PATH]        the run folder's files and the files
+                                  steps show, or print one
+    swarm COMMAND -h              that command's usage
     swarm cancel RUN              stop a run; "always" steps still run
     swarm approve RUN [-note T]   answer the user step a run waits on, only
     swarm revise RUN -note T      when the person tells you to

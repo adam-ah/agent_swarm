@@ -36,6 +36,8 @@ type cli struct {
 	step       string
 	below      bool
 	detach     bool
+	asJSON     bool
+	stream     bool
 	mock       string
 	real       string
 	inputs     inputFlags
@@ -67,6 +69,10 @@ func runCommand(command string, args []string) error {
 		return c.cancel()
 	case "show":
 		return c.show()
+	case "log":
+		return c.callLog()
+	case "files":
+		return c.runFiles()
 	}
 	project, err := c.core.Project(c.folder)
 	if err != nil {
@@ -85,7 +91,9 @@ func parseCommand(command string, args []string) (*cli, error) {
 	flags.StringVar(&c.scope, "scope", "", "put: project or shared; default is where it already lives, else project")
 	flags.StringVar(&c.note, "note", "", "approve, revise, reject: a note for the record; revise needs one")
 	flags.StringVar(&c.about, "about", "", "memory add: what the notes came from")
-	flags.StringVar(&c.step, "step", "", "approve, revise, reject, answer: the waiting step, such as build.2.plan, when more than one waits")
+	flags.StringVar(&c.step, "step", "", "show, log: the step, such as build.2.plan; approve, revise, reject, answer: the waiting step, when more than one waits")
+	flags.BoolVar(&c.asJSON, "json", false, "runs, show, log: print JSON")
+	flags.BoolVar(&c.stream, "stream", false, "log: the agent's transcript")
 	flags.BoolVar(&c.detach, "detach", false, "run: print the run's id and return; the run keeps going")
 	flags.Var(c.inputs, "input", "run, test: a chain input as name=value; repeat for more")
 	flags.Var(&c.answers, "a", "answer: the answer to one question; repeat once per question, in order")
@@ -139,8 +147,7 @@ func (c *cli) inProject(project string) error {
 	case "settings":
 		return c.settings(project)
 	case "runs":
-		c.runs(project)
-		return nil
+		return c.runs(project)
 	case "run":
 		return c.run(project)
 	case "test":

@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## CLI parity
+
+The `swarm` command returns every piece of data the page shows: runs, steps, timing, cost, fields, errors, questions, earlier attempts, calls, tool calls, transcripts, run files, chains, tools, prompts, settings and memory.
+
+- Text output prints values in full or says which command prints them in full. No value is reachable only on the page, through the HTTP API, or by reading files under `.swarm/` or `~/.swarm/`.
+- Read commands take `-json` for the same data the page's API returns.
+- Every command answers `-h` with its own usage.
+- A change that adds data to the page adds it to the CLI, with a test, in the same change.
+
 ## Wording
 
 swarm is for software engineers. Write every label, heading, hint, button, placeholder, confirm and prompt text, CLI message and error for them: terse, precise, standard terms.

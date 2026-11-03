@@ -209,7 +209,7 @@ func TestCLIAnswer(t *testing.T) {
 		run.Steps[0].Kind, run.Steps[0].Status, run.Steps[0].Asks = "agent", "waiting", []*Ask{{Questions: []string{"Which?", "When?"}}}
 	})
 	out, err := surfaceCLI(t, "show", run.ID)
-	surfaceContains(t, out, err, "? Greet asks:\n  1. Which?\n  2. When?\n")
+	surfaceContains(t, out, err, "? Greet [greet] asks:\n  1. Which?\n  2. When?\n")
 	_, err = surfaceCLI(t, "answer", run.ID, "-a", "this")
 	surfaceFails(t, err, "it asked 2 questions and got 1 answers")
 	out, err = surfaceCLI(t, "answer", run.ID, "-a", "this", "-a", "now")

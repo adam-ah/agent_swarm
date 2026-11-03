@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -53,15 +54,29 @@ validated before saving; * marks commands that write.
   swarm test CHAIN [-input name=value]... [-mock JSON|FILE] [-run ID,...]
                                   dry run: the real flow with mocked answers; only -run steps
                                   really run; prints every step's answer and what nothing filled
-  swarm runs                      recent runs
-  swarm show RUN                  a run's steps
-  swarm approve RUN [-note T]   * answer the user step a run waits on
-  swarm revise RUN -note T      * send the run back to the step's revise target with the note
-  swarm reject RUN [-note T]    *
-  swarm answer RUN -a TEXT...   * answer the questions an agent step asks, one -a per question
-  swarm answer RUN -decide      * let the agent decide them itself
-                                  these four take -step PATH (e.g. build.2.plan) when several
-                                  steps are waiting
+  swarm runs [-json]              recent runs: status, chain, duration, cost, subject
+  swarm show RUN [-json]          a run's steps with path, start, duration, cost
+  swarm show RUN -step PATH [-json]
+                                  one step in full: times, cost, error, every field, questions,
+                                  earlier attempts, its logs
+  swarm log RUN -step PATH [-json]
+                                  the step's call: command, exit, stdin, stdout, stderr, result,
+                                  tool calls with timing; -json has each tool call's input and output
+  swarm log RUN -step PATH -stream
+                                  an agent step's transcript (.jsonl)
+  swarm files RUN [PATH]          the run folder's files and the files steps show, or print one
+  swarm approve RUN [-note T] [-step PATH]
+                                * answer the user step a run waits on
+  swarm revise RUN -note T [-step PATH]
+                                * send the run back to the step's revise target with the note
+  swarm reject RUN [-note T] [-step PATH]
+                                * reject the user step a run waits on
+  swarm answer RUN -a TEXT... [-step PATH]
+                                * answer the questions an agent step asks, one -a per question
+  swarm answer RUN -decide [-step PATH]
+                                * let the agent decide them itself
+                                  -step PATH (from swarm show, e.g. build.2.plan): the waiting
+                                  step, when several wait
   swarm cancel RUN              * stop a run; "always" steps still run
 
   swarm serve [PORT] [-host IP]   the page, on 127.0.0.1:7070; -host 0.0.0.0 for every interface
@@ -85,6 +100,15 @@ func main() {
 }
 
 func dispatch(command string, args []string) error {
+	if command == "help" && len(args) > 0 {
+		command, args = args[0], []string{"-h"}
+	}
+	if slices.ContainsFunc(args, func(a string) bool { return a == "-h" || a == "-help" || a == "--help" }) {
+		if help := commandHelp(command); help != "" {
+			fmt.Print(help)
+			return nil
+		}
+	}
 	switch command {
 	case "overview":
 		overview()
@@ -103,11 +127,31 @@ func dispatch(command string, args []string) error {
 		return stopServer(args)
 	case "_run":
 		return work(args)
-	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "approve", "revise", "reject", "answer",
-		"cancel", "snapshot", "diff", "restore":
+	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "log", "files", "approve", "revise",
+		"reject", "answer", "cancel", "snapshot", "diff", "restore":
 		return runCommand(command, args)
 	}
 	return fmt.Errorf("no command %q\n\n%s", command, usage)
+}
+
+func commandHelp(command string) string {
+	var b strings.Builder
+	in := false
+	for _, line := range strings.Split(usage, "\n") {
+		if strings.HasPrefix(line, "  swarm ") {
+			in = strings.Fields(line)[1] == command
+		} else if !strings.HasPrefix(line, "     ") {
+			in = false
+		}
+		if in {
+			b.WriteString(line + "\n")
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	globals := strings.TrimRight(usage, "\n")
+	return b.String() + "\n" + globals[strings.LastIndex(globals, "\n\n")+2:] + "\n"
 }
 
 func defaultHome() string {

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +16,24 @@ func (c *cli) link(id string) string {
 	return "http://" + c.addr + "/#/run/" + id
 }
 
-func (c *cli) runs(project string) {
-	for _, r := range c.core.store.list(project) {
-		fmt.Printf("%s  %-11s %-16s %s\n", r.ID, r.Status, r.Chain, firstLine(r.Subject))
+func (c *cli) runs(project string) error {
+	list := c.core.store.list(project)
+	if c.asJSON {
+		return printJSON(list)
 	}
+	if len(list) == 0 {
+		fmt.Println("No runs.")
+	}
+	for _, r := range list {
+		ran := ""
+		if r.EndedAt != nil {
+			ran = span(elapsed(r.StartedAt, r.EndedAt))
+		} else if r.Status == "running" || r.Status == "waiting" {
+			ran = "+" + span(elapsed(r.StartedAt, nil))
+		}
+		fmt.Printf("%s  %-11s %-16s %8s %7s  %s\n", r.ID, r.Status, r.Chain, ran, money(r.Cost), firstLine(r.Subject))
+	}
+	return nil
 }
 
 func (c *cli) run(project string) error {
@@ -83,12 +98,47 @@ func (c *cli) show() error {
 	if run == nil {
 		return fmt.Errorf("no run %s", id)
 	}
-	fmt.Printf("%s  %s  %s\n%s\n\n", run.ID, run.Status, run.Title, run.Subject)
+	if c.step != "" {
+		return c.showStep(run)
+	}
+	if c.asJSON {
+		return printJSON(run)
+	}
+	fmt.Printf("%s  %s  %s\n%s\n%s\n", run.ID, run.Status, run.Title, run.Subject, runStats(run))
+	if len(run.Inputs) > 0 {
+		fmt.Print("inputs:\n" + fieldsText(toAny(run.Inputs), "  "))
+	}
+	fmt.Println()
 	report(run.Steps, "", map[string]string{}, c.link(id))
 	if run.Reason != "" {
 		fmt.Printf("\n%s\n", run.Reason)
 	}
+	if len(run.Stopped) > 0 {
+		fmt.Print("\n" + block(fmt.Sprintf("killed outside a step (%d)", len(run.Stopped)), strings.Join(run.Stopped, "\n"), ""))
+	}
+	fmt.Printf("\nswarm show %s -step PATH: one step in full · swarm log %s -step PATH: its call · swarm files %s: run files\n", id, id, id)
 	return nil
+}
+
+func runStats(run *Run) string {
+	stats := []string{"started " + clock(run.StartedAt)}
+	if run.ResumedAt != nil {
+		from := run.RerunFrom
+		if from == "" {
+			from = "its failed step"
+		}
+		stats = append(stats, "rerun from "+from+" at "+clock(*run.ResumedAt))
+	}
+	switch {
+	case run.EndedAt != nil:
+		stats = append(stats, "ran "+span(elapsed(run.StartedAt, run.EndedAt)))
+	case run.going():
+		stats = append(stats, span(elapsed(run.StartedAt, nil))+" so far")
+	}
+	if run.Cost > 0 {
+		stats = append(stats, money(run.Cost))
+	}
+	return strings.Join(stats, " · ")
 }
 
 func (c *cli) follow(id string) error {
@@ -129,9 +179,10 @@ func stepLine(s *StepRun, indent, link string) string {
 	if ask := s.openAsk(); s.Status == "waiting" && ask != nil {
 		return askLine(s, ask, indent, link)
 	}
+	title := shownTitle(s) + stepTag(s)
 	switch s.Status {
 	case "running":
-		return fmt.Sprintf("%s… %s [%s]\n", indent, s.Title, s.Kind)
+		return fmt.Sprintf("%s… %s\n", indent, shownTitle(s)+stepTag(s, s.Kind))
 	case "waiting":
 		answers := "swarm approve / swarm reject"
 		if s.Revise != "" {
@@ -141,24 +192,69 @@ func stepLine(s *StepRun, indent, link string) string {
 		if link != "" {
 			answers += ", or on the page: " + link
 		}
-		return fmt.Sprintf("%s⏸ %s: %s\n%s  answer with %s\n", indent, s.Title, s.Question, indent, answers)
+		return fmt.Sprintf("%s⏸ %s: %s\n%s  answer with %s\n", indent, title, s.Question, indent, answers)
 	case "done":
-		return fmt.Sprintf("%s✓ %s%s\n", indent, s.Title, suffix(s.Headline))
+		return fmt.Sprintf("%s✓ %s%s\n", indent, title, suffix(s.Headline))
 	case "failed":
-		return fmt.Sprintf("%s✗ %s%s\n", indent, s.Title, suffix(s.Error))
+		return fmt.Sprintf("%s✗ %s%s\n", indent, title, suffix(s.Error))
 	case "rejected":
-		return fmt.Sprintf("%s✗ %s (rejected)%s\n", indent, s.Title, suffix(s.Headline))
+		return fmt.Sprintf("%s✗ %s (rejected)%s\n", indent, title, suffix(s.Headline))
 	case "stopped":
-		return fmt.Sprintf("%s■ %s (ended the run)%s\n", indent, s.Title, suffix(s.Headline))
+		return fmt.Sprintf("%s■ %s (ended the run)%s\n", indent, title, suffix(s.Headline))
 	case "skipped":
-		return fmt.Sprintf("%s- %s (skipped)\n", indent, s.Title)
+		return fmt.Sprintf("%s- %s (skipped)\n", indent, title)
 	}
-	return fmt.Sprintf("%s  %s\n", indent, s.Title)
+	return fmt.Sprintf("%s  %s\n", indent, title)
+}
+
+func stepTag(s *StepRun, extra ...string) string {
+	parts := append([]string{s.Path}, extra...)
+	if s.StartedAt != nil {
+		parts = append(parts, clock(*s.StartedAt))
+		switch {
+		case s.EndedAt != nil:
+			parts = append(parts, took(elapsed(*s.StartedAt, s.EndedAt)))
+		case s.Status == "running":
+			parts = append(parts, "running "+span(elapsed(*s.StartedAt, nil)))
+		}
+	}
+	if s.Cost > 0 && !holdsSteps(s) {
+		parts = append(parts, money(s.Cost))
+	} else if s.Tokens > 0 {
+		parts = append(parts, tokens(s.Tokens))
+	}
+	if s.Status == "running" && s.Kind == "agent" {
+		parts = append(parts, fmt.Sprintf("%d actions", s.Actions))
+	}
+	parts = slices.DeleteFunc(parts, func(p string) bool { return p == "" })
+	if len(parts) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(parts, " · ") + "]"
+}
+
+func shownTitle(s *StepRun) string {
+	if s.Kind != "item" {
+		return s.Title
+	}
+	if s.Label != "" {
+		return s.Label
+	}
+	if _, rest, found := strings.Cut(s.Title, "/runs/"); found {
+		if _, inRun, ok := strings.Cut(rest, "/"); ok {
+			return inRun
+		}
+	}
+	return s.Title
+}
+
+func holdsSteps(s *StepRun) bool {
+	return s.Kind == "chain" || s.Kind == "item"
 }
 
 func askLine(s *StepRun, ask *Ask, indent, link string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s? %s asks:\n", indent, s.Title)
+	fmt.Fprintf(&b, "%s? %s asks:\n", indent, shownTitle(s)+stepTag(s))
 	for i, q := range ask.Questions {
 		fmt.Fprintf(&b, "%s  %d. %s\n", indent, i+1, q)
 	}

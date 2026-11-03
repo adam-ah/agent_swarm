@@ -15,7 +15,7 @@ func TestCLIRunFollowsToTheEnd(t *testing.T) {
 	surfaceFails(t, err, "no chain named ghost")
 
 	out, err := surfaceCLI(t, "run", "hello")
-	surfaceContains(t, out, err, "following; Ctrl-C detaches", "✓ Greet: hello", "\ndone\n")
+	surfaceContains(t, out, err, "following; Ctrl-C detaches", "✓ Greet [greet · ", "s]: hello", "\ndone\n")
 	if strings.Contains(out, "on the page") {
 		t.Errorf("no page is running, but: %s", out)
 	}
@@ -23,7 +23,7 @@ func TestCLIRunFollowsToTheEnd(t *testing.T) {
 	addr := surfaceServer(t, core)
 	out, err = surfaceCLI(t, "run", "broken", "-addr", addr)
 	surfaceFails(t, err, "the run did not finish")
-	for _, want := range []string{"on the page: http://" + addr + "/#/run/", "✗ Boom: broken", "failed: Boom failed: broken"} {
+	for _, want := range []string{"on the page: http://" + addr + "/#/run/", "✗ Boom [boom · ", "s]: broken", "failed: Boom failed: broken"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -44,7 +44,7 @@ func TestCLIRunDetachedAndApproved(t *testing.T) {
 	surfaceWait(t, core, id, "waiting")
 
 	out, err = surfaceCLI(t, "show", id)
-	surfaceContains(t, out, err, id+"  waiting  Ask", "⏸ OK: Keep it?", "swarm revise -note TEXT (back to Greet)")
+	surfaceContains(t, out, err, id+"  waiting  Ask", "s so far\n", "⏸ OK [ok · ", "]: Keep it?", "swarm revise -note TEXT (back to Greet)")
 	out, err = surfaceCLI(t, "runs")
 	surfaceContains(t, out, err, id+"  waiting")
 	out, err = surfaceCLI(t, "approve", id, "-note", "fine")
@@ -97,7 +97,8 @@ func TestCLIShow(t *testing.T) {
 	})
 	addr := surfaceServer(t, core)
 	out, err := surfaceCLI(t, "show", run.ID, "-addr", addr)
-	surfaceContains(t, out, err, run.ID+"  failed  Hello\nthe subject", "✓ Greet\n", "✗ Group: 1 of 1 failed\n", "  ✗ Item: broken\n", "\nBoom failed: broken\n")
+	surfaceContains(t, out, err, run.ID+"  failed  Hello\nthe subject", "✓ Greet [greet]\n", "✗ Group [group]: 1 of 1 failed\n", "  ✗ Item [group.0]: broken\n",
+		"\nBoom failed: broken\n", "swarm show "+run.ID+" -step PATH: one step in full")
 }
 
 func TestStepLine(t *testing.T) {
@@ -135,7 +136,7 @@ func TestReportPrintsOnlyChangedSteps(t *testing.T) {
 		report(steps, "", seen, "")
 		return nil
 	})
-	if out != "✓ A\n" {
+	if out != "✓ A [a]\n" {
 		t.Errorf("report = %q", out)
 	}
 }
