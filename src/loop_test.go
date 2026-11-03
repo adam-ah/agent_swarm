@@ -112,6 +112,52 @@ if [ $n -ge 2 ]; then echo '{"verdict": "APPROVE"}'; else echo '{"verdict": "CHA
 	}
 }
 
+func TestSubChainFieldsComeFromItsLatestRound(t *testing.T) {
+	lib := sequenceLibrary(t)
+	lib.Tools["check"] = Tool{Run: `n=$(( $(cat {{run_folder}}/n 2>/dev/null || echo 0) + 1 )); echo $n > {{run_folder}}/n
+if [ $n -ge 2 ]; then echo '{"changed": "no"}'; else echo '{"changed": "yes"}'; fi`}
+	lib.Chains["inner"] = &Chain{Name: "inner", Steps: []Step{{ID: "check", Title: "Check", Tool: "check"}}}
+	run, folder := execute(t, lib, &Chain{Name: "main", Steps: []Step{
+		{ID: "work", Title: "Work", Chain: "inner"},
+		{ID: "again", Title: "Again", Repeat: "work", Rounds: 4, When: "check.changed == yes"},
+	}})
+	if run.Status != "done" || reviews(t, folder) != "2" {
+		t.Errorf("run %s after %s checks; again %q", run.Status, reviews(t, folder), run.Steps[1].Headline)
+	}
+}
+
+func TestRerunInsideALoopKeepsItsRound(t *testing.T) {
+	lib := sequenceLibrary(t)
+	lib.Tools["count"] = Tool{Run: `echo x >> {{run_folder}}/n`}
+	lib.Tools["fix"] = Tool{Run: `echo x >> {{run_folder}}/fixes; [ "$(wc -l < {{run_folder}}/fixes)" -ne 2 ] || { echo flaky >&2; exit 1; }`}
+	chain := &Chain{Name: "main", Steps: []Step{
+		{ID: "review", Title: "Review", Tool: "count"},
+		{ID: "fix", Title: "Fix", Tool: "fix"},
+		{ID: "again", Title: "Again", Repeat: "review"},
+	}}
+	run, folder := execute(t, lib, chain)
+	if run.Status != "failed" {
+		t.Fatalf("first attempt = %s %q", run.Status, run.Reason)
+	}
+	rerunFailed(t, lib, chain, run, folder)
+	if raw, _ := os.ReadFile(filepath.Join(folder, "n")); run.Status != "done" || strings.Count(string(raw), "x") != 3 {
+		t.Errorf("run %s after %d reviews, want 3; again %q", run.Status, strings.Count(string(raw), "x"), run.Steps[2].Headline)
+	}
+}
+
+func TestReviseBeforeALoopRestartsItsRounds(t *testing.T) {
+	lib := sequenceLibrary(t)
+	run, _ := execute(t, lib, &Chain{Name: "main", Steps: []Step{
+		{ID: "work", Title: "Work", Tool: "say", With: map[string]string{"value": "w"}},
+		{ID: "ask", Title: "Ask", User: "Keep it?", Revise: "work"},
+		{ID: "again", Title: "Ask again", Repeat: "ask", Rounds: 2},
+	}}, "approve", "revise:redo", "approve", "approve")
+	ask := run.Steps[1]
+	if run.Status != "done" || len(ask.Earlier) != 3 || run.Steps[2].Headline != "All 2 rounds ran, so the run went on" {
+		t.Errorf("run %s (%s), ask asked %d times, want 4; again %q", run.Status, run.Reason, len(ask.Earlier)+1, run.Steps[2].Headline)
+	}
+}
+
 func TestRepeatWithoutAConditionRunsEveryRound(t *testing.T) {
 	lib := sequenceLibrary(t)
 	lib.Tools["count"] = Tool{Run: `echo x >> {{run_folder}}/n; wc -l < {{run_folder}}/n`}
@@ -160,6 +206,19 @@ func TestCheckRepeatSteps(t *testing.T) {
 		if got := strings.Join(lib.check(chain(c.step)), "; "); got != c.want {
 			t.Errorf("%+v: problems %q, want %q", c.step, got, c.want)
 		}
+	}
+}
+
+func TestCheckRefusesCrossingLoops(t *testing.T) {
+	lib := sequenceLibrary(t)
+	say := func(id string) Step { return Step{ID: id, Title: id, Tool: "say"} }
+	crossing := &Chain{Name: "main", Steps: []Step{say("a"), say("b"), {ID: "r1", Title: "R1", Repeat: "a"}, {ID: "r2", Title: "R2", Repeat: "b"}}}
+	if got := strings.Join(lib.check(crossing), "; "); got != `step "r2": its loop from b crosses the loop of step "r1"; nest loops or keep them apart` {
+		t.Errorf("crossing loops: %q", got)
+	}
+	nested := &Chain{Name: "main", Steps: []Step{say("a"), say("b"), {ID: "r1", Title: "R1", Repeat: "b"}, {ID: "r2", Title: "R2", Repeat: "a"}, {ID: "r3", Title: "R3", Repeat: "a"}}}
+	if got := lib.check(nested); len(got) != 0 {
+		t.Errorf("nested loops: %v", got)
 	}
 }
 

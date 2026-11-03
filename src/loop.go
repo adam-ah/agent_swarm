@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -42,6 +43,32 @@ func (r *Runner) loop(ctx context.Context, p pass, step Step, sr *StepRun, i int
 		sr.Status, sr.Headline = "done", fmt.Sprintf("All %d rounds ran, so the run went on", rounds)
 	})
 	return i
+}
+
+func restartLoops(steps []*StepRun, landing, from int) {
+	for r := from + 1; r < len(steps); r++ {
+		sr := steps[r]
+		if sr.Kind != "repeat" || slices.IndexFunc(steps, func(s *StepRun) bool { return s.ID == sr.Uses }) <= landing {
+			continue
+		}
+		sr.Repeats = 0
+		for j := from + 1; j <= r; j++ {
+			steps[j].Rounds = ""
+		}
+	}
+}
+
+func crossingLoops(chain *Chain) []string {
+	var problems []string
+	for j, outer := range chain.Steps {
+		start := chain.stepIndex(outer.Repeat)
+		for i := max(start, 0); outer.Repeat != "" && i < j; i++ {
+			if inner := chain.Steps[i]; inner.Repeat != "" && chain.stepIndex(inner.Repeat) < start {
+				problems = append(problems, fmt.Sprintf("step %q: its loop from %s crosses the loop of step %q; nest loops or keep them apart", outer.ID, outer.Repeat, inner.ID))
+			}
+		}
+	}
+	return problems
 }
 
 func (p pass) endedEarly(ctx context.Context, step Step, sr *StepRun) {

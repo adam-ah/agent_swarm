@@ -108,6 +108,27 @@ func TestRerunFromFailedStepRunsOnlyTheFailedItem(t *testing.T) {
 	}
 }
 
+func TestRerunFromAStepAfterTheFailureStartsAtTheFailure(t *testing.T) {
+	lib, fixed := flakyLibrary(t)
+	chain := &Chain{Name: "main", Steps: []Step{
+		{ID: "flaky", Title: "Flaky", Tool: "flaky", With: map[string]string{"value": "x"}},
+		{ID: "cleanup", Title: "Clean up", Tool: "say", With: map[string]string{"value": "bye"}, Always: true},
+	}}
+	run, folder := execute(t, lib, chain)
+	if err := os.WriteFile(fixed, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if target := rewindFrom(run.Steps, "cleanup"); target == nil || target.Title != "Flaky" {
+		t.Fatalf("rerun starts at %v, want Flaky", target)
+	}
+	run.Status, run.inbox = "running", newInbox()
+	r := &Runner{store: openStore(filepath.Dir(folder)), swarm: "true", home: t.TempDir()}
+	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": folder}))
+	if flaky := run.Steps[0]; run.Status != "done" || len(flaky.Earlier) != 1 || flaky.Earlier[0].Status != "failed" {
+		t.Errorf("run %s (%s); flaky %s with %d earlier", run.Status, run.Reason, flaky.Status, len(flaky.Earlier))
+	}
+}
+
 func TestRerunFromFailedStepKeepsTheNotesSentBack(t *testing.T) {
 	lib, fixed := flakyLibrary(t)
 	chain := &Chain{Name: "main", Steps: []Step{

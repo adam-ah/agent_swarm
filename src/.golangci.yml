@@ -61,6 +61,10 @@ linters:
       - path: _test\.go
         linters:
           - lll
+      - path: _test\.go
+        linters:
+          - gosec
+        text: G404
       - linters:
           - noctx
         text: os/exec.Command must not be called

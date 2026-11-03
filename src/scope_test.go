@@ -1,7 +1,6 @@
 package main
 
 import (
-	"reflect"
 	"testing"
 )
 
@@ -9,7 +8,7 @@ func TestScopeFill(t *testing.T) {
 	tests := []struct {
 		name     string
 		values   map[string]string
-		outputs  map[string]map[string]any
+		steps    []*StepRun
 		local    map[string]any
 		template string
 		shell    bool
@@ -19,8 +18,8 @@ func TestScopeFill(t *testing.T) {
 		{name: "spaces inside braces", values: map[string]string{"name": "x"}, template: "{{  name  }}", want: "x"},
 		{name: "unknown placeholder stays", template: "{{missing}}", want: "{{missing}}"},
 		{name: "uppercase name is not a placeholder", values: map[string]string{"Name": "x"}, template: "{{Name}}", want: "{{Name}}"},
-		{name: "dotted output", outputs: map[string]map[string]any{"read": {"title": "T"}}, template: "{{read.title}}", want: "T"},
-		{name: "missing dotted field stays", outputs: map[string]map[string]any{"read": {}}, template: "{{read.title}}", want: "{{read.title}}"},
+		{name: "dotted output", steps: []*StepRun{doneStep("read", map[string]any{"title": "T"})}, template: "{{read.title}}", want: "T"},
+		{name: "missing dotted field stays", steps: []*StepRun{doneStep("read", map[string]any{})}, template: "{{read.title}}", want: "{{read.title}}"},
 		{name: "local beats values", values: map[string]string{"name": "values"}, local: map[string]any{"name": "local"}, template: "{{name}}", want: "local"},
 		{name: "list joins with newlines", local: map[string]any{"items": []any{"a", "b"}}, template: "{{items}}", want: "a\nb"},
 		{name: "number", local: map[string]any{"n": 3.0}, template: "{{n}}", want: "3"},
@@ -33,9 +32,7 @@ func TestScopeFill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newScope(tt.values)
-			if tt.outputs != nil {
-				s.outputs = tt.outputs
-			}
+			s.steps = tt.steps
 			if tt.local != nil {
 				s = s.with(tt.local)
 			}
@@ -70,7 +67,7 @@ func TestScopeChildFallsBackToParent(t *testing.T) {
 
 func TestScopeWithKeepsValuesAndOutputs(t *testing.T) {
 	base := newScope(map[string]string{"a": "1"})
-	base.outputs["step"] = map[string]any{"b": "2"}
+	base.steps = []*StepRun{doneStep("step", map[string]any{"b": "2"})}
 	local := base.with(map[string]any{"c": "3"})
 	for name, want := range map[string]string{"a": "1", "step.b": "2", "c": "3"} {
 		if got := local.fill("{{"+name+"}}", false); got != want {
@@ -103,7 +100,7 @@ func TestScopeComplete(t *testing.T) {
 
 func TestScopeHolds(t *testing.T) {
 	s := newScope(map[string]string{"verdict": "bug", "empty": ""})
-	s.outputs["triage"] = map[string]any{"kind": "ui"}
+	s.steps = []*StepRun{doneStep("triage", map[string]any{"kind": "ui"})}
 	tests := []struct {
 		name string
 		cond string
@@ -147,16 +144,36 @@ func TestUnmet(t *testing.T) {
 	}
 }
 
-func TestScopeFlatten(t *testing.T) {
+func doneStep(id string, output map[string]any) *StepRun {
+	return &StepRun{ID: id, Kind: "tool", Status: "done", Output: output}
+}
+
+func TestStepFieldsComeFromTheCurrentAttempt(t *testing.T) {
+	inner := doneStep("check", map[string]any{"changed": "yes"})
+	shadowed := doneStep("say", map[string]any{"output": "inner"})
+	item := &StepRun{ID: "1", Kind: "item", Status: "done", Children: []*StepRun{doneStep("hidden", map[string]any{"v": "x"})}}
 	s := newScope(nil)
-	s.outputs["read"] = map[string]any{"title": "T", "n": 2.0}
-	s.outputs["run"] = map[string]any{"ok": true}
-	want := map[string]any{"read.title": "T", "read.n": 2.0, "run.ok": true}
-	if got := s.flatten(); !reflect.DeepEqual(got, want) {
-		t.Errorf("flatten() = %v, want %v", got, want)
+	s.steps = []*StepRun{
+		doneStep("say", map[string]any{"output": "outer"}),
+		{ID: "work", Kind: "chain", Status: "done", Children: []*StepRun{inner, shadowed}},
+		{ID: "each", Kind: "chain", Status: "done", Headline: "sub ran once: 1 done", Children: []*StepRun{item}},
+		{ID: "skipped", Kind: "tool", Status: "skipped", Output: map[string]any{"v": "old"}},
+		{ID: "pending", Kind: "tool", Status: "pending", Output: map[string]any{"v": "old"}},
+		{ID: "broke", Kind: "tool", Status: "failed", Output: map[string]any{"output": "partial"}},
 	}
-	if got := newScope(nil).flatten(); len(got) != 0 {
-		t.Errorf("flatten() on empty scope = %v, want empty", got)
+	child := s.child(nil)
+	child.steps = []*StepRun{{ID: "check", Kind: "tool", Status: "skipped", Output: map[string]any{"changed": "yes"}}}
+	for name, want := range map[string]string{
+		"say.output": "outer", "check.changed": "yes", "work.check.changed": "yes", "work.say.output": "inner",
+		"each.summary": "sub ran once: 1 done", "hidden.v": "{{hidden.v}}", "skipped.v": "{{skipped.v}}",
+		"pending.v": "{{pending.v}}", "broke.output": "partial",
+	} {
+		if got := s.fill("{{"+name+"}}", false); got != want {
+			t.Errorf("{{%s}} = %q, want %q", name, got, want)
+		}
+	}
+	if got := child.fill("{{check.changed}}", false); got != "{{check.changed}}" {
+		t.Errorf("a skipped step in the sub-chain hides the caller's: {{check.changed}} = %q", got)
 	}
 }
 

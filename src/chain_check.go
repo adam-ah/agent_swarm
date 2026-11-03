@@ -13,6 +13,7 @@ func (lib *Library) check(chain *Chain) []string {
 		problems = append(problems, lib.stepProblems(chain, step, seen)...)
 		seen[step.ID] = true
 	}
+	problems = append(problems, crossingLoops(chain)...)
 	for _, in := range chain.Inputs {
 		if !stepID.MatchString(in.Name) {
 			problems = append(problems, fmt.Sprintf("input %q: names are lowercase letters, digits and underscores", in.Name))

@@ -20,6 +20,13 @@ func (e *runEnd) finish(status, reason string) {
 	e.ended = true
 }
 
+func (e *runEnd) current() string {
+	if !e.ended {
+		return "running"
+	}
+	return e.status
+}
+
 type pass struct {
 	lib      *Library
 	run      *Run
@@ -60,6 +67,7 @@ func (r *Runner) execute(ctx context.Context, lib *Library, chain *Chain, run *R
 }
 
 func (r *Runner) runSteps(ctx context.Context, p pass) {
+	p.sc.steps, p.sc.end = p.steps, p.end
 	for _, v := range p.chain.Vars {
 		p.sc.values[v.Name] = p.sc.fill(v.Value, false)
 	}
@@ -84,7 +92,7 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 		p.end.finish("stopped", "You stopped the run before: "+step.Title)
 	}
 	if sr.Status == "done" {
-		restore(p.lib, p.sc, step, sr)
+		restore(p.sc, step, sr)
 		return i
 	}
 	if r.skip(runCtx, p, step, sr) {
@@ -111,7 +119,6 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	} else {
 		out, err = r.runStep(ctx, p.lib, p.chain, p.run, sr, step, p.sc)
 	}
-	p.sc.outputs[step.ID] = out
 	r.record(runCtx, p, step, sr, out, err)
 	if err == nil && !p.end.ended && out["decision"] == "revise" {
 		return r.sendBack(p, step, i, text(out["note"]))
@@ -121,12 +128,10 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 
 func (r *Runner) skip(ctx context.Context, p pass, step Step, sr *StepRun) bool {
 	if p.end.ended && !step.Always {
-		delete(p.sc.outputs, step.ID)
 		r.store.update(p.run, func() { skipAll(sr) })
 		return true
 	}
 	if step.When != "" && !p.sc.holds(step.When) {
-		delete(p.sc.outputs, step.ID)
 		r.store.update(p.run, func() {
 			skipAll(sr)
 			sr.Headline = "Skipped: " + unmet(step.When)
@@ -198,6 +203,7 @@ func (r *Runner) sendBack(p pass, step Step, i int, note string) int {
 		for j := target; j <= i; j++ {
 			p.steps[j] = again(p.steps[j])
 		}
+		restartLoops(p.steps, target, i)
 		p.steps[target].SentBack = note
 		*p.feedback = feedback
 	})
@@ -233,11 +239,7 @@ func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (
 	if len(sr.Children) != len(sub.Steps) || len(sr.Children) > 0 && sr.Children[0].Kind == "item" {
 		r.store.update(p.run, func() { sr.Children = expand(p.lib, sub, sr.Path+".") })
 	}
-	child := p.sc.child(values)
-	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: child, end: p.end, feedback: &sr.Feedback})
-
-	out := child.flatten()
-	p.sc.adopt(child)
+	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: sr.Children, sc: p.sc.child(values), end: p.end, feedback: &sr.Feedback})
 	var failed []string
 	for _, c := range sr.Children {
 		if c.Status == "failed" {
@@ -246,9 +248,9 @@ func (r *Runner) runChain(ctx context.Context, p pass, sr *StepRun, step Step) (
 	}
 	r.store.update(p.run, func() { sr.Cost = costOf(sr.Children) })
 	if len(failed) > 0 {
-		return out, fmt.Errorf("%s failed", strings.Join(failed, ", "))
+		err = fmt.Errorf("%s failed", strings.Join(failed, ", "))
 	}
-	return out, nil
+	return nil, err
 }
 
 func costOf(steps []*StepRun) float64 {

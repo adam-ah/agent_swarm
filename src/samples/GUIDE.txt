@@ -184,7 +184,9 @@ Each step has an id, a title saying what it does, and exactly one of:
     loop runs (default 3). "fail": "out_of_rounds" fails the run if it still
     wants another round after the last; "fail": "ended_early" fails it if
     the loop ends before the last round; without fail the run goes on
-    either way. Takes only when, rounds and fail. A review loop:
+    either way. Takes only when, rounds and fail. Loops nest or stay apart;
+    "swarm check" refuses crossing loops. A revise back before a loop's
+    first step restarts its rounds; a rerun keeps them. A review loop:
       { "id": "fix", "title": "Fix the findings", "agent": "fix",
         "when": "review.verdict == CHANGES" },
       { "id": "again", "title": "Review again", "repeat": "review",
@@ -198,7 +200,9 @@ Any step may add:
                                       after the step, end the run; reads the
                                       step's own fields
     "always": true                    run even after a failure, stop or
-                                      reject; for cleanup and memory
+                                      reject; for cleanup and memory.
+                                      "when": "run_status == stopped" (or
+                                      failed, rejected) cleans up per ending
 
 A failed step ends the run, apart from "always" steps.
 
@@ -298,8 +302,12 @@ PLACEHOLDERS
   2. the inputs and vars of this chain and of every chain calling it
   3. project, run_id, run_folder (this run's files), memory (memory.md),
      home (~/.swarm), swarm (the binary), guide (this text), catalog
-     ("swarm list"), feedback (Revise notes, oldest first)
-  4. {{step_id.field}}: an earlier step's field, sub-chain steps included
+     ("swarm list"), feedback (Revise notes, oldest first), run_status
+     (running until the run ends, then stopped, failed or rejected; in a
+     per-item chain, how that item ended)
+  4. {{step_id.field}}: an earlier step's field, sub-chain steps included,
+     from its latest attempt; a step skipped, or not yet run in this round
+     of a loop or revise, has no fields
 
 An unfillable lowercase name stays as written and "swarm check" warns.
 Uppercase names such as {{VIDEO_URL}} are never filled, so later steps can

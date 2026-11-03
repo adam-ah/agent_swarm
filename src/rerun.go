@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -138,38 +139,49 @@ func fits(lib *Library, chain *Chain, steps []*StepRun) bool {
 
 func rewind(steps []*StepRun) {
 	for i, sr := range steps {
-		if sr.Status == "done" || sr.Status == "skipped" {
-			continue
+		if sr.Status != "done" && sr.Status != "skipped" {
+			restart(steps, i, retry)
+			return
 		}
-		steps[i] = retry(sr)
-		for j := i + 1; j < len(steps); j++ {
-			steps[j] = again(steps[j])
-		}
-		return
 	}
 }
 
 func rewindFrom(steps []*StepRun, path string) *StepRun {
 	for i, sr := range steps {
-		var target *StepRun
 		switch {
 		case sr.Path == path:
-			steps[i] = again(sr)
-			target = steps[i]
+			restart(steps, i, again)
+			return steps[i]
+		case !strings.HasPrefix(path, sr.Path+".") && sr.Status != "done" && sr.Status != "skipped":
+			restart(steps, i, retry)
+			return steps[i]
 		case strings.HasPrefix(path, sr.Path+"."):
-			if target = rewindFrom(sr.Children, path); target == nil {
-				return nil
+			target := rewindFrom(sr.Children, path)
+			if target != nil {
+				sr.Status, sr.Error, sr.Ended, sr.EndedAt = "pending", "", "", nil
+				restart(steps, i, func(sr *StepRun) *StepRun { return sr })
 			}
-			sr.Status, sr.Error, sr.Ended, sr.EndedAt = "pending", "", "", nil
-		default:
-			continue
+			return target
 		}
-		for j := i + 1; j < len(steps); j++ {
-			steps[j] = again(steps[j])
-		}
-		return target
 	}
 	return nil
+}
+
+func restart(steps []*StepRun, from int, first func(*StepRun) *StepRun) {
+	old := slices.Clone(steps)
+	steps[from] = first(steps[from])
+	for j := from + 1; j < len(steps); j++ {
+		steps[j] = again(steps[j])
+	}
+	for r := from + 1; r < len(steps); r++ {
+		if old[r].Kind != "repeat" || slices.IndexFunc(old, func(sr *StepRun) bool { return sr.ID == old[r].Uses }) > from {
+			continue
+		}
+		steps[r].Repeats = old[r].Repeats
+		for j := from; j <= r; j++ {
+			steps[j].Rounds = old[j].Rounds
+		}
+	}
 }
 
 func retry(sr *StepRun) *StepRun {
@@ -189,27 +201,10 @@ func retry(sr *StepRun) *StepRun {
 	return sr
 }
 
-func restore(lib *Library, sc *scope, step Step, sr *StepRun) {
-	if step.Kind() != "chain" {
-		sc.outputs[step.ID] = sr.Output
-		if sr.Session != "" {
-			sc.keepSession(step, agentSession{id: sr.Session, runner: sr.Runner, title: step.Title})
-		}
-		return
+func restore(sc *scope, step Step, sr *StepRun) {
+	if sr.Session != "" {
+		sc.keepSession(step, agentSession{id: sr.Session, runner: sr.Runner, title: step.Title})
 	}
-	if key, _, _ := listInput(step, sc); key != "" {
-		sc.outputs[step.ID] = map[string]any{"summary": sr.Headline}
-		return
-	}
-	sub := lib.Chains[step.Chain]
-	child := sc.child(map[string]string{})
-	for i, c := range sr.Children {
-		if c.Status == "done" {
-			restore(lib, child, sub.Steps[i], c)
-		}
-	}
-	sc.adopt(child)
-	sc.outputs[step.ID] = child.flatten()
 }
 
 func sameItems(groups []*StepRun, items []any, sub *Chain) bool {

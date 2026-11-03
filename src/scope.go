@@ -10,7 +10,7 @@ import (
 
 var placeholder = regexp.MustCompile(`\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}`)
 
-var builtinNames = []string{"project", "home", "swarm", "memory", "feedback", "run_id", "run_folder", "guide", "catalog"}
+var builtinNames = []string{"project", "home", "swarm", "memory", "feedback", "run_id", "run_folder", "run_status", "guide", "catalog"}
 
 func placeholders(template string) []string {
 	var names []string
@@ -26,28 +26,21 @@ type scope struct {
 	parent   *scope
 	local    map[string]any
 	values   map[string]string
-	outputs  map[string]map[string]any
+	steps    []*StepRun
+	end      *runEnd
 	sessions map[string]agentSession
 }
 
 func newScope(values map[string]string) *scope {
-	return &scope{values: values, outputs: map[string]map[string]any{}, sessions: map[string]agentSession{}}
+	return &scope{values: values, sessions: map[string]agentSession{}}
 }
 
 func (s *scope) with(local map[string]any) *scope {
-	return &scope{parent: s.parent, local: local, values: s.values, outputs: s.outputs, sessions: s.sessions}
+	return &scope{parent: s.parent, local: local, values: s.values, steps: s.steps, end: s.end, sessions: s.sessions}
 }
 
 func (s *scope) child(values map[string]string) *scope {
-	return &scope{parent: s, values: values, outputs: map[string]map[string]any{}, sessions: map[string]agentSession{}}
-}
-
-func (s *scope) adopt(child *scope) {
-	for id, fields := range child.outputs {
-		if _, taken := s.outputs[id]; !taken {
-			s.outputs[id] = fields
-		}
-	}
+	return &scope{parent: s, values: values, sessions: map[string]agentSession{}}
 }
 
 func (s *scope) lookup(name string) (string, bool) {
@@ -62,15 +55,54 @@ func (s *scope) value(name string) (any, bool) {
 	if v, ok := s.values[name]; ok {
 		return v, true
 	}
-	if step, field, dotted := strings.Cut(name, "."); dotted {
-		if out, ok := s.outputs[step]; ok {
-			if v, ok := out[field]; ok {
-				return v, true
-			}
+	if name == "run_status" && s.end != nil {
+		return s.end.current(), true
+	}
+	if id, field, dotted := strings.Cut(name, "."); dotted {
+		if sr := stepNamed(s.steps, id); sr != nil {
+			return fieldOf(sr, field)
 		}
 	}
 	if s.parent != nil {
 		return s.parent.value(name)
+	}
+	return nil, false
+}
+
+func perItem(sr *StepRun) bool {
+	return len(sr.Children) > 0 && sr.Children[0].Kind == "item"
+}
+
+func stepNamed(steps []*StepRun, id string) *StepRun {
+	for _, sr := range steps {
+		if sr.ID == id {
+			return sr
+		}
+	}
+	for _, sr := range steps {
+		if sr.Kind != "chain" || perItem(sr) {
+			continue
+		}
+		if inner := stepNamed(sr.Children, id); inner != nil {
+			return inner
+		}
+	}
+	return nil
+}
+
+func fieldOf(sr *StepRun, field string) (any, bool) {
+	switch {
+	case sr.Status != "done" && sr.Status != "failed" && sr.Status != "stopped" && sr.Status != "rejected":
+		return nil, false
+	case sr.Kind != "chain":
+		v, ok := sr.Output[field]
+		return v, ok
+	case perItem(sr) || len(sr.Children) == 0:
+		return sr.Headline, field == "summary"
+	}
+	id, rest, _ := strings.Cut(field, ".")
+	if inner := stepNamed(sr.Children, id); inner != nil {
+		return fieldOf(inner, rest)
 	}
 	return nil, false
 }
@@ -126,16 +158,6 @@ func unmet(cond string) string {
 	default:
 		return name + " is not " + want
 	}
-}
-
-func (s *scope) flatten() map[string]any {
-	out := map[string]any{}
-	for step, fields := range s.outputs {
-		for field, v := range fields {
-			out[step+"."+field] = v
-		}
-	}
-	return out
 }
 
 func text(v any) string {
