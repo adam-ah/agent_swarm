@@ -93,6 +93,25 @@ func TestRepeatCanFailWhenItEndsEarly(t *testing.T) {
 	}
 }
 
+func TestStepSkippedInALaterRoundDropsItsEarlierFields(t *testing.T) {
+	lib := sequenceLibrary(t)
+	lib.Tools["review"] = Tool{Run: `n=$(( $(cat {{run_folder}}/n 2>/dev/null || echo 0) + 1 )); echo $n > {{run_folder}}/n
+if [ $n -ge 2 ]; then echo '{"verdict": "APPROVE"}'; else echo '{"verdict": "CHANGES"}'; fi`}
+	lib.Tools["respond"] = Tool{Run: `echo '{"changed": "yes"}'`}
+	chain := &Chain{Name: "main", Steps: []Step{
+		{ID: "review", Title: "Review", Tool: "review"},
+		{ID: "respond", Title: "Respond", Tool: "respond", When: "review.verdict == CHANGES"},
+		{ID: "again", Title: "Review again", Repeat: "review", When: "respond.changed == yes"},
+	}}
+	run, folder := execute(t, lib, chain)
+	if run.Status != "done" || reviews(t, folder) != "2" {
+		t.Fatalf("run %s after %s reviews (%s)", run.Status, reviews(t, folder), run.Reason)
+	}
+	if again := run.Steps[2]; again.Status != "skipped" || again.Headline != "Skipped: respond.changed is not yes" {
+		t.Errorf("again = %s %q", again.Status, again.Headline)
+	}
+}
+
 func TestRepeatWithoutAConditionRunsEveryRound(t *testing.T) {
 	lib := sequenceLibrary(t)
 	lib.Tools["count"] = Tool{Run: `echo x >> {{run_folder}}/n; wc -l < {{run_folder}}/n`}

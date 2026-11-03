@@ -121,10 +121,12 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 
 func (r *Runner) skip(ctx context.Context, p pass, step Step, sr *StepRun) bool {
 	if p.end.ended && !step.Always {
+		delete(p.sc.outputs, step.ID)
 		r.store.update(p.run, func() { skipAll(sr) })
 		return true
 	}
 	if step.When != "" && !p.sc.holds(step.When) {
+		delete(p.sc.outputs, step.ID)
 		r.store.update(p.run, func() {
 			skipAll(sr)
 			sr.Headline = "Skipped: " + unmet(step.When)
