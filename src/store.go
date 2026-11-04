@@ -267,12 +267,21 @@ func summaryOf(run *Run) RunSummary {
 	return sum
 }
 
-func (s *Store) list(project string) []RunSummary {
-	out := []RunSummary{}
+func (s *Store) all() []*Run {
+	var runs []*Run
 	files, _ := filepath.Glob(filepath.Join(s.dir, "*", "run.json"))
 	for _, file := range files {
-		run := s.load(filepath.Base(filepath.Dir(file)))
-		if run == nil || (run.Project != "" && run.Project != project) {
+		if run := s.load(filepath.Base(filepath.Dir(file))); run != nil {
+			runs = append(runs, run)
+		}
+	}
+	return runs
+}
+
+func (s *Store) list(project string) []RunSummary {
+	out := []RunSummary{}
+	for _, run := range s.all() {
+		if run.Project != "" && run.Project != project {
 			continue
 		}
 		out = append(out, summaryOf(run))

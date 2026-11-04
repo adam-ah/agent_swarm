@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -320,22 +322,39 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 		return err
 	}
 	core := openCore(homeDir)
-	if err := core.openSession(*project); err != nil {
+	if err = core.openSession(*project); err != nil {
 		return err
 	}
-	srv := &server{core: core, quit: make(chan struct{})}
+	srv := &server{core: core, quit: make(chan struct{}), log: newConsole(os.Stderr)}
 	httpServer := &http.Server{Addr: addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
+	if err != nil {
+		return err
+	}
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupts)
+	go func() {
+		select {
+		case sig := <-interrupts:
+			srv.close(sig.String())
+		case <-srv.quit:
+		}
+	}()
 	go func() {
 		<-srv.quit
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(ctx)
 	}()
-	go reapOrphans(core.store, srv.quit, 30*time.Second)
-	fmt.Printf("http://%s\n", addr)
-	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	page := "http://" + addr
+	srv.log.infof("server started on %s (home %s, project %s)", page, homeDir, core.fallback)
+	go reapOrphans(core.store, srv.log, srv.quit, 30*time.Second)
+	go watchRuns(newRunWatch(core.store, srv.log, page), srv.quit, time.Second)
+	if err := httpServer.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	srv.log.infof("server shut down; runs keep going")
 	return nil
 }
 

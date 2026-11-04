@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -203,7 +202,7 @@ func (s *Store) sweep() []string {
 	return stopped
 }
 
-func reapOrphans(store *Store, quit <-chan struct{}, every time.Duration) {
+func reapOrphans(store *Store, log *console, quit <-chan struct{}, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -212,7 +211,7 @@ func reapOrphans(store *Store, quit <-chan struct{}, every time.Duration) {
 			return
 		case <-ticker.C:
 			for _, p := range store.sweep() {
-				log.Printf("stopped %s: its run is no longer going", p)
+				log.warnf("killed %s: its run is no longer going", p)
 			}
 		}
 	}

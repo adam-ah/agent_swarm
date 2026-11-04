@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -218,8 +219,9 @@ func TestReapOrphansStopsProcessesOfEndedRunsUntilAsked(t *testing.T) {
 	}
 	quit := make(chan struct{})
 	done := make(chan struct{})
+	var out bytes.Buffer
 	go func() {
-		reapOrphans(store, quit, time.Millisecond)
+		reapOrphans(store, newConsole(&out), quit, time.Millisecond)
 		close(done)
 	}()
 	_ = orphan.Wait()
@@ -228,5 +230,8 @@ func TestReapOrphansStopsProcessesOfEndedRunsUntilAsked(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("reapOrphans kept going after quit")
+	}
+	if got := out.String(); !strings.Contains(got, "[WARN] killed ") || !strings.Contains(got, "sleep 3611: its run is no longer going") {
+		t.Errorf("reaper log: %q", got)
 	}
 }

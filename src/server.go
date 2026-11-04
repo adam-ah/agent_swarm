@@ -6,11 +6,21 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"sync"
 )
 
 type server struct {
-	core *Core
-	quit chan struct{}
+	core    *Core
+	quit    chan struct{}
+	log     *console
+	closing sync.Once
+}
+
+func (s *server) close(why string) {
+	s.closing.Do(func() {
+		s.log.infof("server shutting down (%s)", why)
+		close(s.quit)
+	})
 }
 
 func (s *server) routes() http.Handler {
@@ -46,7 +56,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/doc", s.doc)
 	mux.HandleFunc("POST /api/markdown", s.renderMarkdown)
 	mux.HandleFunc("GET /api/runs/{id}/call", s.call)
-	return mux
+	return s.logRequests(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -97,7 +107,7 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 
 func (s *server) shutdown(w http.ResponseWriter, _ *http.Request) {
 	ok(w)
-	go close(s.quit)
+	s.close("swarm stop")
 }
 
 func (s *server) listProjects(w http.ResponseWriter, _ *http.Request) {
