@@ -31,7 +31,7 @@ func (c *cli) runs(project string) error {
 		} else if r.Status == "running" || r.Status == "waiting" {
 			ran = "+" + span(elapsed(r.StartedAt, nil))
 		}
-		fmt.Printf("%s  %-11s %-16s %8s %7s  %s\n", r.ID, r.Status, r.Chain, ran, money(r.Cost), firstLine(r.Subject))
+		fmt.Printf("%s  %-11s %-16s %8s %7s  %s\n", r.ID, statusText(r.Status, r.FailedItems), r.Chain, ran, money(r.Cost), firstLine(r.Subject))
 	}
 	return nil
 }
@@ -102,9 +102,9 @@ func (c *cli) show() error {
 		return c.showStep(run)
 	}
 	if c.asJSON {
-		return printJSON(run)
+		return printJSON(run.shown())
 	}
-	fmt.Printf("%s  %s  %s\n%s\n%s\n", run.ID, run.Status, run.Title, run.Subject, runStats(run))
+	fmt.Printf("%s  %s  %s\n%s\n%s\n", run.ID, statusText(run.Status, failedItems(run.Steps)), run.Title, run.Subject, runStats(run))
 	if len(run.Inputs) > 0 {
 		fmt.Print("inputs:\n" + fieldsText(toAny(run.Inputs), "  "))
 	}
@@ -151,7 +151,7 @@ func (c *cli) follow(id string) error {
 		}
 		report(run.Steps, "", seen, link)
 		if !run.going() {
-			fmt.Printf("\n%s", run.Status)
+			fmt.Printf("\n%s", statusText(run.Status, failedItems(run.Steps)))
 			if run.Reason != "" {
 				fmt.Printf(": %s", run.Reason)
 			}

@@ -70,6 +70,12 @@ function listsPassed(step, steps, chainName) {
 }
 const STATE_ICON = { done: "✓", failed: "!", rejected: "✕", stopped: "■" };
 const STATUS_LABEL = { running: "Running", waiting: "Waiting for you", done: "Done", failed: "Failed", stopped: "Stopped", rejected: "Rejected", interrupted: "Interrupted" };
+const runState = (run) => (run.status === "done" && run.failed_items > 0 ? "partial" : run.status);
+
+function statusLabel(run) {
+  if (runState(run) !== "partial") return STATUS_LABEL[run.status] || run.status;
+  return `Done, ${run.failed_items} ${run.failed_items === 1 ? "item" : "items"} failed`;
+}
 
 function kindOf(step) {
   if (step.agent) return "agent";
@@ -173,7 +179,7 @@ function renderSide() {
       meta ? h("span", { class: "meta" }, meta) : null);
   const runItem = (r) =>
     h("a", { class: `side-item ${active("run", r.id) ? "active" : ""}`, href: `#/run/${r.id}` },
-      h("span", { class: `dot ${r.status}` }),
+      h("span", { class: `dot ${runState(r)}`, title: statusLabel(r) }),
       h("span", { class: "text" }, r.subject || r.title, h("span", { class: "sub" }, `${r.title} · ${ago(r.started_at)}`)));
   const list = (id, items, empty) => document.getElementById(id).replaceChildren(...(items.length ? items : [h("div", { class: "side-empty" }, empty)]));
   const waiting = runsCache.filter((r) => r.status === "waiting");

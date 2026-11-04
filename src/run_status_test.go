@@ -49,6 +49,33 @@ func TestAPerItemChainReadsHowItsItemEnded(t *testing.T) {
 	if want := []any{"running", "failed", "running"}; run.Status != "done" || run.Steps[2].Output["output"] != "running" || len(saw) != 3 || saw[0] != want[0] || saw[1] != want[1] || saw[2] != want[2] {
 		t.Errorf("run %s; items' tidy saw %v, want %v; after saw %v", run.Status, saw, want, run.Steps[2].Output["output"])
 	}
+	if got := summaryOf(run).FailedItems; got != 1 {
+		t.Errorf("summary failed_items = %d, want 1", got)
+	}
+}
+
+func TestFailedItemsCountNestedItemsButNotEarlierAttempts(t *testing.T) {
+	failed := &StepRun{Kind: "item", Status: "failed"}
+	steps := []*StepRun{
+		{Kind: "chain", Status: "done", Children: []*StepRun{
+			{Kind: "item", Status: "done", Children: []*StepRun{{Kind: "chain", Status: "done", Children: []*StepRun{failed, failed}}}},
+			failed,
+		}},
+		{Kind: "tool", Status: "done", Earlier: []*StepRun{{Kind: "item", Status: "failed"}}},
+		{Kind: "tool", Status: "failed"},
+	}
+	if got := failedItems(steps); got != 3 {
+		t.Errorf("failedItems = %d, want 3", got)
+	}
+	for _, c := range []struct {
+		status string
+		failed int
+		want   string
+	}{{"done", 0, "done"}, {"done", 1, "done, 1 item failed"}, {"done", 4, "done, 4 items failed"}, {"failed", 2, "failed"}, {"stopped", 0, "stopped"}} {
+		if got := statusText(c.status, c.failed); got != c.want {
+			t.Errorf("statusText(%s, %d) = %q, want %q", c.status, c.failed, got, c.want)
+		}
+	}
 }
 
 func TestAlwaysStepsSeeAStoppedRun(t *testing.T) {

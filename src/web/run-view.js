@@ -37,7 +37,7 @@ function renderRun(run) {
   const unfinished = !live && run.status !== "done";
   const from = unfinished ? resumeStep(run.steps) : null;
   page.querySelector("#meta").replaceChildren(...[
-    h("span", { class: "pill" }, h("span", { class: `dot ${run.status}` }), STATUS_LABEL[run.status] || run.status),
+    h("span", { class: "pill" }, h("span", { class: `dot ${runState(run)}` }), statusLabel(run)),
     h("span", {}, `started ${new Date(run.started_at).toLocaleTimeString()}`),
     run.resumed_at ? h("span", {}, `rerun from ${run.rerun_from || "its failed step"} at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),

@@ -175,6 +175,38 @@ func TestCLIRunsTimingCostAndJSON(t *testing.T) {
 	}
 }
 
+func TestCLIRunsShowFailedItemsOfADoneRun(t *testing.T) {
+	core, project := surfaceProject(t)
+	partial := surfaceRun(t, core, project, func(run *Run) {
+		run.StartedAt, run.EndedAt = inspectStart, at(time.Minute)
+		run.Steps = append(run.Steps, &StepRun{ID: "each", Path: "each", Title: "Each", Kind: "chain", Status: "done", Children: []*StepRun{
+			{ID: "1", Path: "each.1", Title: "a", Kind: "item", Status: "done"},
+			{ID: "2", Path: "each.2", Title: "b", Kind: "item", Status: "failed"},
+			{ID: "3", Path: "each.3", Title: "c", Kind: "item", Status: "failed"},
+		}})
+	})
+	out, err := surfaceCLI(t, "runs")
+	surfaceContains(t, out, err, partial.ID+"  done, 2 items failed hello")
+	out, err = surfaceCLI(t, "show", partial.ID)
+	surfaceContains(t, out, err, partial.ID+"  done, 2 items failed  Hello\n")
+	out, err = surfaceCLI(t, "runs", "-json")
+	var list []RunSummary
+	if err != nil || json.Unmarshal([]byte(out), &list) != nil || len(list) != 1 || list[0].FailedItems != 2 {
+		t.Errorf("runs -json = %v\n%s", err, out)
+	}
+	out, err = surfaceCLI(t, "show", partial.ID, "-json")
+	var shown struct {
+		Status      string `json:"status"`
+		FailedItems int    `json:"failed_items"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &shown) != nil || shown.Status != "done" || shown.FailedItems != 2 {
+		t.Errorf("show -json = %v\n%s", err, out)
+	}
+	if raw := core.store.snapshot(partial.ID); !strings.Contains(string(raw), `"failed_items":2`) {
+		t.Errorf("snapshot = %s", raw)
+	}
+}
+
 func TestStepTagWhileRunning(t *testing.T) {
 	started := time.Now().Add(-70 * time.Second)
 	step := &StepRun{Path: "p", Title: "T", Kind: "agent", Status: "running", StartedAt: &started, Actions: 12, Tokens: 1500}

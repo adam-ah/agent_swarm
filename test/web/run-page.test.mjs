@@ -298,6 +298,22 @@ test("stopped, rejected and interrupted runs say how they ended", async () => {
   assert.ok(texts($("#meta"), "span").some((t) => t.startsWith("rerun from its failed step at ")));
 });
 
+test("the status pill marks a done run with failed items as partial", async () => {
+  reset();
+  const done = { status: "done" };
+  const all = { plan: planDone, test: testDone, build: done, review: done, ship: done, learn: { status: "skipped" }, cleanup: done };
+  const source = await openRun(runOf("done", all, { ended_at: at(18) }));
+  assert.equal($("#meta .pill .dot").className, "dot done");
+  assert.equal($("#meta .pill").textContent, "Done");
+  source.send(runOf("done", all, { ended_at: at(18), failed_items: 2 }));
+  await settle();
+  assert.equal($("#meta .pill .dot").className, "dot partial");
+  assert.equal($("#meta .pill").textContent, "Done, 2 items failed");
+  source.send(runOf("stopped", all, { ended_at: at(18) }));
+  await settle();
+  assert.equal($("#meta .pill .dot").className, "dot stopped");
+});
+
 test("a finished run can be deleted after confirming", async () => {
   reset();
   route("DELETE", `/api/runs/${RUN}`, fail(500, "cannot remove the run folder"));

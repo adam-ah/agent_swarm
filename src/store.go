@@ -236,28 +236,61 @@ func (s *Store) snapshot(id string) []byte {
 	if run == nil {
 		return nil
 	}
-	raw, err := json.Marshal(run)
+	raw, err := json.Marshal(run.shown())
 	if err != nil {
 		return nil
 	}
 	return raw
 }
 
+type shownRun struct {
+	*Run
+
+	FailedItems int `json:"failed_items,omitempty"`
+}
+
+func (run *Run) shown() shownRun {
+	return shownRun{Run: run, FailedItems: failedItems(run.Steps)}
+}
+
+func failedItems(steps []*StepRun) int {
+	failed := 0
+	for _, step := range steps {
+		if step.Kind == "item" && step.Status == "failed" {
+			failed++
+		}
+		failed += failedItems(step.Children)
+	}
+	return failed
+}
+
+func statusText(status string, failedItems int) string {
+	switch {
+	case status != "done" || failedItems == 0:
+		return status
+	case failedItems == 1:
+		return "done, 1 item failed"
+	}
+	return fmt.Sprintf("done, %d items failed", failedItems)
+}
+
 type RunSummary struct {
-	ID        string            `json:"id"`
-	Chain     string            `json:"chain"`
-	Title     string            `json:"title"`
-	Subject   string            `json:"subject"`
-	Status    string            `json:"status"`
-	StartedAt time.Time         `json:"started_at"`
-	EndedAt   *time.Time        `json:"ended_at,omitempty"`
-	Inputs    map[string]string `json:"inputs"`
-	Cost      float64           `json:"cost,omitempty"`
-	Question  string            `json:"question,omitempty"`
+	ID          string            `json:"id"`
+	Chain       string            `json:"chain"`
+	Title       string            `json:"title"`
+	Subject     string            `json:"subject"`
+	Status      string            `json:"status"`
+	FailedItems int               `json:"failed_items,omitempty"`
+	StartedAt   time.Time         `json:"started_at"`
+	EndedAt     *time.Time        `json:"ended_at,omitempty"`
+	Inputs      map[string]string `json:"inputs"`
+	Cost        float64           `json:"cost,omitempty"`
+	Question    string            `json:"question,omitempty"`
 }
 
 func summaryOf(run *Run) RunSummary {
-	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs, Cost: run.Cost}
+	sum := RunSummary{ID: run.ID, Chain: run.Chain, Title: run.Title, Subject: run.Subject, Status: run.Status, FailedItems: failedItems(run.Steps),
+		StartedAt: run.StartedAt, EndedAt: run.EndedAt, Inputs: run.Inputs, Cost: run.Cost}
 	if waiting := findStep(run.Steps, func(step *StepRun) bool { return step.Status == "waiting" }); waiting != nil && run.Status == "waiting" {
 		sum.Question = waiting.Question
 		if ask := waiting.openAsk(); ask != nil {

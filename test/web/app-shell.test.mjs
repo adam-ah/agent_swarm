@@ -414,6 +414,19 @@ test("the home page shows runs waiting for a decision and a card per chain", asy
   assert.equal($$("#main .section").at(-1).querySelector(".hint").textContent, "No runs.");
 });
 
+test("run dots: done with failed items is partial, stopped is its own state", async () => {
+  reset();
+  const run = (id, status, extra = {}) => ({ id, chain: "fix", title: "Fix a bug", subject: id, status, started_at: before(30), ended_at: before(10), inputs: {}, ...extra });
+  route("GET", "/api/runs", [run("1028-141414", "done"), run("1028-151515", "done", { failed_items: 1 }), run("1028-161616", "done", { failed_items: 3 }), run("1028-171717", "stopped")]);
+  await page("loadRuns()");
+  await go("#/tool/x");
+  await go("#/");
+  assert.deepEqual($$(".run-line .dot").map((d) => d.className), ["dot done", "dot partial", "dot partial", "dot stopped"]);
+  assert.deepEqual($$(".run-line-status").map((s) => s.textContent), ["Done", "Done, 1 item failed", "Done, 3 items failed", "Stopped"]);
+  assert.deepEqual($$("#runs .dot").map((d) => [d.className, d.title]), [
+    ["dot done", "Done"], ["dot partial", "Done, 1 item failed"], ["dot partial", "Done, 3 items failed"], ["dot stopped", "Stopped"]]);
+});
+
 test("the home list deletes a finished run only after confirming", async () => {
   reset();
   const done = { id: "1028-131313", chain: "fix", title: "Fix a bug", subject: "Old", status: "odd", started_at: before(30), ended_at: before(10), inputs: {} };
