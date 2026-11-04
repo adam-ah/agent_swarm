@@ -124,7 +124,8 @@ Each step has an id, a title saying what it does, and exactly one of:
 
 "agent": "<prompt>"
     Runs an agent CLI headless in the project folder with
-    chains/<chain>/<prompt>.md. "runner" overrides the default agent. "tools" limits a claude step (Bash, Read, Grep, Glob,
+    chains/<chain>/<prompt>.md. claude and codex can always read and write
+    {{run_folder}}; no --add-dir in settings. "runner" overrides the default agent. "tools" limits a claude step (Bash, Read, Grep, Glob,
     Write, Edit, WebFetch, WebSearch): grant the minimum, reviewers get no
     Write or Edit. Codex ignores "tools" and uses the person's Codex config.
     Returns the fields in the prompt's "## Return"; without one, free text

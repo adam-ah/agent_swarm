@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,7 @@ type agentCall struct {
 	prompt     string
 	schema     []byte
 	session    string
+	folder     string
 	log        string
 	transcript io.Writer
 	cli        AgentCLI
@@ -47,6 +49,7 @@ func (r *Runner) runAgent(ctx context.Context, lib *Library, chain *Chain, run *
 	prompt := chain.Prompts[step.Agent]
 	call := agentCall{
 		run: run, sr: sr, step: step, log: sr.Log, cli: lib.Settings.Agents[runner], session: resume.id,
+		folder: r.store.logDir(run),
 		prompt: withFeedback(stepScope(step, sc, nil).fill(prompt.Text, false), prompt.Text, sc),
 	}
 	if followUp != "" {
@@ -153,6 +156,9 @@ func (r *Runner) countActions(call agentCall, n int) {
 
 func claudeArgs(call agentCall) []string {
 	args := []string{"-p", call.prompt, "--output-format", "stream-json", "--verbose"}
+	if call.folder != "" {
+		args = append(args, "--add-dir", call.folder)
+	}
 	if call.session != "" {
 		args = append(args, "--resume", call.session)
 	}
@@ -246,6 +252,13 @@ func codexArgs(call agentCall, schemaFile string) []string {
 		args = append(args, "resume")
 	}
 	args = append(args, "--json", "--skip-git-repo-check")
+	switch {
+	case call.folder == "":
+	case call.session != "":
+		args = append(args, "-c", "sandbox_workspace_write.writable_roots=["+strconv.Quote(call.folder)+"]")
+	default:
+		args = append(args, "--add-dir", call.folder)
+	}
 	if schemaFile != "" {
 		args = append(args, "--output-schema", schemaFile)
 	}

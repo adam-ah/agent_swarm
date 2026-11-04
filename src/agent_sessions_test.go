@@ -43,16 +43,26 @@ func TestResumePoint(t *testing.T) {
 }
 
 func TestAgentArgsResume(t *testing.T) {
-	call := agentCall{prompt: "go", session: "abc", cli: AgentCLI{Args: []string{"-m", "x"}}}
-	if got, want := claudeArgs(call), []string{"-p", "go", "--output-format", "stream-json", "--verbose", "--resume", "abc", "-m", "x"}; !reflect.DeepEqual(got, want) {
+	call := agentCall{prompt: "go", session: "abc", folder: "/runs/r1", cli: AgentCLI{Args: []string{"-m", "x"}}}
+	if got, want := claudeArgs(call), []string{"-p", "go", "--output-format", "stream-json", "--verbose", "--add-dir", "/runs/r1", "--resume", "abc", "-m", "x"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("claudeArgs = %q", got)
 	}
-	if got, want := codexArgs(call, "s.json"), []string{"exec", "resume", "--json", "--skip-git-repo-check", "--output-schema", "s.json", "-m", "x", "abc", "-"}; !reflect.DeepEqual(got, want) {
+	if got, want := codexArgs(call, "s.json"), []string{"exec", "resume", "--json", "--skip-git-repo-check", "-c", `sandbox_workspace_write.writable_roots=["/runs/r1"]`, "--output-schema", "s.json", "-m", "x", "abc", "-"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("codexArgs = %q", got)
 	}
 	call.session = ""
-	if got, want := codexArgs(call, ""), []string{"exec", "--json", "--skip-git-repo-check", "-m", "x", "-"}; !reflect.DeepEqual(got, want) {
+	if got, want := codexArgs(call, ""), []string{"exec", "--json", "--skip-git-repo-check", "--add-dir", "/runs/r1", "-m", "x", "-"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("codexArgs without a session = %q", got)
+	}
+}
+
+func TestAgentArgsWithoutFolder(t *testing.T) {
+	call := agentCall{prompt: "go"}
+	if got, want := claudeArgs(call), []string{"-p", "go", "--output-format", "stream-json", "--verbose"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("claudeArgs = %q", got)
+	}
+	if got, want := codexArgs(call, ""), []string{"exec", "--json", "--skip-git-repo-check", "-"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("codexArgs = %q", got)
 	}
 }
 
