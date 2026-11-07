@@ -10,10 +10,11 @@ import (
 )
 
 type server struct {
-	core    *Core
-	quit    chan struct{}
-	log     *console
-	closing sync.Once
+	core         *Core
+	quit         chan struct{}
+	log          *console
+	closing      sync.Once
+	loopbackOnly bool
 }
 
 func (s *server) close(why string) {
@@ -56,7 +57,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/doc", s.doc)
 	mux.HandleFunc("POST /api/markdown", s.renderMarkdown)
 	mux.HandleFunc("GET /api/runs/{id}/call", s.call)
-	return s.logRequests(mux)
+	return s.logRequests(s.sameOrigin(mux))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

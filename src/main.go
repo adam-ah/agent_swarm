@@ -325,7 +325,7 @@ To run it without a terminal on purpose, for example as a service, set SWARM_SER
 	if err = core.openSession(*project); err != nil {
 		return err
 	}
-	srv := &server{core: core, quit: make(chan struct{}), log: newConsole(os.Stderr)}
+	srv := &server{core: core, quit: make(chan struct{}), log: newConsole(os.Stderr), loopbackOnly: loopbackHost(addr)}
 	httpServer := &http.Server{Addr: addr, Handler: srv.routes(), ReadHeaderTimeout: 10 * time.Second}
 	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
