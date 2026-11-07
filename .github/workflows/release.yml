@@ -8,30 +8,21 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: src/go.mod
           cache-dependency-path: src/go.sum
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install check tools
-        run: |
-          npm ci
-          npm install -g @ast-grep/cli@0.44.1
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.11.3/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.11.3
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Check
-        run: bash build.sh
 
       - name: Build
         run: |
@@ -43,7 +34,18 @@ jobs:
           done
           (cd dist && sha256sum *.zip > checksums.txt)
 
+      - name: Changelog
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          if [ -n "$prev" ]; then
+            git log --no-merges --format='- %s' "$prev..$GITHUB_REF_NAME" > notes.md
+            printf '\n**Full changelog**: %s/%s/compare/%s...%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$prev" "$GITHUB_REF_NAME" >> notes.md
+          else
+            git log --no-merges --format='- %s' "$GITHUB_REF_NAME" > notes.md
+          fi
+          cat notes.md
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file notes.md
