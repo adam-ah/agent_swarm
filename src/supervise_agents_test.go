@@ -10,6 +10,7 @@ import (
 func TestAgentStepEndsWhenItAnswers(t *testing.T) {
 	quickStops(t)
 	fakeClaude(t, `setsid sleep 3621 &
+`+untilRunning("sleep 3621")+`
 echo '{"type":"result","result":"","structured_output":{"summary":"answered"},"session_id":"s1"}'
 echo '{"type":"result","result":"","structured_output":{"summary":"later"},"session_id":"s1"}'
 sleep 3622
@@ -80,7 +81,7 @@ func TestAgentStepHitsItsTimeLimit(t *testing.T) {
 func TestCustomAgentLeavingItsOutputOpen(t *testing.T) {
 	quickStops(t)
 	lib := sequenceLibrary(t)
-	lib.Settings.Agents["quick"] = AgentCLI{Command: `sleep 3624 & echo '{"summary": "quick"}'`}
+	lib.Settings.Agents["quick"] = AgentCLI{Command: `sleep 3624 & ` + untilRunning("sleep 3624") + `echo '{"summary": "quick"}'`}
 	started := time.Now()
 	run, folder := execute(t, lib, agentChain("quick"))
 	if step := run.Steps[0]; step.Status != "done" || step.Output["summary"] != "quick" {

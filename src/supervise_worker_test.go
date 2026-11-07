@@ -43,7 +43,7 @@ func TestWorkerStopsDetachedOrphansWithNoMarks(t *testing.T) {
 	core, project := engineSetup(t)
 	killOnCleanup(t, "sleep 3631")
 	supervisedChain(t, project, `[{"id": "go", "title": "Go", "tool": "detach"}]`,
-		map[string]string{"detach": "env -i setsid sleep 3631 > /dev/null 2>&1 & echo detached"})
+		map[string]string{"detach": "env -i setsid sleep 3631 > /dev/null 2>&1 & " + untilRunning("sleep 3631") + "echo detached"})
 	run, err := core.StartRun(project, "supervised", nil)
 	if err != nil {
 		t.Fatal(err)

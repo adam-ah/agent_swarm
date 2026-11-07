@@ -58,6 +58,14 @@ func contains(list []string, want string) bool {
 	return strings.Contains(strings.Join(list, "\n"), want)
 }
 
+func untilRunning(commands ...string) string {
+	var waits strings.Builder
+	for _, command := range commands {
+		waits.WriteString("for i in $(seq 500); do pgrep -f '^" + command + "$' >/dev/null && break; sleep 0.01; done; ")
+	}
+	return waits.String()
+}
+
 func TestToolThatSleepsIsStoppedWhenIdle(t *testing.T) {
 	quickStops(t)
 	run, folder := toolRun(t, "sleep 3601", Step{Stall: "100ms"})
@@ -96,7 +104,7 @@ func TestToolThatBusiesItselfIsNotIdle(t *testing.T) {
 func TestToolThatLeavesServersBehind(t *testing.T) {
 	quickStops(t)
 	started := time.Now()
-	run, folder := toolRun(t, "setsid sleep 3602 > /dev/null 2>&1 & sleep 3603 & echo started", Step{})
+	run, folder := toolRun(t, "setsid sleep 3602 > /dev/null 2>&1 & sleep 3603 & "+untilRunning("sleep 3602", "sleep 3603")+"echo started", Step{})
 	if step := run.Steps[0]; step.Status != "done" || step.Output["output"] != "started" {
 		t.Fatalf("step = %s %v (%s)", step.Status, step.Output, step.Error)
 	}
