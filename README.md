@@ -6,18 +6,18 @@ Runs chains of agent, tool and approval steps you define, and shows every run li
 
 ## Features
 
-- **Your own agent pipelines.** Chain agents, shell commands and your approvals: make the change, run the tests, have a second agent review it, you approve, it commits.
-- **The agents you already use.** Claude Code, Codex or any agent CLI, mixed in one chain.
-- **Every run, live.** Each step's progress, output, cost and every tool call the agent made.
-- **Nothing lands without you.** See the diff, screenshots or video before anything is committed. Approve, reject, or send it back with a note.
-- **Agents ask instead of guessing.** An agent can stop to ask you something, then pick up where it left off.
-- **Loops and branches.** Fix and review again until the reviewer is happy, skip steps that don't apply, run one chain over a list of tasks in parallel.
-- **Retry one step, not the whole run.** Rerun from any step; earlier attempts stay visible.
-- **It learns your project.** Runs save what they learned to a project memory that later runs read.
-- **Change a chain by describing it.** An agent edits the chain and you approve the diff.
-- **Test a chain before it touches anything.** Dry runs with made-up agent answers.
-- **Scriptable.** Everything on the page is also in the `swarm` CLI, so scripts and other agents can drive it.
-- **One binary, no setup.** Chains live in your repo, next to the code they work on.
+- Build a chain from agent steps, shell commands and approval steps. The included `make-change` chain makes a change on a branch, runs the tests, has a second agent review it, and asks you before it commits and pushes.
+- Agent steps run Claude Code, Codex or any other agent CLI. Steps in one chain can use different agents.
+- The run page updates live with each step's status, output, duration and cost, and every tool call an agent made.
+- Approval steps show the diff and any screenshots or videos a step produced. You approve, reject, or send the work back to an earlier step with a note.
+- An agent can stop and ask you questions, then continue in the same session once you answer.
+- Steps can be skipped by a condition, repeated (fix and review until the reviewer approves), or run once per item in a list, sequentially or in parallel.
+- A run can be rerun from any step. Earlier attempts are kept.
+- Each project has a memory file. Runs add notes to it and later runs read it.
+- To change a chain, describe the change in words. The `edit-chain` chain has an agent edit it, and you approve the diff.
+- `swarm test` walks through a chain with mocked agent answers and runs nothing.
+- Everything on the page is also in the `swarm` CLI, so scripts and agents can use it.
+- One binary for Linux and macOS. Chains, prompts and tools live in your repo under `.swarm/`.
 
 ## Install
 
