@@ -1,6 +1,6 @@
 # swarm
 
-Runs chains of agent, tool and approval steps you define, and shows every run live in the browser.
+Stop babysitting your coding agent. swarm makes the change, runs the tests, has a second agent review it, and asks you before it commits.
 
 ![A make-change run waiting for approval](docs/screenshot.png)
 
