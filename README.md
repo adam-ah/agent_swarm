@@ -1,44 +1,47 @@
 # swarm
 
-Runs chains of agent, tool and user steps you design, and shows every run live on a page.
+Runs chains of agent, tool and approval steps you define, and shows every run live in the browser.
 
-## Build, install, start
+![A make-change run waiting for approval](docs/screenshot.png)
+
+## Features
+
+- Chains in JSON, prompts in Markdown, tools as shell commands; all committed with the project in `.swarm/`
+- Agent steps run Claude Code (`claude -p`), Codex (`codex exec`) or any CLI you configure, per step
+- Live run page: status, timing, cost, fields, tool calls and transcript for every step
+- Approval steps show diffs, images, videos and Markdown; approve, reject, or send back to an earlier step with a note
+- Agents can ask questions mid-step and resume the same session with the answers
+- `when` and `stop_if` conditions, `always` steps, review loops (`repeat`), sub-chains
+- Sub-chains per list item, sequentially or in parallel, with `keep_going`
+- Rerun a run from any step; earlier attempts are kept
+- Per-project memory that prompts read and runs add to
+- Chains, tools and prompts are validated before they are saved; a broken one is refused with reasons
+- `swarm test`: dry run through the real engine with mocked answers
+- `edit-chain` sample: an agent changes your chains, you approve the diff
+- Every value on the page is also in the CLI, with `-json`
+- Single static binary for Linux and macOS
+
+## Install
+
+Download a build from [Releases](https://github.com/adam-ah/agent_swarm/releases) and put `swarm` on your `PATH`, or build from source (Go 1.23+):
 
 ```bash
-./build.sh install               # builds ./swarm and copies it to ~/.local/bin
-swarm init /path/to/project      # makes the folder a swarm project
-swarm serve [PORT] [-host IP]    # 127.0.0.1:7070 by default; -host 0.0.0.0 for every interface
+cd src && go build -o ~/.local/bin/swarm .
 ```
 
-The build packs `src/web/` and `src/samples/` into the single binary. Nothing is written until you ask: `swarm` on its own shows what is set up and what to run next, and `swarm samples` writes the samples into `~/.swarm` (the `make-change` and `edit-chain` chains, their tools and prompts, and `GUIDE.txt`). After that they are ordinary files you own. Run history and the project list live in `~/.swarm` too. Each project's own chains, tools, prompts and memory go in its `.swarm/`, committed with the project.
+## Start
 
-## One server, two ways in
+```bash
+swarm samples                 # sample chains, tools and the guide into ~/.swarm
+swarm init                    # make the current folder a project
+swarm serve                   # the page, on http://127.0.0.1:7070
+swarm run make-change -input request="..."
+```
 
-The page and the `swarm` command are clients of the same server. Every read, save, delete, run, approval and memory note goes through the same API. The server checks a chain, tool or prompt before it saves it and refuses a broken one with the reasons, whichever way it arrived. Run `swarm help` for the commands.
+`swarm help` lists commands. `swarm guide` documents the file formats; it is written for agents too.
 
-## Which agent runs
+The page has no login. Keep it on `127.0.0.1` unless every machine that can reach the port is trusted.
 
-An agent step whose prompt returns `questions` can stop and ask you what it needs to know; it waits for your answers, on the page or with `swarm answer`, and carries on in the same session until it has none left.
+## License
 
-Agent steps run Claude Code (`claude -p`), Codex (`codex exec`, with your own Codex config) or a command you add, such as `pi`. `settings.json` in `~/.swarm` or a project's `.swarm/` picks the default, and a step overrides it with `"runner"`. The Settings page, `swarm settings` and `swarm help` cover the details.
-
-## For agents
-
-`src/samples/GUIDE.txt` is plain text written for agents. It covers the file formats, placeholders, flow rules, and how to inspect, create, change, check and run chains with the `swarm` command. `swarm guide` prints it. `swarm init` prints a line to add to a project's CLAUDE.md or AGENTS.md, so agents there know to read it.
-
-## Changing swarm
-
-- **On the page:** a chain's page starts a run and edits the chain; tools, prompts and Memory have their own pages. "Save as a copy for this project only", under More, makes a per-project copy.
-- **By an agent:** run the `edit-chain` chain with the change in words ("in make-change, add a lint step before the tests"). An agent drafts files and saves them into this project with `swarm put`, using the guide and a list of everything that exists. `swarm check` confirms the chains load, and you approve the diff or send it back with a note. A rejection puts the files back.
-- **Per project:** a value that differs between projects, such as the test command, goes under `inputs` in the project's `.swarm/settings.json` (or on the Settings page), so the shared chain stays as it is.
-
-## Source layout
-
-| Path | What |
-| --- | --- |
-| `build.sh` | builds `./swarm`; `./build.sh install` also copies it to `~/.local/bin` |
-| `release.sh` | tags the next version (patch by default, or `./release.sh minor` / `major`) and pushes the tag |
-| `.github/workflows/release.yml` | pushing a `v*` tag runs `build.sh`, then publishes Linux and macOS builds (amd64, arm64) as a GitHub release |
-| `src/*.go` | the core, the server, the runner and the commands; `assets.go` embeds the two folders below |
-| `src/web/` | the page |
-| `src/samples/` | sample chains, tools, prompts and `GUIDE.txt`, written to `~/.swarm` by `swarm samples` |
+MIT
