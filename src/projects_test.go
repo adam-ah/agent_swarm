@@ -36,6 +36,33 @@ func TestProjectsSavedAndSession(t *testing.T) {
 	}
 }
 
+func TestProjectWithSwarmFolderNeedsNoInit(t *testing.T) {
+	core, saved := surfaceProject(t)
+	clone := t.TempDir()
+	surfaceFiles(t, clone, map[string]string{".swarm/tools/echo.json": `{"title": "Echo", "run": "echo hello"}`})
+	if got, err := core.Project(clone); err != nil || got != clone {
+		t.Errorf("Project(clone) = %s, %v", got, err)
+	}
+	if !slices.Equal(core.saved(), []string{saved}) {
+		t.Errorf("the clone was saved: %v", core.saved())
+	}
+	t.Setenv("SWARM_PROJECT", clone)
+	out, err := surfaceCLI(t, "list")
+	surfaceContains(t, out, err, "echo")
+}
+
+func TestSavedDropsDeletedFolders(t *testing.T) {
+	home, kept := t.TempDir(), t.TempDir()
+	deleted := filepath.Join(t.TempDir(), "deleted")
+	if err := saveJSON(filepath.Join(home, "projects.json"), []string{deleted, kept}); err != nil {
+		t.Fatal(err)
+	}
+	core := openCore(home)
+	if projects, fallback := core.Projects(); !slices.Equal(projects, []string{kept}) || fallback != kept {
+		t.Errorf("projects = %v, default %s", projects, fallback)
+	}
+}
+
 func TestProjectErrors(t *testing.T) {
 	core, project := surfaceProject(t)
 	missing := filepath.Join(t.TempDir(), "missing")

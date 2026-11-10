@@ -32,10 +32,15 @@ func (c *Core) Project(requested string) (string, error) {
 	if requested == "" {
 		requested = fallback
 	}
-	if !slices.Contains(known, requested) {
+	if requested == "" || !slices.Contains(known, requested) && !isDir(swarmDir(requested)) {
 		return "", fmt.Errorf("%s is not a swarm project yet; run swarm init in it", requested)
 	}
 	return requested, nil
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (c *Core) openSession(folder string) error {
@@ -49,7 +54,7 @@ func (c *Core) openProject(folder string, remember bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if info, statErr := os.Stat(abs); statErr != nil || !info.IsDir() {
+	if !isDir(abs) {
 		return "", fmt.Errorf("%s is not a folder", abs)
 	}
 	c.mu.Lock()
@@ -70,5 +75,5 @@ func (c *Core) openProject(folder string, remember bool) (string, error) {
 func (c *Core) saved() []string {
 	var saved []string
 	_ = readJSON(filepath.Join(c.home, "projects.json"), &saved)
-	return saved
+	return slices.DeleteFunc(saved, func(folder string) bool { return !isDir(folder) })
 }
