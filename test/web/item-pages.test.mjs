@@ -56,6 +56,18 @@ test("a tool that is not used anywhere says so and a refused save shows why", as
   assert.equal(status().textContent, "Refused:\n- run: the command is empty");
 });
 
+test("a saved tool with a syntax error says it cannot run and saves without its problems", async () => {
+  const { lib, saved } = start();
+  lib.tools.merge.problems = ["line 2: python3: invalid syntax"];
+  await open("#/tool/merge");
+
+  assert.equal(status().className, "status error-text");
+  assert.equal(status().textContent, "Cannot run: line 2: python3: invalid syntax");
+  click(button("Save"));
+  await settle();
+  assert.deepEqual(body(saved[0]), { title: "Merge the branch", run: "git merge {{branch}} && echo {{run_folder}}" });
+});
+
 test("deleting a tool asks first, shows a refusal, and goes home once done", async () => {
   start();
   await open("#/tool/run_tests");

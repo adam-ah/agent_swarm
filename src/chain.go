@@ -22,9 +22,10 @@ type Field struct {
 type Fields []Field
 
 type Tool struct {
-	Title  string `json:"title"`
-	Run    string `json:"run"`
-	Source string `json:"source,omitempty"`
+	Title    string   `json:"title"`
+	Run      string   `json:"run"`
+	Source   string   `json:"source,omitempty"`
+	Problems []string `json:"problems,omitempty"`
 }
 
 type Prompt struct {
@@ -166,6 +167,7 @@ func loadLibrary(home, project string) (*Library, error) {
 				return nil, fmt.Errorf("%s %w", source, err)
 			}
 			tool.Source = source
+			tool.Problems = scriptProblems(tool.Run)
 			lib.Tools[strings.TrimSuffix(path.Base(file), ".json")] = tool
 		}
 		chains, _ := fs.Glob(layer.fsys, "chains/*.json")
@@ -238,7 +240,7 @@ func saveChain(dir, name string, chain *Chain) error {
 }
 
 func saveTool(dir, name string, tool Tool) error {
-	tool.Source = ""
+	tool.Source, tool.Problems = "", nil
 	return saveJSON(filepath.Join(dir, "tools", name+".json"), tool)
 }
 
@@ -273,6 +275,11 @@ func (lib *Library) problems() []string {
 	for _, chain := range lib.sortedChains() {
 		for _, p := range chain.Problems {
 			out = append(out, fmt.Sprintf("%s (%s): %s", chain.Name, chain.Source, p))
+		}
+	}
+	for _, name := range sortedKeys(lib.Tools) {
+		for _, p := range lib.Tools[name].Problems {
+			out = append(out, fmt.Sprintf("tools/%s.json (%s): %s", name, lib.Tools[name].Source, p))
 		}
 	}
 	return out

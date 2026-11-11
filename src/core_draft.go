@@ -24,7 +24,7 @@ func toolProblems(tool Tool) []string {
 	if strings.TrimSpace(tool.Run) == "" {
 		problems = append(problems, "a tool needs a run command")
 	}
-	return problems
+	return append(problems, scriptProblems(tool.Run)...)
 }
 
 func promptProblems(text string) []string {
@@ -68,6 +68,7 @@ func (c *Core) CheckDraft(project string, d Draft) (map[string]*Verdict, error) 
 		}
 	}
 	for name, tool := range d.Tools {
+		tool.Problems = scriptProblems(tool.Run)
 		lib.Tools[name] = tool
 		for _, user := range lib.chainsUsing("tools/" + name + ".json") {
 			affected[user] = true

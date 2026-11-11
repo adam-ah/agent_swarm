@@ -38,9 +38,12 @@ const unsaved = (status) => () => { status.className = "status"; status.textCont
 
 function showTool(name) {
   const tool = clone(lib.tools[name] || { title: name, run: "" });
-  const source = tool.source;
+  const { source, problems = [] } = tool;
   delete tool.source;
-  const status = h("span", { class: "status" });
+  delete tool.problems;
+  const status = problems.length
+    ? h("span", { class: "status error-text" }, `Cannot run: ${problems.join("; ")}`)
+    : h("span", { class: "status" });
   const users = h("div", { class: "panel-body used-by" });
   const drawUsers = (verdicts) => users.replaceChildren(...usedBy((s) => s.tool === name, verdicts));
   drawUsers();

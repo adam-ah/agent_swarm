@@ -33,6 +33,7 @@ linters:
           allow:
             - $gostd
             - github.com/yuin/goldmark
+            - mvdan.cc/sh/v3/syntax
     funlen:
       lines: 80
       statements: 50

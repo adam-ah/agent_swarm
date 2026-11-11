@@ -70,8 +70,12 @@ func (lib *Library) resumeProblems(chain *Chain, step Step, where string, seen m
 func (lib *Library) referenceProblems(chain *Chain, step Step, where string) []string {
 	var problems []string
 	if step.Tool != "" {
-		if _, ok := lib.Tools[step.Tool]; !ok {
+		tool, ok := lib.Tools[step.Tool]
+		if !ok {
 			problems = append(problems, fmt.Sprintf("%s: no tool named %q", where, step.Tool))
+		}
+		for _, p := range tool.Problems {
+			problems = append(problems, fmt.Sprintf("%s: tools/%s.json %s", where, step.Tool, p))
 		}
 	}
 	if step.Agent != "" {

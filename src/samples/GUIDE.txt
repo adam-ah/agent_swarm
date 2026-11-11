@@ -234,6 +234,9 @@ TOOL: tools/<tool>.json
 - run is bash, in the project folder. A non-zero exit fails the step, with
   the last stderr lines as the error.
 - Filled values are already shell-quoted: write {{path}}, never "{{path}}".
+- run is syntax-checked with bash -n, and so are python, bash, sh and zsh
+  scripts inside it given as a heredoc or a literal -c. put refuses a
+  syntax error; one already saved fails every chain that uses the tool.
 - A printed JSON object becomes fields ("summary" shows on the page); other
   output becomes the field "output", its last line shown.
 - Tools do deterministic work (tests, videos, commits, posts); agents do
