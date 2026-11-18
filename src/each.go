@@ -211,7 +211,7 @@ func (r *Runner) runItem(ctx context.Context, p pass, sub *Chain, sr, group *Ste
 	status, reason := end.status, end.reason
 	r.store.update(p.run, func() {
 		if status == "done" && end.held {
-			status, reason = "failed", heldReason(group.Children)
+			reason = heldReason(group.Children)
 		}
 		group.Status, group.Headline, group.EndedAt = status, reason, &finished
 		group.Cost = costOf(group.Children)

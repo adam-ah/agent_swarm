@@ -56,6 +56,43 @@ func TestResumeRetriesOnlyTheFailedItemsOfAKeepGoingStep(t *testing.T) {
 	}
 }
 
+func TestAFailedNestedItemLeavesItsWaveDoneAndTheRunGoesOn(t *testing.T) {
+	lib, fixed := pickyLibrary(t)
+	lib.Tools["waves"] = Tool{Run: `echo '{"items": ["w1"]}'`}
+	lib.Chains["wave"] = &Chain{Name: "wave", Inputs: []Input{{Name: "value"}}, Steps: []Step{
+		{ID: "list", Title: "List", Tool: "items"},
+		{ID: "each", Title: "Each", Chain: "fragile", Parallel: true, KeepGoing: true, With: map[string]string{"value": "{{list.items}}"}},
+	}}
+	chain := &Chain{Name: "main", Steps: []Step{
+		{ID: "plan", Title: "Plan", Tool: "waves"},
+		{ID: "waves", Title: "Waves", Chain: "wave", With: map[string]string{"value": "{{plan.items}}"}},
+		{ID: "after", Title: "After", Tool: "count"},
+		{ID: "tidy", Title: "Tidy", Tool: "say", With: map[string]string{"value": "{{run_status}}"}, Always: true},
+	}}
+	run, folder := failThenFix(t, lib, chain, fixed)
+	wave := run.Steps[1].Children[0]
+	if got := statuses(run.Steps); !reflect.DeepEqual(got, []string{"done", "done", "done", "deferred"}) || wave.Status != "done" {
+		t.Fatalf("first attempt = %v, wave %s", got, wave.Status)
+	}
+	if want := "Each: fragile ran 3 times: 2 done, 1 failed"; run.Reason != want || wave.Headline != want {
+		t.Errorf("reason %q, wave headline %q, want %q", run.Reason, wave.Headline, want)
+	}
+
+	rerunFailed(t, lib, chain, run, folder)
+
+	if run.Status != "done" || run.Steps[3].Output["output"] != "running" {
+		t.Fatalf("resume = %s (%s), tidy saw %v", run.Status, run.Reason, run.Steps[3].Output["output"])
+	}
+	for i, item := range run.Steps[1].Children[0].Children[1].Children {
+		if want := map[bool]int{true: 1, false: 0}[i == 1]; item.Children[0].Round != want {
+			t.Errorf("item %d picky round %d, want %d", i+1, item.Children[0].Round, want)
+		}
+	}
+	if counted, _ := os.ReadFile(filepath.Join(folder, "counted")); string(counted) != "x\nx\n" {
+		t.Errorf("after ran %q, want twice", counted)
+	}
+}
+
 func reviewLoop(t *testing.T, gate Step) (*Library, *Chain, string) {
 	t.Helper()
 	lib := sequenceLibrary(t)
