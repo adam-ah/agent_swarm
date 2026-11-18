@@ -14,7 +14,7 @@ func rerunFailed(t *testing.T, lib *Library, chain *Chain, run *Run, folder stri
 	if !fits(lib, chain, run.Steps) {
 		t.Fatal("the run's steps do not fit its chain")
 	}
-	rewind(run.Steps)
+	rewind(lib, chain, run.Steps)
 	run.Status = "running"
 	run.inbox = newInbox()
 	for _, d := range decisions {
@@ -23,6 +23,19 @@ func rerunFailed(t *testing.T, lib *Library, chain *Chain, run *Run, folder stri
 	}
 	r := &Runner{store: openStore(filepath.Dir(folder)), swarm: "true", home: t.TempDir()}
 	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": folder}))
+}
+
+func cleanUpFailed(t *testing.T, lib *Library, chain *Chain, run *Run, folder string) {
+	t.Helper()
+	if !deferredIn(run.Steps) {
+		t.Fatal("the run has no deferred steps")
+	}
+	run.Cleanup, run.Status, run.inbox = true, "running", newInbox()
+	r := &Runner{store: openStore(filepath.Dir(folder)), swarm: "true", home: t.TempDir()}
+	r.execute(context.Background(), lib, chain, run, newScope(map[string]string{"run_folder": folder}))
+	if deferredIn(run.Steps) {
+		t.Error("deferred steps remain after the cleanup")
+	}
 }
 
 func flakyLibrary(t *testing.T) (*Library, string) {
@@ -42,8 +55,11 @@ func TestRerunFromFailedStepKeepsFinishedSteps(t *testing.T) {
 		{ID: "cleanup", Title: "Clean up", Tool: "say", With: map[string]string{"value": "bye"}, Always: true},
 	}}
 	run, folder := execute(t, lib, chain)
-	if got := statuses(run.Steps); run.Status != "failed" || !reflect.DeepEqual(got, []string{"done", "failed", "done"}) {
+	if got := statuses(run.Steps); run.Status != "failed" || !reflect.DeepEqual(got, []string{"done", "failed", "deferred"}) {
 		t.Fatalf("first attempt = %s %v", run.Status, got)
+	}
+	if got := run.Steps[2].Headline; got != deferredHeadline {
+		t.Errorf("cleanup headline %q", got)
 	}
 	if err := os.WriteFile(fixed, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -63,8 +79,8 @@ func TestRerunFromFailedStepKeepsFinishedSteps(t *testing.T) {
 	if n := len(run.Steps[1].Earlier); n != 1 || run.Steps[1].Earlier[0].Status != "failed" || run.Steps[1].Log == run.Steps[1].Earlier[0].Log {
 		t.Errorf("flaky's failed attempt was not kept apart: %d earlier", n)
 	}
-	if len(run.Steps[0].Earlier) != 0 || len(run.Steps[2].Earlier) != 1 {
-		t.Errorf("earlier attempts: first %d, cleanup %d; want 0 and 1", len(run.Steps[0].Earlier), len(run.Steps[2].Earlier))
+	if len(run.Steps[0].Earlier) != 0 || len(run.Steps[2].Earlier) != 0 {
+		t.Errorf("earlier attempts: first %d, cleanup %d; want none", len(run.Steps[0].Earlier), len(run.Steps[2].Earlier))
 	}
 }
 
@@ -118,7 +134,7 @@ func TestRerunFromAStepAfterTheFailureStartsAtTheFailure(t *testing.T) {
 	if err := os.WriteFile(fixed, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if target := rewindFrom(run.Steps, "cleanup"); target == nil || target.Title != "Flaky" {
+	if target := rewindFrom(lib, run.Steps, "cleanup"); target == nil || target.Title != "Flaky" {
 		t.Fatalf("rerun starts at %v, want Flaky", target)
 	}
 	run.Status, run.inbox = "running", newInbox()

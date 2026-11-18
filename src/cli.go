@@ -34,6 +34,7 @@ type cli struct {
 	note       string
 	about      string
 	step       string
+	from       string
 	below      bool
 	detach     bool
 	asJSON     bool
@@ -67,6 +68,8 @@ func runCommand(command string, args []string) error {
 		return c.decide()
 	case "cancel":
 		return c.cancel()
+	case "resume":
+		return c.resume()
 	case "show":
 		return c.show()
 	case "log":
@@ -92,6 +95,7 @@ func parseCommand(command string, args []string) (*cli, error) {
 	flags.StringVar(&c.note, "note", "", "approve, revise, reject: a note for the record; revise needs one")
 	flags.StringVar(&c.about, "about", "", "memory add: what the notes came from")
 	flags.StringVar(&c.step, "step", "", "show, log: the step, such as build.2.plan; approve, revise, reject, answer: the waiting step, when more than one waits")
+	flags.StringVar(&c.from, "from", "", "resume: rerun from this step, such as build.2.plan, instead of the failed steps")
 	flags.BoolVar(&c.asJSON, "json", false, "runs, show, log: print JSON")
 	flags.BoolVar(&c.stream, "stream", false, "log: the agent's transcript")
 	flags.BoolVar(&c.detach, "detach", false, "run: print the run's id and return; the run keeps going")

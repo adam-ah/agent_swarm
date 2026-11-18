@@ -70,7 +70,12 @@ All act on the current folder's project; -project DIR picks another.
     swarm files RUN [PATH]        the run folder's files and the files
                                   steps show, or print one
     swarm COMMAND -h              that command's usage
-    swarm cancel RUN              stop a run; "always" steps still run
+    swarm cancel RUN              stop a run; "always" steps still run; on
+                                  a failed run, run its deferred "always"
+                                  steps
+    swarm resume RUN [-from PATH] retry the failed steps and items, then
+                                  every step after them; -from PATH: rerun
+                                  from that step instead
     swarm approve RUN [-note T]   answer the user step a run waits on, only
     swarm revise RUN -note T      when the person tells you to
     swarm reject RUN [-note T]
@@ -175,8 +180,9 @@ Each step has an id, a title saying what it does, and exactly one of:
     queue and start as items finish. The step still ends once every item
     has, and several items can wait on the person concurrently.
     "keep_going": true counts a failed item ("2 done, 1 failed") without
-    failing the step, so the run goes on. All three apply only to a step
-    run per list item.
+    failing the step, so the run goes on; the run still ends failed, with
+    the failed item's "always" steps and every later one deferred. All
+    three apply only to a step run per list item.
 
 "repeat": "<earlier step>"
     Goes back to that step and reruns everything from there: the steps in
@@ -187,7 +193,9 @@ Each step has an id, a title saying what it does, and exactly one of:
     the loop ends before the last round; without fail the run goes on
     either way. Takes only when, rounds and fail. Loops nest or stay apart;
     "swarm check" refuses crossing loops. A revise back before a loop's
-    first step restarts its rounds; a rerun keeps them. A review loop:
+    first step restarts its rounds; a rerun keeps them. Resume after
+    "out_of_rounds" or "ended_early" restarts the loop with all its rounds.
+    A review loop:
       { "id": "fix", "title": "Fix the findings", "agent": "fix",
         "when": "review.verdict == CHANGES" },
       { "id": "again", "title": "Review again", "repeat": "review",
@@ -200,12 +208,24 @@ Any step may add:
     "stop_if": "field == value", "stop": "<message>"
                                       after the step, end the run; reads the
                                       step's own fields
-    "always": true                    run even after a failure, stop or
-                                      reject; for cleanup and memory.
-                                      "when": "run_status == stopped" (or
-                                      failed, rejected) cleans up per ending
+    "always": true                    run even after a stop or reject; for
+                                      cleanup and memory. After a failure
+                                      it is deferred until resume or
+                                      cancel. "when": "run_status ==
+                                      stopped" (or failed, rejected)
+                                      cleans up per ending
+    "retry_from": "<earlier step>"    on resume after this step fails, go
+                                      back to that step instead of
+                                      retrying this one, e.g. to the start
+                                      of a review loop that ran out of
+                                      rounds
 
-A failed step ends the run, apart from "always" steps.
+A failed step ends the run and defers its "always" steps. Resume (swarm
+resume, or Resume on the page) keeps every finished step and item, retries
+each failed step and item, then runs every step after them, the deferred
+ones included; a failed claude or codex step that did work resumes its
+session with its error. Cancel (swarm cancel) runs only the deferred
+steps, with run_status failed.
 
 
 PROCESSES

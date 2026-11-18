@@ -79,7 +79,11 @@ validated before saving; * marks commands that write.
                                 * let the agent decide them itself
                                   -step PATH (from swarm show, e.g. build.2.plan): the waiting
                                   step, when several wait
-  swarm cancel RUN              * stop a run; "always" steps still run
+  swarm cancel RUN              * stop a run; "always" steps still run; on a failed run, run its
+                                  deferred "always" steps
+  swarm resume RUN [-from PATH] [-detach]
+                                * retry the failed steps and items, then every step after them, and
+                                  print steps as they end; -from PATH: rerun from that step instead
 
   swarm serve [PORT] [-host IP]   the page, on 127.0.0.1:7070; -host 0.0.0.0 for every interface
   swarm stop [PORT]               close the page; runs keep going
@@ -130,7 +134,7 @@ func dispatch(command string, args []string) error {
 	case "_run":
 		return work(args)
 	case "init", "list", "get", "put", "rm", "check", "memory", "settings", "run", "test", "runs", "show", "log", "files", "approve", "revise",
-		"reject", "answer", "cancel", "snapshot", "diff", "restore":
+		"reject", "answer", "cancel", "resume", "snapshot", "diff", "restore":
 		return runCommand(command, args)
 	}
 	return fmt.Errorf("no command %q\n\n%s", command, usage)

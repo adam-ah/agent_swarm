@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -180,11 +181,12 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 		Cost       float64        `json:"total_cost_usd"`
 		SessionID  string         `json:"session_id"`
 	}
-	got := false
+	got, started := false, ""
 	stderr, runErr := r.stream(ctx, call, exec.Command("claude", claudeArgs(call)...), "", func(line []byte, log *callLog) bool {
 		var event struct {
-			Type    string `json:"type"`
-			Message struct {
+			Type      string `json:"type"`
+			SessionID string `json:"session_id"`
+			Message   struct {
 				Content []struct {
 					Type      string          `json:"type"`
 					ID        string          `json:"id"`
@@ -199,6 +201,7 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 		if json.Unmarshal(line, &event) != nil {
 			return false
 		}
+		started = cmp.Or(started, event.SessionID)
 		switch event.Type {
 		case "assistant":
 			calls := 0
@@ -227,7 +230,7 @@ func (r *Runner) runClaude(ctx context.Context, call agentCall) (agentResult, er
 		}
 		return false
 	})
-	result := agentResult{structured: final.Structured, text: final.Result, cost: final.Cost, session: final.SessionID}
+	result := agentResult{structured: final.Structured, text: final.Result, cost: final.Cost, session: cmp.Or(final.SessionID, started)}
 	switch {
 	case !got:
 		return result, fmt.Errorf("claude ended without a result: %s", orError(stderr, runErr))

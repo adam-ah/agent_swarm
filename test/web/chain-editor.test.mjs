@@ -39,7 +39,7 @@ test("the editor shows the chain's steps as a tree with branches, notes and sub-
   assert.deepEqual(parts($(".ol-if > .ol-label")), ["If", "change.verdict", "is DONE", "set by Make the change"]);
   assert.equal(text($(".ol-revise")), "Sent back⟲ reruns from “Make the change” with the note");
   assert.deepEqual(parts($(".ol-rejected > .ol-label")), ["Rejected", "or an earlier step failed or stopped"]);
-  assert.deepEqual(parts($(".ol-always > .ol-label")), ["Then, always", "also after failure, stop or reject"]);
+  assert.deepEqual(parts($(".ol-always > .ol-label")), ["Then, always", "also after a stop or reject; deferred after a failure"]);
   assert.deepEqual($$(".ol-approved > .ol-kids > .tree-row .title").map((t) => t.textContent), ["Merge", "Ship each changeset"]);
   assert.equal(text($("#tree-actions .hint")), "Add step at the end:");
   assert.equal(button("Save").disabled, true);

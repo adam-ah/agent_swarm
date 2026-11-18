@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -21,6 +22,9 @@ func (c *Core) Rerun(id string, fromScratch bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if !fromScratch && run.Status == "done" && !deferredIn(run.Steps) {
+		return "", fmt.Errorf("run %s is done; nothing to resume", id)
+	}
 	c.store.sweepRun(id)
 	if fromScratch {
 		fresh, err := c.runner.start(lib, chain, run.Inputs)
@@ -29,7 +33,16 @@ func (c *Core) Rerun(id string, fromScratch bool) (string, error) {
 		}
 		return fresh.ID, nil
 	}
-	return id, c.runner.resume(lib, chain, id, "")
+	return id, c.runner.resume(lib, chain, id, "", false)
+}
+
+func (c *Core) cleanUp(run *Run) error {
+	lib, chain, err := c.chainOf(run)
+	if err != nil {
+		return err
+	}
+	c.store.sweepRun(run.ID)
+	return c.runner.resume(lib, chain, run.ID, "", true)
 }
 
 func (c *Core) RerunFrom(id, path string) error {
@@ -51,7 +64,7 @@ func (c *Core) RerunFrom(id, path string) error {
 		return err
 	}
 	c.store.sweepRun(id)
-	return c.runner.resume(lib, chain, id, path)
+	return c.runner.resume(lib, chain, id, path, false)
 }
 
 func (c *Core) chainOf(run *Run) (*Library, *Chain, error) {
@@ -78,7 +91,7 @@ func (c *Core) DeleteRun(id string) error {
 	return c.store.remove(id)
 }
 
-func (r *Runner) resume(lib *Library, chain *Chain, id, from string) error {
+func (r *Runner) resume(lib *Library, chain *Chain, id, from string, cleanup bool) error {
 	if len(chain.Problems) > 0 {
 		return fmt.Errorf("fix the chain first: %s", strings.Join(chain.Problems, "; "))
 	}
@@ -94,13 +107,22 @@ func (r *Runner) resume(lib *Library, chain *Chain, id, from string) error {
 	}
 	now := time.Now()
 	r.store.update(run, func() {
-		run.RerunFrom = ""
-		if target := rewindFrom(run.Steps, from); target != nil {
-			run.RerunFrom = target.Title
-		} else {
-			rewind(run.Steps)
+		run.RerunFrom, run.Cleanup = "", cleanup
+		var target *StepRun
+		switch {
+		case cleanup:
+		case from != "":
+			target = rewindFrom(lib, run.Steps, from)
+		default:
+			target = rewind(lib, chain, run.Steps)
 		}
-		run.Status, run.Reason, run.EndedAt, run.PID, run.ResumedAt = "running", "", nil, 0, &now
+		if target != nil {
+			run.RerunFrom = target.Title
+		}
+		if !cleanup {
+			run.Reason = ""
+		}
+		run.Status, run.EndedAt, run.PID, run.ResumedAt = "running", nil, 0, &now
 	})
 	if err := r.spawn(run); err != nil {
 		r.abandon(run, "its process could not start: "+err.Error())
@@ -137,29 +159,52 @@ func fits(lib *Library, chain *Chain, steps []*StepRun) bool {
 	return true
 }
 
-func rewind(steps []*StepRun) {
-	for i, sr := range steps {
-		if sr.Status != "done" && sr.Status != "skipped" {
-			restart(steps, i, retry)
-			return
-		}
-	}
+func unfinished(sr *StepRun) bool {
+	return sr.Status != "done" && sr.Status != "skipped" || slices.ContainsFunc(sr.Children, unfinished)
 }
 
-func rewindFrom(steps []*StepRun, path string) *StepRun {
+func rewind(lib *Library, chain *Chain, steps []*StepRun) *StepRun {
+	i := slices.IndexFunc(steps, unfinished)
+	if i < 0 {
+		return nil
+	}
+	if back := retryFrom(chain, steps[i], i); back >= 0 {
+		restart(steps, back, again, back-1)
+		return steps[back]
+	}
+	return retryAt(lib, steps, i)
+}
+
+func retryAt(lib *Library, steps []*StepRun, i int) *StepRun {
+	var target *StepRun
+	restart(steps, i, func(sr *StepRun) *StepRun {
+		fresh, inner := retry(lib, sr)
+		target = inner
+		return fresh
+	}, i)
+	return target
+}
+
+func retryFrom(chain *Chain, sr *StepRun, i int) int {
+	if chain == nil || sr.Status != "failed" || i >= len(chain.Steps) {
+		return -1
+	}
+	return chain.stepIndex(cmp.Or(chain.Steps[i].Repeat, chain.Steps[i].RetryFrom))
+}
+
+func rewindFrom(lib *Library, steps []*StepRun, path string) *StepRun {
 	for i, sr := range steps {
 		switch {
 		case sr.Path == path:
-			restart(steps, i, again)
+			restart(steps, i, again, i)
 			return steps[i]
-		case !strings.HasPrefix(path, sr.Path+".") && sr.Status != "done" && sr.Status != "skipped":
-			restart(steps, i, retry)
-			return steps[i]
+		case !strings.HasPrefix(path, sr.Path+".") && unfinished(sr):
+			return retryAt(lib, steps, i)
 		case strings.HasPrefix(path, sr.Path+"."):
-			target := rewindFrom(sr.Children, path)
+			target := rewindFrom(lib, sr.Children, path)
 			if target != nil {
 				sr.Status, sr.Error, sr.Ended, sr.EndedAt = "pending", "", "", nil
-				restart(steps, i, func(sr *StepRun) *StepRun { return sr })
+				restart(steps, i, func(sr *StepRun) *StepRun { return sr }, i)
 			}
 			return target
 		}
@@ -167,14 +212,14 @@ func rewindFrom(steps []*StepRun, path string) *StepRun {
 	return nil
 }
 
-func restart(steps []*StepRun, from int, first func(*StepRun) *StepRun) {
+func restart(steps []*StepRun, from int, first func(*StepRun) *StepRun, keepTo int) {
 	old := slices.Clone(steps)
 	steps[from] = first(steps[from])
 	for j := from + 1; j < len(steps); j++ {
 		steps[j] = again(steps[j])
 	}
 	for r := from + 1; r < len(steps); r++ {
-		if old[r].Kind != "repeat" || slices.IndexFunc(old, func(sr *StepRun) bool { return sr.ID == old[r].Uses }) > from {
+		if old[r].Kind != "repeat" || slices.IndexFunc(old, func(sr *StepRun) bool { return sr.ID == old[r].Uses }) > keepTo {
 			continue
 		}
 		steps[r].Repeats = old[r].Repeats
@@ -184,21 +229,31 @@ func restart(steps []*StepRun, from int, first func(*StepRun) *StepRun) {
 	}
 }
 
-func retry(sr *StepRun) *StepRun {
+func retry(lib *Library, sr *StepRun) (*StepRun, *StepRun) {
 	if sr.Kind != "chain" && sr.Kind != "item" {
-		return again(sr)
+		fresh := again(sr)
+		fresh.Retry = sr.Kind == "agent" && sr.Status == "failed"
+		return fresh, fresh
 	}
 	sr.Status, sr.Error, sr.Ended, sr.EndedAt = "pending", "", "", nil
+	target := sr
 	if sr.Kind == "item" || len(sr.Children) == 0 || sr.Children[0].Kind != "item" {
-		rewind(sr.Children)
-		return sr
+		if inner := rewind(lib, lib.Chains[sr.Uses], sr.Children); inner != nil {
+			target = inner
+		}
+		return sr, target
 	}
 	for i, group := range sr.Children {
-		if group.Status != "done" {
-			sr.Children[i] = retry(group)
+		if !unfinished(group) {
+			continue
+		}
+		fresh, inner := retry(lib, group)
+		sr.Children[i] = fresh
+		if target == sr {
+			target = inner
 		}
 	}
-	return sr
+	return sr, target
 }
 
 func restore(sc *scope, step Step, sr *StepRun) {

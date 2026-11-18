@@ -101,7 +101,7 @@ func TestRerunAfterAFailureMatchesAnUninterruptedRun(t *testing.T) {
 			t.Fatalf("the failure at call %d did not end the run there: %s (%s)", k+1, h.run.Status, h.run.Reason)
 		}
 		h.reload()
-		rewind(h.run.Steps)
+		rewind(h.c.lib, h.c.chain, h.run.Steps)
 		sameEnd(t, h, want, slices.Concat(first[:k], h.execute()), wantCalls)
 		return true
 	})
@@ -141,7 +141,7 @@ func TestRerunFromAStepMatchesTheFirstRun(t *testing.T) {
 			replay[id] = listOf(rounds[callsOf(wantCalls[:q], id):])
 		}
 		h.reload()
-		if rewindFrom(h.run.Steps, wantCalls[q].path) == nil {
+		if rewindFrom(h.c.lib, h.run.Steps, wantCalls[q].path) == nil {
 			t.Fatalf("no step %s to rerun from", wantCalls[q].path)
 		}
 		h.mock(replay)

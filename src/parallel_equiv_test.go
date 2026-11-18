@@ -45,7 +45,7 @@ func TestParallelItemsEndLikeSequentialOnes(t *testing.T) {
 			{ID: "each", Title: "Each", Chain: "card", Parallel: parallel, MaxParallel: 4, KeepGoing: true, With: map[string]string{"value": "{{list.items}}"}},
 			{ID: "after", Title: "After", Tool: "say", With: map[string]string{"value": "{{each.summary}}"}},
 		}})
-		if run.Status != "done" {
+		if run.Status != "failed" || run.Reason != "Each: card ran 10 times: 9 done, 1 failed" {
 			t.Fatalf("parallel %v: run %s (%s)", parallel, run.Status, run.Reason)
 		}
 		shapes = append(shapes, shape(run.Steps))

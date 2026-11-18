@@ -118,7 +118,7 @@ function renderOutline(nodes, view, blocks = [], inAlways = false) {
   return nodes.map((node) => {
     if (node.type === "step") return view.step(node.step, inAlways);
     if (node.type === "if") return group("ol-if", [word("If"), conditionLabel(node.cond, view.chain, view.go, view.value)], node.children);
-    if (node.type === "always") return group("ol-always", [word("Then, always"), note("also after failure, stop or reject")], node.children, true);
+    if (node.type === "always") return group("ol-always", [word("Then, always"), note("also after a stop or reject; deferred after a failure")], node.children, true);
     if (node.type === "loop") {
       const r = node.step;
       return group("ol-loop", [word("Repeat"), note(`(${r.rounds || 3}× at most)`),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -82,11 +83,48 @@ func (c *cli) cancel() error {
 	if err != nil {
 		return err
 	}
+	run := c.core.store.load(id)
+	deferred := run != nil && !run.going() && deferredIn(run.Steps)
 	if err := c.core.Stop(id); err != nil {
 		return err
 	}
+	if deferred {
+		fmt.Println("running the deferred \"always\" steps of " + id)
+		return nil
+	}
 	fmt.Println("stopping " + id + "; always steps still run")
 	return nil
+}
+
+func (c *cli) resume() error {
+	id, err := c.arg("a run id")
+	if err != nil {
+		return err
+	}
+	if c.from != "" {
+		err = c.core.RerunFrom(id, c.from)
+	} else {
+		_, err = c.core.Rerun(id, false)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("resuming %s from %s\n", id, cmp.Or(c.core.store.load(id).RerunFrom, "where it ended"))
+	if c.detach {
+		return nil
+	}
+	return c.follow(id)
+}
+
+func resumeHint(run *Run) string {
+	if run.going() || run.Status == "done" && !deferredIn(run.Steps) {
+		return ""
+	}
+	hint := fmt.Sprintf("\nswarm resume %s: retry the failed steps and continue", run.ID)
+	if deferredIn(run.Steps) {
+		hint += fmt.Sprintf(" · swarm cancel %s: run the deferred \"always\" steps", run.ID)
+	}
+	return hint + "\n"
 }
 
 func (c *cli) show() error {
@@ -116,18 +154,18 @@ func (c *cli) show() error {
 	if len(run.Stopped) > 0 {
 		fmt.Print("\n" + block(fmt.Sprintf("killed outside a step (%d)", len(run.Stopped)), strings.Join(run.Stopped, "\n"), ""))
 	}
+	fmt.Print(resumeHint(run))
 	fmt.Printf("\nswarm show %s -step PATH: one step in full · swarm log %s -step PATH: its call · swarm files %s: run files\n", id, id, id)
 	return nil
 }
 
 func runStats(run *Run) string {
 	stats := []string{"started " + clock(run.StartedAt)}
-	if run.ResumedAt != nil {
-		from := run.RerunFrom
-		if from == "" {
-			from = "its failed step"
-		}
-		stats = append(stats, "rerun from "+from+" at "+clock(*run.ResumedAt))
+	switch {
+	case run.ResumedAt != nil && run.Cleanup:
+		stats = append(stats, "deferred \"always\" steps run at "+clock(*run.ResumedAt))
+	case run.ResumedAt != nil:
+		stats = append(stats, "rerun from "+cmp.Or(run.RerunFrom, "its failed step")+" at "+clock(*run.ResumedAt))
 	}
 	switch {
 	case run.EndedAt != nil:
@@ -203,6 +241,8 @@ func stepLine(s *StepRun, indent, link string) string {
 		return fmt.Sprintf("%s■ %s (ended the run)%s\n", indent, title, suffix(s.Headline))
 	case "skipped":
 		return fmt.Sprintf("%s- %s (skipped)\n", indent, title)
+	case "deferred":
+		return fmt.Sprintf("%s○ %s (deferred): runs on resume or cancel\n", indent, title)
 	}
 	return fmt.Sprintf("%s  %s\n", indent, title)
 }

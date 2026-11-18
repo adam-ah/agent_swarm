@@ -35,20 +35,21 @@ function renderRun(run) {
 
   const live = run.status === "running" || run.status === "waiting";
   const unfinished = !live && run.status !== "done";
-  const from = unfinished ? resumeStep(run.steps) : null;
+  const resumedAt = run.resumed_at ? new Date(run.resumed_at).toLocaleTimeString() : "";
   page.querySelector("#meta").replaceChildren(...[
     h("span", { class: "pill" }, h("span", { class: `dot ${runState(run)}` }), statusLabel(run)),
     h("span", {}, `started ${new Date(run.started_at).toLocaleTimeString()}`),
-    run.resumed_at ? h("span", {}, `rerun from ${run.rerun_from || "its failed step"} at ${new Date(run.resumed_at).toLocaleTimeString()}`) : null,
+    run.resumed_at && run.cleanup ? h("span", {}, `deferred "always" steps run at ${resumedAt}`) : null,
+    run.resumed_at && !run.cleanup ? h("span", {}, `rerun from ${run.rerun_from || "its failed step"} at ${resumedAt}`) : null,
     h("span", { "data-since": run.started_at, "data-until": run.ended_at || "" }, duration(run.started_at, run.ended_at)),
     run.cost ? h("span", {}, money(run.cost)) : null,
     h("label", { class: "toggle" }, h("input", { type: "checkbox", id: "show-idle", checked: showIdle, onchange: (e) => setShowIdle(e.target.checked) }), "Show pending and skipped steps"),
     h("span", { class: "row push-right" },
       live ? h("button", { class: "btn small danger", type: "button", onclick: () => stopRun(run.id) }, "Stop run") : null,
-      unfinished ? h("button", { class: "btn small", type: "button", title: "Keep finished steps; rerun from the first unfinished one", onclick: () => rerunRun(run.id, "failed") }, from ? `Rerun from ${from.title}` : "Rerun from where it ended") : null,
-      unfinished ? rerunPoints(run).map(({ step, level }) => h("button", { class: "btn small", type: "button", title: `Keep steps before ${step.title}; rerun from it`,
-        onclick: () => rerunRun(run.id, "step", keyOf(step)) }, `Rerun from ${step.title} (${level})`)) : null,
-      unfinished ? h("button", { class: "btn small", type: "button", title: "New run with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Rerun from scratch") : null,
+      unfinished ? h("details", { class: "rerun-menu" }, h("summary", { class: "btn small" }, "Rerun from…"), h("div", { class: "rerun-points" },
+        ...rerunPoints(run).map(({ step, level }) => h("button", { class: "btn small", type: "button", title: `Keep steps before ${step.title}; rerun from it`,
+          onclick: () => rerunRun(run.id, "step", keyOf(step)) }, `${step.title} (${level})`)),
+        h("button", { class: "btn small", type: "button", title: "New run with the same inputs", onclick: () => rerunRun(run.id, "scratch") }, "Scratch"))) : null,
       live ? null : h("button", { class: "btn small danger", type: "button", onclick: () => deleteRun(run.id).then((gone) => { if (gone) location.hash = "#/"; }) }, "Delete run")),
   ].filter(Boolean));
 
@@ -77,10 +78,24 @@ function renderStopped(run, el) {
 function outcomeBanner(run) {
   if (["running", "waiting", "done"].includes(run.status)) return null;
   const step = findStepIn(run.steps, (s) => s.status === run.status);
-  if (!step) return h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status] || run.status), run.reason ? ` ${run.reason}` : "");
+  const banner = (...text) => h("div", { class: `banner ${run.status}` }, h("div", { class: "banner-text" }, ...text), resumeActions(run));
+  if (!step) return banner(h("strong", {}, STATUS_LABEL[run.status] || run.status), run.reason ? ` ${run.reason}` : "");
   const at = h("a", { href: `#/run/${run.id}`, onclick: (e) => { e.preventDefault(); focusRow(keyOf(step)); } }, step.title);
   const said = run.status === "stopped" ? step.ended : run.status === "rejected" ? step.output?.note : "";
-  return h("div", { class: `banner ${run.status}` }, h("strong", {}, STATUS_LABEL[run.status]), " at ", at, said ? `: ${said}` : "");
+  return banner(h("strong", {}, STATUS_LABEL[run.status]), " at ", at, said ? `: ${said}` : "");
+}
+
+const hasDeferred = (steps) => (steps || []).some((s) => s.status === "deferred" || hasDeferred(s.children));
+
+function resumeActions(run) {
+  return h("div", { class: "banner-actions" },
+    h("button", { class: "btn primary big", type: "button", title: "Keep finished steps; retry the failed steps and items, then continue", onclick: () => rerunRun(run.id, "failed") }, "Resume"),
+    hasDeferred(run.steps) ? h("button", { class: "btn", type: "button", title: "Run the deferred \"always\" steps and end the run", onclick: () => cancelRun(run.id) }, "Cancel") : null);
+}
+
+async function cancelRun(id) {
+  if (!confirm("Cancel run? Its deferred \"always\" steps run.")) return;
+  try { await api(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }); } catch (err) { alert(err.message); }
 }
 
 const keyOf = (step) => step.path || step.id;
@@ -226,9 +241,10 @@ function rowTitle(step) {
   return h("span", { class: "srow-title", title: item ? step.title : null }, item ? itemTitle(step) : step.title,
     step.rounds ? h("span", { class: "chip repeat" }, `round ${step.rounds}`) : step.round ? h("span", { class: "chip flag" }, `attempt ${step.round + 1}`) : null,
     step.resumed ? h("span", { class: "chip flag", title: `Resumes the session of ${step.resumed}` }, "resumed") : null,
+    step.retry ? h("span", { class: "chip flag", title: "Retry of the failed attempt" }, "retry") : null,
     step.asked_again ? h("span", { class: "chip flag", title: ASKED_AGAIN }, "re-prompted") : null,
     step.asks?.length ? h("span", { class: "chip flag", title: "Asked questions before answering" }, "asked") : null,
-    step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Also runs after failure, stop or reject" }, "always") : null);
+    step.always && !runView.grouped.has(keyOf(step)) ? h("span", { class: "chip flag", title: "Also runs after a stop or reject; after a failure, deferred until resume or cancel" }, "always") : null);
 }
 
 function stepRow(entry) {
@@ -287,8 +303,10 @@ async function stopRun(id) {
   try { await api(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }); } catch (err) { alert(err.message); }
 }
 
+const unfinishedStep = (s) => (s.status !== "done" && s.status !== "skipped") || (s.children || []).some(unfinishedStep);
+
 function resumeStep(steps) {
-  const step = (steps || []).find((s) => s.status !== "done" && s.status !== "skipped");
+  const step = (steps || []).find(unfinishedStep);
   return step ? resumeStep(step.children) || step : null;
 }
 

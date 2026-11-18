@@ -91,6 +91,9 @@ func stepFacts(s *StepRun) []string {
 	if s.Always {
 		facts = append(facts, "always")
 	}
+	if s.Retry {
+		facts = append(facts, "retry of the failed attempt")
+	}
 	return facts
 }
 

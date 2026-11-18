@@ -350,6 +350,8 @@ function forget(steps, gone, next) {
     else if (s.resume === gone.id) delete s.resume;
     if (s.keep_until === gone.id && next) s.keep_until = next.id;
     else if (s.keep_until === gone.id) delete s.keep_until;
+    if (s.retry_from === gone.id && next && steps.indexOf(next) < steps.indexOf(s)) s.retry_from = next.id;
+    else if (s.retry_from === gone.id) delete s.retry_from;
     if (about(s.when)) delete s.when;
     if (about(s.stop_if)) { delete s.stop_if; delete s.stop; }
   }

@@ -236,7 +236,7 @@ func (w *runWatch) step(run *Run, s *StepRun) {
 		w.log.infof("%s done%s%s", name, stepStats(s), suffix(s.Headline))
 	case "failed":
 		w.log.errorf("%s failed%s%s", name, stepStats(s), suffix(s.Error))
-	case "rejected", "stopped", "skipped":
+	case "rejected", "stopped", "skipped", "deferred":
 		w.log.infof("%s %s%s%s", name, s.Status, stepStats(s), suffix(s.Headline))
 	}
 }

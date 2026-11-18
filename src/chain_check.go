@@ -113,6 +113,9 @@ func fieldProblems(chain *Chain, step Step, where string, seen map[string]bool) 
 	} else if step.Revise != "" && !seen[step.Revise] {
 		problems = append(problems, fmt.Sprintf("%s: revise must name an earlier step in this chain, not %q", where, step.Revise))
 	}
+	if step.RetryFrom != "" && !seen[step.RetryFrom] {
+		problems = append(problems, fmt.Sprintf("%s: retry_from must name an earlier step in this chain, not %q", where, step.RetryFrom))
+	}
 	if len(step.Show) > 0 && step.User == "" {
 		problems = append(problems, where+": show only applies to user steps")
 	}

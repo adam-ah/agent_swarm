@@ -49,6 +49,7 @@ type StepRun struct {
 	Feedback   string         `json:"feedback,omitempty"`
 	Session    string         `json:"session,omitempty"`
 	Resumed    string         `json:"resumed,omitempty"`
+	Retry      bool           `json:"retry,omitempty"`
 	Log        string         `json:"log,omitempty"`
 	AskedAgain string         `json:"asked_again,omitempty"`
 	Asks       []*Ask         `json:"asks,omitempty"`
@@ -91,6 +92,7 @@ type Run struct {
 	StartedAt time.Time         `json:"started_at"`
 	ResumedAt *time.Time        `json:"resumed_at,omitempty"`
 	RerunFrom string            `json:"rerun_from,omitempty"`
+	Cleanup   bool              `json:"cleanup,omitempty"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Cost      float64           `json:"cost"`
 	PID       int               `json:"pid,omitempty"`

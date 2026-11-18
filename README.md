@@ -12,7 +12,7 @@ Stop babysitting your coding agent. swarm makes the change, runs the tests, has 
 - **Approve before commit** - Approval steps show the diff and any screenshots or videos a step produced. Approve, reject, or send the work back to an earlier step with a note.
 - **Answer agent questions** - An agent can stop and ask you questions, then continue in the same session once you answer.
 - **Branch, loop and fan out** - Skip steps by condition, repeat fix and review until the reviewer approves, or run a chain once per item in a list, sequentially or in parallel.
-- **Rerun from any step** - Earlier attempts are kept.
+- **Resume failed runs** - One button retries the failed steps and items and continues; cleanup waits until you resume or cancel. Or rerun from any step. Earlier attempts are kept.
 - **Build memory automatically** - Runs add notes to the project's memory file, and later runs read it.
 - **Edit chains in plain words** - Describe the change; the `edit-chain` chain has an agent make it, and you approve the diff.
 - **Dry-run chains** - `swarm test` walks through a chain with mocked agent answers and runs nothing.

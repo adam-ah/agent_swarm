@@ -3,14 +3,41 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
 
 type runEnd struct {
 	ended  bool
+	held   bool
 	status string
 	reason string
+}
+
+const deferredHeadline = "Deferred: runs on resume or cancel"
+
+func (e *runEnd) defers() bool {
+	if e.ended {
+		return e.status == "failed"
+	}
+	return e.held
+}
+
+func deferredIn(steps []*StepRun) bool {
+	return slices.ContainsFunc(steps, func(s *StepRun) bool { return s.Status == "deferred" || deferredIn(s.Children) })
+}
+
+func heldReason(steps []*StepRun) string {
+	for _, s := range steps {
+		if len(s.Children) > 0 && s.Children[0].Kind == "item" && slices.ContainsFunc(s.Children, func(c *StepRun) bool { return c.Status == "failed" }) {
+			return s.Title + ": " + s.Headline
+		}
+		if reason := heldReason(s.Children); reason != "" {
+			return reason
+		}
+	}
+	return ""
 }
 
 func (e *runEnd) finish(status, reason string) {
@@ -54,6 +81,9 @@ func expand(lib *Library, chain *Chain, prefix string) []*StepRun {
 
 func (r *Runner) execute(ctx context.Context, lib *Library, chain *Chain, run *Run, sc *scope) {
 	end := &runEnd{status: "done"}
+	if run.Cleanup {
+		end.finish("failed", run.Reason)
+	}
 	r.runSteps(ctx, pass{lib: lib, run: run, chain: chain, steps: run.Steps, sc: sc, end: end, feedback: &run.Feedback})
 	r.ending.Lock()
 	defer r.ending.Unlock()
@@ -63,6 +93,9 @@ func (r *Runner) execute(ctx context.Context, lib *Library, chain *Chain, run *R
 		run.EndedAt = &finished
 		run.Status = end.status
 		run.Reason = end.reason
+		if run.Status == "done" && end.held {
+			run.Status, run.Reason = "failed", heldReason(run.Steps)
+		}
 	})
 }
 
@@ -91,7 +124,15 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	if runCtx.Err() != nil {
 		p.end.finish("stopped", "You stopped the run before: "+step.Title)
 	}
-	if sr.Status == "done" {
+	if p.run.Cleanup && sr.Status != "deferred" {
+		if deferredIn(sr.Children) {
+			return r.perform(runCtx, p, step, sr, i)
+		}
+		if sr.Status == "failed" {
+			p.end.finish("failed", step.Title+" failed: "+sr.Error)
+		}
+	}
+	if sr.Status == "done" || p.run.Cleanup && sr.Status != "deferred" {
 		restore(p.sc, step, sr)
 		return i
 	}
@@ -101,6 +142,10 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 	if step.Kind() == "repeat" {
 		return r.loop(runCtx, p, step, sr, i)
 	}
+	return r.perform(runCtx, p, step, sr, i)
+}
+
+func (r *Runner) perform(runCtx context.Context, p pass, step Step, sr *StepRun, i int) int {
 	ctx := runCtx
 	if p.end.ended {
 		ctx = context.WithoutCancel(runCtx)
@@ -127,6 +172,11 @@ func (r *Runner) runOne(runCtx context.Context, p pass, i int) int {
 }
 
 func (r *Runner) skip(ctx context.Context, p pass, step Step, sr *StepRun) bool {
+	if step.Always && !p.run.Cleanup && p.end.defers() {
+		r.store.update(p.run, func() { sr.Status, sr.Headline = "deferred", deferredHeadline })
+		p.end.held = true
+		return true
+	}
 	if p.end.ended && !step.Always {
 		r.store.update(p.run, func() { skipAll(sr) })
 		return true

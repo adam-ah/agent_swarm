@@ -96,7 +96,7 @@ test("steps that run only on a rejection sit under Rejected, the others under Th
   await open("#/chain/undo");
   assert.deepEqual(labels(".ol-rejected"), [["Rejected", ""]]);
   assert.deepEqual(kids($(".ol-rejected")), ["Undo"]);
-  assert.deepEqual(labels(".ol-always"), [["Then, always", "also after failure, stop or reject"]]);
+  assert.deepEqual(labels(".ol-always"), [["Then, always", "also after a stop or reject; deferred after a failure"]]);
   assert.deepEqual(kids($(".ol-always")), ["Tidy"]);
 
   await open("#/chain/tidy");

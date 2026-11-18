@@ -36,6 +36,23 @@ test("a tool step sets its idle limit, time limit and what it leaves running", a
   assert.deepEqual([cleared.stall, cleared.timeout, cleared.keep_until], [undefined, undefined, undefined]);
 });
 
+test("a step names the earlier step resume goes back to after it fails", async () => {
+  const { saved: calls } = start();
+  await open("#/chain/make-change/test");
+  const back = control("On resume after it fails");
+  const [retry, first] = options(back);
+  assert.deepEqual(retry, ["", "retry this step"]);
+  assert.match(first[1], /^go back to /);
+  assert.equal(text(labelled("On resume after it fails").querySelector(".hint")), "e.g. back to the start of a review loop that ran out of rounds");
+
+  type(back, first[0]);
+  await settle();
+  assert.equal((await saved(calls, "test")).retry_from, first[0]);
+  type(control("On resume after it fails"), "");
+  await settle();
+  assert.equal((await saved(calls, "test")).retry_from, undefined);
+});
+
 test("an agent step has limits but nothing to leave running, and a user step has neither", async () => {
   start();
   await open("#/chain/make-change/change");

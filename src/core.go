@@ -299,6 +299,9 @@ func (c *Core) StartRun(project, chainName string, inputs map[string]string) (*R
 
 func (c *Core) Stop(id string) error {
 	run := c.store.load(id)
+	if run != nil && !run.going() && deferredIn(run.Steps) {
+		return c.cleanUp(run)
+	}
 	if run == nil || !run.going() {
 		return errors.New("no such run in progress")
 	}

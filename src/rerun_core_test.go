@@ -90,7 +90,7 @@ func TestRewindFromAStepRerunsItAndEverythingAfter(t *testing.T) {
 		}
 	}
 	top := steps()
-	if target := rewindFrom(top, "plan"); target == nil || target.Title != "Plan" || target.Round != 1 {
+	if target := rewindFrom(&Library{}, top, "plan"); target == nil || target.Title != "Plan" || target.Round != 1 {
 		t.Fatalf("rewound to %+v", target)
 	}
 	for _, sr := range top {
@@ -100,7 +100,7 @@ func TestRewindFromAStepRerunsItAndEverythingAfter(t *testing.T) {
 	}
 
 	nested := steps()
-	if target := rewindFrom(nested, "build.1.compile"); target == nil || target.Title != "Compile" {
+	if target := rewindFrom(&Library{}, nested, "build.1.compile"); target == nil || target.Title != "Compile" {
 		t.Fatalf("rewound to %+v", target)
 	}
 	item := nested[1].Children[0]
@@ -111,7 +111,7 @@ func TestRewindFromAStepRerunsItAndEverythingAfter(t *testing.T) {
 		t.Errorf("link %s, item 2 %s, ship %s, want all pending", item.Children[1].Status, nested[1].Children[1].Status, nested[2].Status)
 	}
 
-	if rewindFrom(steps(), "build.3.compile") != nil || rewindFrom(steps(), "") != nil {
+	if rewindFrom(&Library{}, steps(), "build.3.compile") != nil || rewindFrom(&Library{}, steps(), "") != nil {
 		t.Error("rewound to a step that is not there")
 	}
 }
@@ -181,14 +181,14 @@ func TestResumeRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	chain := lib.Chains["flaky"]
-	if err := core.runner.resume(lib, chain, "0101-000000", ""); err == nil {
+	if err := core.runner.resume(lib, chain, "0101-000000", "", false); err == nil {
 		t.Error("resumed a missing run")
 	}
 	stuck := finishedRun(t, core, project, "flaky", flakySteps())
 	if err := os.MkdirAll(filepath.Join(core.store.runDir(stuck), decisionFile("flaky"), "inside"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := core.runner.resume(lib, chain, stuck, ""); err == nil {
+	if err := core.runner.resume(lib, chain, stuck, "", false); err == nil {
 		t.Error("resumed a run whose signals could not be cleared")
 	}
 	core.runner.swarm = filepath.Join(t.TempDir(), "missing")

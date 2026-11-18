@@ -153,6 +153,10 @@ func (m *model) body(f *frame, prefix string) {
 
 func (m *model) one(f *frame, prefix string, i int) int {
 	s, a := f.steps[i], f.attempts[i]
+	if m.ended && m.status == "failed" && s.Always {
+		a.status = "deferred"
+		return i
+	}
 	if m.ended && !s.Always {
 		skipped(a)
 		return i

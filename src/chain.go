@@ -64,6 +64,7 @@ type Step struct {
 	Repeat      string            `json:"repeat,omitempty"`
 	Rounds      int               `json:"rounds,omitempty"`
 	Fail        string            `json:"fail,omitempty"`
+	RetryFrom   string            `json:"retry_from,omitempty"`
 	Always      bool              `json:"always,omitempty"`
 	Parallel    bool              `json:"parallel,omitempty"`
 	MaxParallel int               `json:"max_parallel,omitempty"`

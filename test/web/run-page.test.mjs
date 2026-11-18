@@ -208,15 +208,18 @@ test("the stop button asks first and reports a refusal", async () => {
   assert.deepEqual(dialogs.alert, ["the run already ended"]);
 });
 
-test("a failed run names its step and reruns from it or from scratch", async () => {
+test("a failed run names its step and resumes or reruns from scratch", async () => {
   reset();
   const fresh = "1028-110000";
   route("POST", `/api/runs/${RUN}/rerun`, (c) => ({ id: JSON.parse(c.body).from === "scratch" ? fresh : RUN }));
   const failed = { status: "failed", started_at: at(15, 42), ended_at: at(15, 50), error: "2 tests failed", log: "test" };
   await openRun(runOf("failed", { plan: planDone, test: failed }, { ended_at: at(15, 50), cost: 0.42 }));
 
-  assert.equal($(".banner.failed").textContent, "Failed at Run the tests");
-  assert.deepEqual(buttons(), ["Rerun from Run the tests", "Rerun from scratch", "Delete run"]);
+  assert.equal($(".banner.failed .banner-text").textContent, "Failed at Run the tests");
+  assert.deepEqual(texts($(".banner-actions"), "button"), ["Resume"]);
+  assert.match($(".banner-actions button").className, /\bprimary big\b/);
+  assert.deepEqual(buttons(), ["Scratch", "Delete run"]);
+  assert.equal($("#meta .rerun-menu summary").textContent, "Rerun from…");
   assert.ok(texts($("#meta"), "span").includes("$0.42"));
 
   click(head("test"));
@@ -226,13 +229,13 @@ test("a failed run names its step and reruns from it or from scratch", async () 
   assert.ok(row("test").classList.contains("flash"));
   assert.equal(hash(), `#/run/${RUN}`);
 
-  click(button("Rerun from Run the tests"));
+  click(button("Resume"));
   await settle(20);
   assert.deepEqual(posted(`/api/runs/${RUN}/rerun`), [{ from: "failed" }]);
   assert.equal(hash(), `#/run/${RUN}`);
   assert.equal(calls.at(-1).path, "/api/runs");
 
-  click(button("Rerun from scratch"));
+  click(button("Scratch"));
   await settle(30);
   assert.deepEqual(posted(`/api/runs/${RUN}/rerun`).at(-1), { from: "scratch" });
   assert.equal(hash(), `#/run/${fresh}`);
@@ -244,8 +247,8 @@ test("a rerun the server refuses is reported", async () => {
   route("POST", `/api/runs/${RUN}/rerun`, fail(400, "the run folder is gone"));
   const compile = { id: "compile", path: "build.compile", title: "Compile it", kind: "tool", uses: "compile", status: "failed", error: "cc: error" };
   await openRun(runOf("failed", { plan: planDone, test: testDone, build: { status: "failed", children: [compile] } }, { ended_at: at(16) }));
-  assert.equal($(".banner.failed").textContent, "Failed at Build each part");
-  click(button("Rerun from Compile it"));
+  assert.equal($(".banner.failed .banner-text").textContent, "Failed at Build each part");
+  click(button("Resume"));
   await settle();
   assert.deepEqual(dialogs.alert, ["the run folder is gone"]);
   assert.equal(hash(), `#/run/${RUN}`);
@@ -259,17 +262,17 @@ test("an ended run reruns from the failed step, the loop it is in, each parent, 
   const looped = runOf("failed", { plan: planDone, test: testDone }, { ended_at: at(16) });
   looped.steps.splice(2, 0, { id: "again", path: "again", title: "Test again", kind: "repeat", uses: "plan", status: "failed", error: "all 3 rounds ran" });
   const source = await openRun(looped, lib);
-  assert.deepEqual(buttons(), ["Rerun from Test again", "Rerun from Plan the fix (start of the loop)", "Rerun from scratch", "Delete run"]);
-  click(button("Rerun from Plan the fix (start of the loop)"));
+  assert.deepEqual(buttons(), ["Plan the fix (start of the loop)", "Scratch", "Delete run"]);
+  click(button("Plan the fix (start of the loop)"));
   await settle();
   assert.deepEqual(posted(`/api/runs/${RUN}/rerun`), [{ from: "step", step: "plan" }]);
 
   const compile = { id: "compile", path: "build.1.compile", title: "Compile it", kind: "tool", uses: "compile", status: "failed", error: "cc: error" };
   const item = { id: "1", path: "build.1", title: "auth.go", kind: "item", uses: "part", status: "failed", children: [compile] };
   source.send(runOf("failed", { plan: planDone, test: testDone, build: { status: "failed", children: [item] } }, { ended_at: at(16) }));
-  assert.deepEqual(buttons(), ["Rerun from Compile it", "Rerun from auth.go (this item)", "Rerun from Build each part (the whole sub-chain)", "Rerun from scratch", "Delete run"]);
+  assert.deepEqual(buttons(), ["auth.go (this item)", "Build each part (the whole sub-chain)", "Scratch", "Delete run"]);
   route("POST", `/api/runs/${RUN}/rerun`, fail(400, "the run folder is gone"));
-  click(button("Rerun from auth.go (this item)"));
+  click(button("auth.go (this item)"));
   await settle();
   assert.deepEqual(posted(`/api/runs/${RUN}/rerun`).at(-1), { from: "step", step: "build.1" });
   assert.deepEqual(dialogs.alert, ["the run folder is gone"]);
@@ -282,20 +285,54 @@ test("stopped, rejected and interrupted runs say how they ended", async () => {
   reset();
   const stopped = { status: "stopped", started_at: at(15, 42), ended_at: at(15, 50), ended: "Stopped by you" };
   const source = await openRun(runOf("stopped", { plan: planDone, test: stopped }, { ended_at: at(15, 50) }));
-  assert.equal($(".banner.stopped").textContent, "Stopped at Run the tests: Stopped by you");
-  assert.deepEqual(buttons(), ["Rerun from Run the tests", "Rerun from scratch", "Delete run"]);
+  assert.equal($(".banner.stopped .banner-text").textContent, "Stopped at Run the tests: Stopped by you");
+  assert.deepEqual(buttons(), ["Scratch", "Delete run"]);
+  assert.ok(button("Resume"));
 
   const rejected = { status: "rejected", output: { decision: "reject", note: "Too risky" } };
   source.send(runOf("rejected", { plan: planDone, test: testDone, build: { status: "skipped" }, review: rejected }, { ended_at: at(16) }));
-  assert.equal($(".banner.rejected").textContent, "Rejected at Review the change: Too risky");
-  assert.equal(buttons()[0], "Rerun from Review the change");
+  assert.equal($(".banner.rejected .banner-text").textContent, "Rejected at Review the change: Too risky");
+  assert.ok(button("Resume"));
 
   const done = { status: "done" };
   const all = { plan: planDone, test: testDone, build: done, review: done, ship: done, learn: { status: "skipped" }, cleanup: done };
   source.send(runOf("interrupted", all, { reason: "because the server restarted", resumed_at: at(17), ended_at: at(18) }));
-  assert.equal($(".banner.interrupted").textContent, "Interrupted because the server restarted");
-  assert.equal(buttons()[0], "Rerun from where it ended");
+  assert.equal($(".banner.interrupted .banner-text").textContent, "Interrupted because the server restarted");
+  assert.ok(button("Resume"));
   assert.ok(texts($("#meta"), "span").some((t) => t.startsWith("rerun from its failed step at ")));
+});
+
+test("a failed run with deferred steps offers Cancel, which runs them after confirming", async () => {
+  reset();
+  route("POST", `/api/runs/${RUN}/stop`, {});
+  const failed = { status: "failed", started_at: at(15, 42), ended_at: at(15, 50), error: "spend limit", log: "test", retry: true };
+  const deferred = { status: "deferred", headline: "Deferred: runs on resume or cancel" };
+  const source = await openRun(runOf("failed", { plan: planDone, test: failed, build: { status: "skipped" }, cleanup: deferred }, { ended_at: at(15, 50) }));
+
+  assert.deepEqual(texts($(".banner-actions"), "button"), ["Resume", "Cancel"]);
+  assert.match(row("cleanup").className, /\bdeferred\b/);
+  assert.equal(row("cleanup").querySelector(".srow-line").textContent, "Deferred: runs on resume or cancel");
+  assert.ok(texts(row("test"), ".chip").includes("retry"));
+
+  answers.confirm = false;
+  click(button("Cancel"));
+  await settle();
+  assert.deepEqual(posted(`/api/runs/${RUN}/stop`), []);
+  assert.match(dialogs.confirm.at(-1), /^Cancel run\? Its deferred "always" steps run\.$/);
+
+  answers.confirm = true;
+  click(button("Cancel"));
+  await settle();
+  assert.equal(posted(`/api/runs/${RUN}/stop`).length, 1);
+
+  route("POST", `/api/runs/${RUN}/stop`, fail(409, "the run already ended"));
+  click(button("Cancel"));
+  await settle();
+  assert.deepEqual(dialogs.alert, ["the run already ended"]);
+
+  source.send(runOf("failed", { plan: planDone, test: failed, build: { status: "skipped" }, cleanup: { status: "done" } }, { ended_at: at(16), resumed_at: at(15, 55), cleanup: true }));
+  assert.deepEqual(texts($(".banner-actions"), "button"), ["Resume"]);
+  assert.ok(texts($("#meta"), "span").some((t) => t.startsWith("deferred \"always\" steps run at ")));
 });
 
 test("the status pill marks a done run with failed items as partial", async () => {

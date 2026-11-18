@@ -9,6 +9,9 @@ type agentSession struct {
 }
 
 func resumePoint(step Step, sr *StepRun, sc *scope, runner string, settings Settings) (agentSession, string, error) {
+	if last := failedAttempt(sr); last != nil && last.Runner == runner && settings.canResume(runner) {
+		return agentSession{id: last.Session, runner: runner, title: step.Title + " (failed attempt)"}, retryPrompt(last.Error), nil
+	}
 	if own, ok := sc.sessions[step.ID]; ok && sr.SentBack != "" && own.runner == runner && settings.canResume(runner) {
 		return own, sentBackPrompt(sr.SentBack), nil
 	}
@@ -25,6 +28,21 @@ func resumePoint(step Step, sr *StepRun, sc *scope, runner string, settings Sett
 		return s, "", fmt.Errorf("step %s ran with %s and this step runs with %s; a session resumes only on the agent that made it", step.Resume, s.runner, runner)
 	}
 	return s, "", nil
+}
+
+func failedAttempt(sr *StepRun) *StepRun {
+	if !sr.Retry || len(sr.Earlier) == 0 {
+		return nil
+	}
+	last := sr.Earlier[len(sr.Earlier)-1]
+	if last.Status != "failed" || last.Session == "" || last.Cost == 0 && last.Actions == 0 {
+		return nil
+	}
+	return last
+}
+
+func retryPrompt(err string) string {
+	return "Your last attempt ended with this error:\n\n" + err + "\n\nContinue from where you stopped, then answer in full, in the same form as before.\n"
 }
 
 func sentBackPrompt(note string) string {

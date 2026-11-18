@@ -110,13 +110,22 @@ func TestParallelFailureFailsTheStepOnceEveryItemHasEnded(t *testing.T) {
 	if got := statuses(each.Children); !reflect.DeepEqual(got, []string{"done", "failed", "done"}) {
 		t.Errorf("items = %v", got)
 	}
+	cleaned := func(item *StepRun) bool {
+		_, err := os.Stat(filepath.Join(folder, item.Path, "cleaned"))
+		return err == nil
+	}
 	for i, item := range each.Children {
-		if _, err := os.Stat(filepath.Join(folder, item.Path, "cleaned")); err != nil || item.Children[1].Status != "done" {
-			t.Errorf("item %d cleanup = %s, %v", i, item.Children[1].Status, err)
+		want := map[bool]string{true: "deferred", false: "done"}[i == 1]
+		if got := item.Children[1].Status; got != want || cleaned(item) != (i != 1) {
+			t.Errorf("item %d cleanup = %s, cleaned %v; want %s", i, got, cleaned(item), want)
 		}
 	}
 	if run.Steps[2].Status != "skipped" {
 		t.Errorf("after = %s, want skipped", run.Steps[2].Status)
+	}
+	cleanUpFailed(t, lib, fragileChain(true, false), run, folder)
+	if failed := each.Children[1]; !cleaned(failed) || failed.Status != "failed" || failed.Children[0].Status != "failed" || run.Steps[2].Status != "skipped" {
+		t.Errorf("after cancel: item 2 %s, cleaned %v, after %s", failed.Status, cleaned(failed), run.Steps[2].Status)
 	}
 }
 
@@ -126,7 +135,7 @@ func TestKeepGoingCountsAFailedItemAndTheRunGoesOn(t *testing.T) {
 		run, _ := execute(t, lib, fragileChain(parallel, true))
 
 		each := run.Steps[1]
-		if run.Status != "done" || each.Status != "done" || each.Error != "" || each.Headline != "fragile ran 3 times: 2 done, 1 failed" {
+		if run.Status != "failed" || run.Reason != "Each: fragile ran 3 times: 2 done, 1 failed" || each.Status != "done" || each.Error != "" || each.Headline != "fragile ran 3 times: 2 done, 1 failed" {
 			t.Errorf("parallel %v: run %s (%s), each %s %q %q", parallel, run.Status, run.Reason, each.Status, each.Error, each.Headline)
 		}
 		if got := statuses(each.Children); !reflect.DeepEqual(got, []string{"done", "failed", "done"}) {

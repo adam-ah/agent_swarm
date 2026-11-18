@@ -141,9 +141,11 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 	ran := 0
 	for i, item := range items {
 		group := sr.Children[i]
-		if group.Status == "done" {
-			ran++
-			count("done")
+		if group.Status == "done" || p.run.Cleanup && !deferredIn(group.Children) {
+			if group.Status != "skipped" && group.Status != "pending" {
+				ran++
+				count(group.Status)
+			}
 			continue
 		}
 		own, err := itemValues(values, key, item, folder, group.Path)
@@ -158,6 +160,9 @@ func (r *Runner) runEach(ctx context.Context, p pass, sr *StepRun, step Step, va
 		r.store.update(p.run, func() { skipAll(group) })
 	}
 	pool.running.Wait()
+	if deferredIn(sr.Children) {
+		p.end.held = true
+	}
 
 	summary := eachSummary(step.Chain, source, len(items), ran, ended)
 	r.store.update(p.run, func() { sr.Headline = summary })
@@ -203,12 +208,16 @@ func (r *Runner) runItem(ctx context.Context, p pass, sub *Chain, sr, group *Ste
 	r.store.update(p.run, func() { group.Status, group.StartedAt = "running", &started })
 	r.runSteps(ctx, pass{lib: p.lib, run: p.run, chain: sub, steps: group.Children, sc: p.sc.child(values), end: end, feedback: &group.Feedback})
 	finished := time.Now()
+	status, reason := end.status, end.reason
 	r.store.update(p.run, func() {
-		group.Status, group.Headline, group.EndedAt = end.status, end.reason, &finished
+		if status == "done" && end.held {
+			status, reason = "failed", heldReason(group.Children)
+		}
+		group.Status, group.Headline, group.EndedAt = status, reason, &finished
 		group.Cost = costOf(group.Children)
 		sr.Cost = costOf(sr.Children)
 	})
-	return end.status
+	return status
 }
 
 func headingsOf(items []any) []string {

@@ -321,7 +321,7 @@ func (m *mocks) report() {
 }
 
 func (m *mocks) line(sr *StepRun, indent string) {
-	mark := map[string]string{"done": "✓", "skipped": "-", "failed": "✗", "stopped": "■", "rejected": "✗"}[sr.Status]
+	mark := map[string]string{"done": "✓", "skipped": "-", "failed": "✗", "stopped": "■", "rejected": "✗", "deferred": "○"}[sr.Status]
 	what := strings.TrimSpace(sr.Kind + " " + sr.Uses)
 	if sr.Rounds != "" {
 		what += ", round " + sr.Rounds
@@ -330,7 +330,7 @@ func (m *mocks) line(sr *StepRun, indent string) {
 	switch {
 	case sr.Status == "failed":
 		detail = "failed: " + sr.Error
-	case sr.Status != "skipped" && sr.Kind != "repeat" && sr.Kind != "chain" && sr.Kind != "item":
+	case sr.Status != "skipped" && sr.Status != "deferred" && sr.Kind != "repeat" && sr.Kind != "chain" && sr.Kind != "item":
 		how := "mocked"
 		if m.ran[sr] {
 			how = "ran for real"

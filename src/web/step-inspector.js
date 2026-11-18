@@ -164,9 +164,11 @@ function flowFields(step) {
       gate ? `only after "${gate.title}" is approved` : ""),
     field("Stop the run after it", conditionEditor(step.stop_if, ["never", "when its"], fieldsOf(step), (v) => { step.stop_if = v; message.hidden = !v && !step.stop; touch(); })),
     message,
+    field("On resume after it fails", selectBox([["", "retry this step"], ...earlier.map((s) => [s.id, `go back to ${s.title || s.id}`])], step.retry_from || "",
+      (v) => { step.retry_from = v || undefined; touch(true); }), "e.g. back to the start of a review loop that ran out of rounds"),
     h("label", { class: "toggle" },
       h("input", { type: "checkbox", checked: !!step.always, onchange: (e) => { step.always = e.target.checked || undefined; touch(); } }),
-      h("span", {}, "Always run, also after failure, stop or reject (cleanup)")));
+      h("span", {}, "Always run, also after a stop or reject; deferred after a failure until resume or cancel (cleanup)")));
 }
 
 const usesCount = (match) => lib.chains.reduce((n, c) => n + draftSteps(c).filter(match).length, 0);
